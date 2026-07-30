@@ -1,15 +1,34 @@
 import { io, type Socket } from 'socket.io-client'
 import type { Lang, PartyInfo, PartyPassLocal, PlayerClass, PublicRoom, Session } from './types'
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || undefined
+/** Railway API/socket base in production; empty in local Vite (proxy). */
+const API_BASE = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
 
 let socket: Socket | null = null
 
 export function getSocket() {
   if (!socket) {
-    socket = io(SOCKET_URL, { autoConnect: true, transports: ['websocket', 'polling'] })
+    socket = io(API_BASE || undefined, { autoConnect: true, transports: ['websocket', 'polling'] })
   }
   return socket
+}
+
+function apiUrl(path: string) {
+  return `${API_BASE}${path}`
+}
+
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(apiUrl(path), init)
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'Ogiltigt API-svar'
+        : `API-fel (${res.status}). Kontrollera VITE_SOCKET_URL / Railway.`,
+    )
+  }
 }
 
 function ack<T>(event: string, payload?: unknown): Promise<T> {
@@ -81,8 +100,7 @@ export async function applyPartyToken(token: string) {
 }
 
 export async function fetchPartyInfo(): Promise<PartyInfo> {
-  const res = await fetch('/api/party/info')
-  return res.json()
+  return apiJson<PartyInfo>('/api/party/info')
 }
 
 export async function startCheckout(opts: {
@@ -91,26 +109,24 @@ export async function startCheckout(opts: {
   plan: 'day' | 'week'
   firstTime?: boolean
 }) {
-  const res = await fetch('/api/party/checkout', {
+  return apiJson<{ url?: string; error?: string }>('/api/party/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(opts),
   })
-  return res.json() as Promise<{ url?: string; error?: string }>
 }
 
 export async function claimPartySession(sessionId: string) {
-  const res = await fetch('/api/party/claim', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId }),
-  })
-  return res.json() as Promise<{
+  return apiJson<{
     token?: string
     expiresAt?: number
     roomCode?: string
     error?: string
-  }>
+  }>('/api/party/claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId }),
+  })
 }
 
 const SESSION_KEY = 'partypaths-session'
