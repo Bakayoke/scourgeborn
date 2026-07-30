@@ -79,8 +79,12 @@ export default function App() {
   }, [uiLang])
 
   useEffect(() => {
-    void fetchPartyInfo().then(setPartyInfo)
-  }, [])
+    void fetchPartyInfo()
+      .then(setPartyInfo)
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : ui.stripeMissing)
+      })
+  }, [ui.stripeMissing])
 
   useEffect(() => {
     const sock = getSocket()
@@ -226,8 +230,8 @@ export default function App() {
         return
       }
       setError(res.error || ui.stripeMissing)
-    } catch {
-      setError(ui.stripeMissing)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : ui.stripeMissing)
     } finally {
       setBusy(false)
     }
@@ -243,6 +247,7 @@ export default function App() {
       </div>
 
       {banner && <div className="banner">{banner}</div>}
+      {error && <p className="error">{error}</p>}
       {hasParty && partyPass && (
         <p className="muted">
           {ui.partyActive} · {ui.partyUntil} {formatExpiry(partyPass.expiresAt, uiLang)}

@@ -142,7 +142,6 @@ export async function createPartyCheckoutSession(opts: {
       locale,
       success_url: successUrl,
       cancel_url: cancelUrl,
-      allow_promotion_codes: true,
       billing_address_collection: 'auto',
       metadata: {
         product: 'party_pass',
@@ -172,17 +171,20 @@ export async function createPartyCheckoutSession(opts: {
           ],
     }
 
-    const useManaged = process.env.STRIPE_MANAGED_PAYMENTS === 'true'
-    Object.assign(sessionParams, {
-      managed_payments: { enabled: useManaged },
-    })
-
+    // Stripe forbids setting both `discounts` and `allow_promotion_codes`.
     if (opts.firstTime) {
       const coupon = await firstPartyCouponId(stripe)
       if (coupon) {
         sessionParams.discounts = [{ coupon }]
-        sessionParams.allow_promotion_codes = false
+      } else {
+        sessionParams.allow_promotion_codes = true
       }
+    } else {
+      sessionParams.allow_promotion_codes = true
+    }
+
+    if (process.env.STRIPE_MANAGED_PAYMENTS === 'true') {
+      Object.assign(sessionParams, { managed_payments: { enabled: true } })
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams)

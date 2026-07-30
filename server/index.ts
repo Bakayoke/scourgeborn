@@ -61,7 +61,17 @@ const isProd = process.env.NODE_ENV === 'production'
 const app = express()
 const httpServer = createServer(app)
 
-const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((s) => s.trim()) ?? true
+function resolveCorsOrigin(): boolean | string[] {
+  const raw = process.env.CORS_ORIGIN?.trim()
+  if (raw) {
+    const list = raw.split(',').map((s) => s.trim()).filter(Boolean)
+    if (list.length) return list
+  }
+  // Default: allow the public site (empty CORS_ORIGIN must not become [""])
+  return ['https://partypaths.com', 'https://www.partypaths.com']
+}
+
+const corsOrigin = resolveCorsOrigin()
 
 const io = new Server(httpServer, {
   cors: { origin: corsOrigin, methods: ['GET', 'POST'] },
@@ -101,7 +111,7 @@ app.post(
   },
 )
 
-app.use(cors({ origin: corsOrigin }))
+app.use(cors({ origin: corsOrigin, credentials: true }))
 app.use(express.json())
 
 app.get('/api/health', (_req, res) => {
