@@ -14,20 +14,29 @@ import {
   tierFromExpiry,
 } from './premium.js'
 import type {
+  AdventureMode,
   Lang,
   Player,
   PlayerClass,
   PublicRoom,
   Room,
+  VoteReveal,
 } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
 const DISCONNECT_GRACE_MS = 60_000
 const HOST_TRANSFER_AFTER_MS = 90_000
 const VOTE_MS = 20_000
-const RESOLVE_MS = 4_000
+const RESOLVE_MS = 5_500
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
 const PARTY_HP_BASE = 40
+
+const MODE_START: Record<AdventureMode, string> = {
+  story: START_NODE,
+  orcs: 'forest_edge',
+  dragon: 'dragon_approach',
+  chaos: START_NODE,
+}
 
 const rooms = new Map<string, Room>()
 const socketToPlayer = new Map<string, { code: string; playerId: string }>()
@@ -74,7 +83,13 @@ export function allRooms() {
 export function restoreRooms(list: Room[]) {
   for (const room of list) {
     if (!room?.code) continue
-    rooms.set(room.code, room)
+    rooms.set(room.code, {
+      ...room,
+      statusBeforePause: room.statusBeforePause ?? null,
+      adventureMode: room.adventureMode ?? 'story',
+      voteRemainingMs: room.voteRemainingMs ?? 0,
+      dmNote: room.dmNote ?? '',
+    })
   }
 }
 
@@ -102,6 +117,7 @@ export function createRoom(
     players: [host],
     language: language === 'en' ? 'en' : 'sv',
     status: 'lobby',
+    statusBeforePause: null,
     premiumExpiresAt,
     waitlist: [],
     nodeId: START_NODE,
@@ -109,11 +125,14 @@ export function createRoom(
     partyHpMax: PARTY_HP_BASE,
     flags: {},
     campaignMode: limits.campaignMode,
+    adventureMode: 'story',
     votes: {},
     voteEndsAt: 0,
+    voteRemainingMs: 0,
     lastResolve: null,
     activeChoiceIds: [],
     combatEnemyHp: null,
+    dmNote: '',
     updatedAt: Date.now(),
   }
 
@@ -222,7 +241,11 @@ export function pickClass(
   return room
 }
 
-export function startAdventure(code: string, playerId: string): Room | { error: string } {
+export function startAdventure(
+  code: string,
+  playerId: string,
+  mode: AdventureMode = 'story',
+): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rummet finns inte' }
   if (room.hostId !== playerId) return { error: 'Bara värden kan starta' }
@@ -242,17 +265,33 @@ export function startAdventure(code: string, playerId: string): Room | { error: 
     }
   }
 
-  // Sync campaign mode from current premium
+  const adventureMode = normalizeMode(mode)
+  if (adventureMode === 'dragon' && roomLimits(room).campaignMode !== 'full') {
+    return {
+      error:
+        room.language === 'en'
+          ? 'Dragon mode needs Party pass'
+          : 'Drakläget kräver Party-pass',
+    }
+  }
+
   const limits = roomLimits(room)
-  room.campaignMode = limits.campaignMode
+  room.campaignMode = adventureMode === 'dragon' ? 'full' : limits.campaignMode
+  room.adventureMode = adventureMode
   room.partyHp = PARTY_HP_BASE + connected.length * 4
   room.partyHpMax = room.partyHp
-  room.flags = {}
+  room.flags = adventureMode === 'chaos' ? { chaos: true } : {}
   room.lastResolve = null
-  enterNode(room, START_NODE)
+  room.dmNote = ''
+  enterNode(room, MODE_START[adventureMode])
   beginVoting(room)
   touch(room)
   return room
+}
+
+function normalizeMode(mode: unknown): AdventureMode {
+  if (mode === 'orcs' || mode === 'dragon' || mode === 'chaos') return mode
+  return 'story'
 }
 
 function beginVoting(room: Room) {
@@ -297,22 +336,40 @@ export function lockVotes(code: string, playerId: string): Room | { error: strin
   const room = rooms.get(code)
   if (!room) return { error: 'Rummet finns inte' }
   if (room.status !== 'voting') return { error: 'Ingen omröstning pågår' }
-  // Host can always lock; anyone can trigger if all voted (caller may be host from auto)
   if (room.hostId !== playerId) {
     const voters = room.players.filter((p) => p.connected)
     const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id])
     if (!allVoted) return { error: 'Bara värden kan låsa tidigt' }
   }
 
+  const node = getNode(room.nodeId)
+  const choices = node ? availableChoices(room, node) : []
+  const choiceMap = new Map(choices.map((c) => [c.id, c]))
+  const voteReveal: VoteReveal[] = []
+  for (const [pid, choiceId] of Object.entries(room.votes)) {
+    const player = room.players.find((p) => p.id === pid)
+    const choice = choiceMap.get(choiceId)
+    if (!player || !choice) continue
+    voteReveal.push({
+      playerId: pid,
+      playerName: player.name,
+      choiceId,
+      choiceText: choice.text,
+    })
+  }
+
   const result = resolveVote(room)
   if ('error' in result) return result
 
-  room.lastResolve = result.lastResolve
+  room.lastResolve = {
+    ...result.lastResolve,
+    voteReveal,
+  }
   room.status = 'resolve'
   room.voteEndsAt = Date.now() + RESOLVE_MS
   room.votes = {}
+  room.dmNote = ''
 
-  // Apply transition after short resolve pause — handled by tick
   room.flags.__pendingNext = result.nextNodeId
   room.flags.__pendingFinished = result.finished ? 1 : 0
   touch(room)
@@ -349,25 +406,81 @@ export function onResolveTimeout(room: Room) {
   advanceFromResolve(room)
 }
 
-export function rematch(code: string, playerId: string): Room | { error: string } {
+export function rematch(
+  code: string,
+  playerId: string,
+  mode: AdventureMode = 'story',
+): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rummet finns inte' }
   if (room.hostId !== playerId) return { error: 'Bara värden kan starta om' }
-  if (room.status !== 'finished') return { error: 'Äventyret är inte slut' }
+  if (room.status !== 'finished' && room.status !== 'lobby' && room.status !== 'class_pick') {
+    return { error: 'Kan inte starta om nu' }
+  }
+
+  const adventureMode = normalizeMode(mode)
+  if (adventureMode === 'dragon' && roomLimits(room).campaignMode !== 'full') {
+    return {
+      error:
+        room.language === 'en'
+          ? 'Dragon mode needs Party pass'
+          : 'Drakläget kräver Party-pass',
+    }
+  }
 
   const limits = roomLimits(room)
-  room.campaignMode = limits.campaignMode
-  room.flags = {}
+  room.campaignMode = adventureMode === 'dragon' ? 'full' : limits.campaignMode
+  room.adventureMode = adventureMode
+  room.flags = adventureMode === 'chaos' ? { chaos: true } : {}
   room.lastResolve = null
   room.votes = {}
   room.combatEnemyHp = null
-  for (const p of room.players) {
-    // Keep classes
-  }
+  room.dmNote = ''
+  room.statusBeforePause = null
   room.partyHp = PARTY_HP_BASE + room.players.filter((p) => p.connected).length * 4
   room.partyHpMax = room.partyHp
-  enterNode(room, START_NODE)
+  enterNode(room, MODE_START[adventureMode])
   beginVoting(room)
+  touch(room)
+  return room
+}
+
+export function pauseAdventure(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rummet finns inte' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan pausa' }
+  if (room.status !== 'voting' && room.status !== 'resolve') {
+    return { error: 'Inget att pausa' }
+  }
+  room.statusBeforePause = room.status
+  if (room.status === 'voting' || room.status === 'resolve') {
+    room.voteRemainingMs = Math.max(0, room.voteEndsAt - Date.now())
+  }
+  room.status = 'paused'
+  room.voteEndsAt = 0
+  touch(room)
+  return room
+}
+
+export function resumeAdventure(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rummet finns inte' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan återuppta' }
+  if (room.status !== 'paused') return { error: 'Spelet är inte pausat' }
+  const prev = room.statusBeforePause ?? 'voting'
+  room.status = prev
+  room.statusBeforePause = null
+  room.voteEndsAt = Date.now() + (room.voteRemainingMs || VOTE_MS)
+  room.voteRemainingMs = 0
+  touch(room)
+  return room
+}
+
+export function setDmNote(code: string, playerId: string, note: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rummet finns inte' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan skriva DM-text' }
+  room.dmNote = String(note ?? '').trim().slice(0, 280)
   touch(room)
   return room
 }
@@ -482,6 +595,7 @@ export function pruneIdleRooms() {
 export function roomsNeedingTick(): Room[] {
   return [...rooms.values()].filter(
     (r) =>
+      r.status !== 'paused' &&
       (r.status === 'voting' || r.status === 'resolve') &&
       r.voteEndsAt > 0 &&
       r.voteEndsAt <= Date.now(),
@@ -520,6 +634,7 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     partyHpMax: room.partyHpMax,
     flags: room.flags,
     campaignMode: room.campaignMode,
+    adventureMode: room.adventureMode,
     choices: choices.map((c) => ({
       id: c.id,
       text: loc(c.text, lang),
@@ -536,6 +651,14 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
           tally: last.tally,
           narrativeExtra: last.narrativeExtra ? loc(last.narrativeExtra, lang) : undefined,
           combatLog: last.combatLog ? loc(last.combatLog, lang) : undefined,
+          heroBanner: last.heroBanner ? loc(last.heroBanner, lang) : undefined,
+          closeRace: last.closeRace,
+          voteReveal: last.voteReveal?.map((v) => ({
+            playerId: v.playerId,
+            playerName: v.playerName,
+            choiceId: v.choiceId,
+            choiceText: loc(v.choiceText, lang),
+          })),
         }
       : null,
     combat:
@@ -547,6 +670,8 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
           }
         : null,
     isEnding: Boolean(node?.ending),
+    dmNote: room.dmNote,
+    paused: room.status === 'paused',
     classes: CLASSES.map((c) => ({
       id: c.id,
       name: loc(c.name, lang),

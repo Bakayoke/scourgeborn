@@ -11,6 +11,9 @@ export type PremiumLimits = {
   campaignMode: 'short' | 'full'
 }
 
+/** Rematch / start adventure variants */
+export type AdventureMode = 'story' | 'orcs' | 'dragon' | 'chaos'
+
 export type Localized = { sv: string; en: string }
 
 export type ClassDef = {
@@ -36,10 +39,8 @@ export type StoryChoice = {
   text: Localized
   next: string
   effects?: ChoiceEffects
-  /** Optional gate: flag must be truthy / falsy */
   requireFlag?: string
   requireFlagAbsent?: string
-  /** Prefer this choice if party has high stat */
   favorStat?: 'might' | 'arcana' | 'cunning'
 }
 
@@ -53,7 +54,6 @@ export type CampaignNode = {
   id: string
   title: Localized
   narrative: Localized
-  /** Story choices — mutually exclusive with combat */
   choices?: StoryChoice[]
   combat?: {
     enemy: CombatEnemy
@@ -61,9 +61,7 @@ export type CampaignNode = {
     winNext: string
     loseNext: string
   }
-  /** Ending node */
   ending?: boolean
-  /** Only available in full (Party) campaign */
   partyOnly?: boolean
 }
 
@@ -74,9 +72,16 @@ export type Player = {
   classId: PlayerClass | null
 }
 
-export type RoomStatus = 'lobby' | 'class_pick' | 'scene' | 'voting' | 'resolve' | 'finished'
+export type RoomStatus = 'lobby' | 'class_pick' | 'scene' | 'voting' | 'resolve' | 'finished' | 'paused'
 
 export type VoteTally = Record<string, number>
+
+export type VoteReveal = {
+  playerId: string
+  playerName: string
+  choiceId: string
+  choiceText: Localized
+}
 
 export type LastResolve = {
   winningChoiceId: string
@@ -84,6 +89,10 @@ export type LastResolve = {
   tally: VoteTally
   narrativeExtra?: Localized
   combatLog?: Localized
+  /** Big class-ability shoutout */
+  heroBanner?: Localized
+  voteReveal?: VoteReveal[]
+  closeRace?: boolean
 }
 
 export type Room = {
@@ -92,20 +101,25 @@ export type Room = {
   players: Player[]
   language: Lang
   status: RoomStatus
+  /** Status before pause */
+  statusBeforePause: RoomStatus | null
   premiumExpiresAt: number | null
   waitlist: { id: string; name: string; at: number }[]
-  /** Campaign runtime */
   nodeId: string
   partyHp: number
   partyHpMax: number
   flags: Record<string, boolean | string | number>
   campaignMode: 'short' | 'full'
+  adventureMode: AdventureMode
   votes: Record<string, string>
   voteEndsAt: number
+  /** Remaining ms when paused mid-vote */
+  voteRemainingMs: number
   lastResolve: LastResolve | null
-  /** Available choice ids for current voting round */
   activeChoiceIds: string[]
   combatEnemyHp: number | null
+  /** Host DM interjection shown to all */
+  dmNote: string
   updatedAt: number
 }
 
@@ -132,6 +146,7 @@ export type PublicRoom = {
   partyHpMax: number
   flags: Record<string, boolean | string | number>
   campaignMode: 'short' | 'full'
+  adventureMode: AdventureMode
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number
@@ -143,8 +158,21 @@ export type PublicRoom = {
     tally: VoteTally
     narrativeExtra?: string
     combatLog?: string
+    heroBanner?: string
+    voteReveal?: { playerId: string; playerName: string; choiceId: string; choiceText: string }[]
+    closeRace?: boolean
   } | null
   combat: { enemyName: string; enemyHp: number; enemyHpMax: number } | null
   isEnding: boolean
-  classes: { id: PlayerClass; name: string; blurb: string; might: number; arcana: number; cunning: number; ability: string }[]
+  dmNote: string
+  paused: boolean
+  classes: {
+    id: PlayerClass
+    name: string
+    blurb: string
+    might: number
+    arcana: number
+    cunning: number
+    ability: string
+  }[]
 }

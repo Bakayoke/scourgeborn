@@ -1,7 +1,15 @@
 export type Lang = 'sv' | 'en'
 export type PlayerClass = 'warrior' | 'mage' | 'ranger' | 'rogue' | 'cleric'
-export type RoomStatus = 'lobby' | 'class_pick' | 'scene' | 'voting' | 'resolve' | 'finished'
+export type RoomStatus =
+  | 'lobby'
+  | 'class_pick'
+  | 'scene'
+  | 'voting'
+  | 'resolve'
+  | 'finished'
+  | 'paused'
 export type PremiumTier = 'free' | 'party'
+export type AdventureMode = 'story' | 'orcs' | 'dragon' | 'chaos'
 
 export type Player = {
   id: string
@@ -33,6 +41,7 @@ export type PublicRoom = {
   partyHpMax: number
   flags: Record<string, boolean | string | number>
   campaignMode: 'short' | 'full'
+  adventureMode: AdventureMode
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number
@@ -44,9 +53,14 @@ export type PublicRoom = {
     tally: Record<string, number>
     narrativeExtra?: string
     combatLog?: string
+    heroBanner?: string
+    closeRace?: boolean
+    voteReveal?: { playerId: string; playerName: string; choiceId: string; choiceText: string }[]
   } | null
   combat: { enemyName: string; enemyHp: number; enemyHpMax: number } | null
   isEnding: boolean
+  dmNote: string
+  paused: boolean
   classes: {
     id: PlayerClass
     name: string

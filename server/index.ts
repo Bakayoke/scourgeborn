@@ -33,9 +33,12 @@ import {
   pruneIdleRooms,
   reconnectSocket,
   redeemParty,
+  pauseAdventure,
   rematch,
+  resumeAdventure,
   restoreRooms,
   roomsNeedingTick,
+  setDmNote,
   setLanguage,
   setPersistHook,
   startAdventure,
@@ -49,7 +52,7 @@ import {
   partyCheckoutPublicInfo,
   stripeEnvDiagnostics,
 } from './stripe.js'
-import type { Lang, PlayerClass } from './types.js'
+import type { AdventureMode, Lang, PlayerClass } from './types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 3001
@@ -231,7 +234,8 @@ io.on('connection', (socket) => {
   socket.on('start', (payload, ack) => {
     const binding = getBinding(socket.id)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = startAdventure(binding.code, binding.playerId)
+    const mode = payload?.mode as AdventureMode | undefined
+    const result = startAdventure(binding.code, binding.playerId, mode)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
@@ -255,10 +259,38 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('rematch', (_payload, ack) => {
+  socket.on('rematch', (payload, ack) => {
     const binding = getBinding(socket.id)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = rematch(binding.code, binding.playerId)
+    const mode = payload?.mode as AdventureMode | undefined
+    const result = rematch(binding.code, binding.playerId, mode)
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('pause', (_payload, ack) => {
+    const binding = getBinding(socket.id)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = pauseAdventure(binding.code, binding.playerId)
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('resume', (_payload, ack) => {
+    const binding = getBinding(socket.id)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = resumeAdventure(binding.code, binding.playerId)
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('setDmNote', (payload, ack) => {
+    const binding = getBinding(socket.id)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = setDmNote(binding.code, binding.playerId, String(payload?.note ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

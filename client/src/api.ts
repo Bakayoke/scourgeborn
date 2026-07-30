@@ -40,8 +40,8 @@ export async function pickClass(classId: PlayerClass) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('pickClass', { classId })
 }
 
-export async function startAdventure() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('start', {})
+export async function startAdventure(mode: import('./types').AdventureMode = 'story') {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('start', { mode })
 }
 
 export async function castVote(choiceId: string) {
@@ -52,8 +52,20 @@ export async function lockVotes() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('lockVotes', {})
 }
 
-export async function rematch() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('rematch', {})
+export async function rematch(mode: import('./types').AdventureMode = 'story') {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('rematch', { mode })
+}
+
+export async function pauseAdventure() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('pause', {})
+}
+
+export async function resumeAdventure() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('resume', {})
+}
+
+export async function setDmNote(note: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setDmNote', { note })
 }
 
 export async function setLanguage(language: Lang) {

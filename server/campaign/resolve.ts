@@ -45,10 +45,9 @@ export function availableChoices(room: Room, node: CampaignNode): StoryChoice[] 
   if (node.combat) return combatChoiceIds()
   if (!node.choices) return []
 
-  return node.choices.filter((c) => {
+  let list = node.choices.filter((c) => {
     if (c.requireFlag && !room.flags[c.requireFlag]) return false
     if (c.requireFlagAbsent && room.flags[c.requireFlagAbsent]) return false
-    // Free tier: block paths into full campaign
     if (room.campaignMode === 'short') {
       const next = getNode(c.next)
       if (next?.partyOnly) return false
@@ -59,6 +58,13 @@ export function availableChoices(room: Room, node: CampaignNode): StoryChoice[] 
     }
     return true
   })
+
+  // Chaos mode: shuffle order so democracy feels wild
+  if (room.adventureMode === 'chaos') {
+    list = [...list].sort(() => Math.random() - 0.5)
+  }
+
+  return list
 }
 
 export function tallyVotes(votes: Record<string, string>): VoteTally {
@@ -184,8 +190,15 @@ export function resolveVote(room: Room): ResolveResult | { error: string } {
       winningChoiceId: winningId,
       winningText: winning.text,
       tally,
+      closeRace: isCloseRace(tally),
     },
   }
+}
+
+function isCloseRace(tally: VoteTally): boolean {
+  const counts = Object.values(tally).sort((a, b) => b - a)
+  if (counts.length < 2) return false
+  return counts[0] > 0 && counts[0] === counts[1]
 }
 
 function resolveCombatRound(
@@ -217,6 +230,7 @@ function resolveCombatRound(
         winningChoiceId: actionId,
         winningText,
         tally,
+        closeRace: isCloseRace(tally),
         combatLog: {
           sv: 'Gruppen flyr från striden!',
           en: 'The party flees the battle!',
@@ -224,6 +238,8 @@ function resolveCombatRound(
       },
     }
   }
+
+  let heroBanner: Localized | undefined
 
   if (actionId === 'def') {
     dmgToParty = Math.max(1, Math.floor(combat.enemy.attack / 2) - Math.floor(stats.might / 4))
@@ -241,12 +257,20 @@ function resolveCombatRound(
         sv: `Klerkens ljus helar ${heal} HP och bränner fienden för ${dmgToEnemy}.`,
         en: `Cleric light heals ${heal} HP and burns the foe for ${dmgToEnemy}.`,
       }
+      heroBanner = {
+        sv: '✨ Klerken räddade er!',
+        en: '✨ The Cleric saved you!',
+      }
     } else if (majClass.id === 'mage') {
       dmgToEnemy = 10 + stats.arcana * 2
       dmgToParty = combat.enemy.attack
       log = {
         sv: `Eldklot! Fienden tar ${dmgToEnemy} magisk skada.`,
         en: `Firebolt! Enemy takes ${dmgToEnemy} magic damage.`,
+      }
+      heroBanner = {
+        sv: '🔥 Magikerns eldklot!',
+        en: "🔥 The Mage's firebolt!",
       }
     } else if (majClass.id === 'rogue') {
       dmgToEnemy = 8 + stats.cunning * 2
@@ -255,6 +279,10 @@ function resolveCombatRound(
         sv: `Bakhåll! Kritisk träff på ${dmgToEnemy} skada.`,
         en: `Ambush! Critical hit for ${dmgToEnemy} damage.`,
       }
+      heroBanner = {
+        sv: '🗡️ Tjuvens bakhåll!',
+        en: "🗡️ The Rogue's ambush!",
+      }
     } else if (majClass.id === 'ranger') {
       dmgToEnemy = 7 + stats.might + stats.cunning
       dmgToParty = combat.enemy.attack - 1
@@ -262,17 +290,23 @@ function resolveCombatRound(
         sv: `Pilregn träffar för ${dmgToEnemy} skada.`,
         en: `Arrow storm hits for ${dmgToEnemy} damage.`,
       }
+      heroBanner = {
+        sv: '🏹 Rangerns pilregn!',
+        en: "🏹 The Ranger's arrow storm!",
+      }
     } else {
-      // warrior
       dmgToEnemy = 6 + stats.might
       dmgToParty = Math.max(1, Math.floor(combat.enemy.attack / 2))
       log = {
         sv: `Sköldmur! Ni gör ${dmgToEnemy} skada och tar bara ${dmgToParty}.`,
         en: `Shield wall! You deal ${dmgToEnemy} and take only ${dmgToParty}.`,
       }
+      heroBanner = {
+        sv: '🛡️ Krigarens sköldmur!',
+        en: "🛡️ The Warrior's shield wall!",
+      }
     }
   } else {
-    // attack
     dmgToEnemy = 5 + stats.might + Math.floor(stats.arcana / 2) + Math.floor(stats.cunning / 2)
     if (room.flags.ambush) {
       dmgToEnemy += 4
@@ -293,6 +327,8 @@ function resolveCombatRound(
     winningText,
     tally,
     combatLog: log,
+    heroBanner,
+    closeRace: isCloseRace(tally),
   }
 
   if (room.partyHp <= 0) {
