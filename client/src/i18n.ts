@@ -77,6 +77,16 @@ const sv = {
   modeChaos: 'Kaos-läge',
   modeDragonLocked: 'Drake (Party)',
   joinUrl: 'Gå med på partypaths.com',
+  tvMode: 'TV-läge',
+  tvExit: 'Lämna TV',
+  tapToVote: 'Tryck på ett val nedan',
+  waitingOthers: 'Väntar på övriga spelare…',
+  youVoted: 'Du röstade',
+  changeVote: 'Du kan byta röst tills tiden tar slut',
+  joinOnPhone: 'Gå med på mobilen med koden',
+  readyCount: 'klara med klass',
+  pickClassHint: 'Välj din klass nedan',
+  classReadyWait: 'Klass vald — väntar på att värden startar…',
 }
 
 const en: typeof sv = {
@@ -155,6 +165,16 @@ const en: typeof sv = {
   modeChaos: 'Chaos mode',
   modeDragonLocked: 'Dragon (Party)',
   joinUrl: 'Join at partypaths.com',
+  tvMode: 'TV mode',
+  tvExit: 'Exit TV',
+  tapToVote: 'Tap a choice below',
+  waitingOthers: 'Waiting for other players…',
+  youVoted: 'You voted',
+  changeVote: 'You can change your vote until time runs out',
+  joinOnPhone: 'Join on your phone with the code',
+  readyCount: 'classes picked',
+  pickClassHint: 'Pick your class below',
+  classReadyWait: 'Class chosen — waiting for the host to start…',
 }
 
 export type UiStrings = typeof sv

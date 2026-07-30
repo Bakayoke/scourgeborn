@@ -435,6 +435,7 @@ function PlayView({
   const [showQr, setShowQr] = useState(false)
   const [dmDraft, setDmDraft] = useState('')
   const [shareMsg, setShareMsg] = useState<string | null>(null)
+  const [tvMode, setTvMode] = useState(false)
   const maxVotes = useMemo(
     () => Math.max(1, ...room.choices.map((c) => c.votes), room.voterCount || 1),
     [room.choices, room.voterCount],
@@ -443,6 +444,9 @@ function PlayView({
     const sorted = [...room.choices].sort((a, b) => b.votes - a.votes)
     return Boolean(sorted[0] && sorted[1] && sorted[0].votes > 0 && sorted[0].votes === sorted[1].votes)
   }, [room.choices])
+  const classesReady = room.players.filter((p) => p.connected && p.classId).length
+  const classesNeeded = room.players.filter((p) => p.connected).length
+  const yourChoiceText = room.choices.find((c) => c.id === room.yourVote)?.text
 
   const inLobby = room.status === 'lobby' || room.status === 'class_pick'
   const voting = room.status === 'voting'
@@ -452,6 +456,27 @@ function PlayView({
   const tense = voting && seconds > 0 && seconds <= 5
   const hasParty = room.premiumTier === 'party'
   const joinUrl = `https://partypaths.com/?join=${room.code}`
+
+  useEffect(() => {
+    const app = document.querySelector('.app')
+    app?.classList.toggle('tv', tvMode)
+    if (tvMode) {
+      void document.documentElement.requestFullscreen?.().catch(() => null)
+    } else if (document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => null)
+    }
+    return () => {
+      app?.classList.remove('tv')
+    }
+  }, [tvMode])
+
+  useEffect(() => {
+    const onFs = () => {
+      if (!document.fullscreenElement) setTvMode(false)
+    }
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
 
   useEffect(() => {
     if (tense) vibe([30, 40, 30])
@@ -676,25 +701,57 @@ function PlayView({
         </div>
       )}
 
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div>
-          <span className="muted">{ui.code}</span>
-          <div className="code-big">{room.code}</div>
-        </div>
-        <div className="row">
-          <button type="button" className="btn btn-ghost btn-small" onClick={copyCode}>
-            {copied ? ui.copied : ui.copy}
-          </button>
-          <button type="button" className="btn btn-ghost btn-small" onClick={leave}>
-            {ui.leave}
-          </button>
+      <div className="tv-chrome">
+        <div className="row" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <div>
+            <span className="muted">{ui.code}</span>
+            <div className="code-big">{room.code}</div>
+          </div>
+          <div className="row">
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => setTvMode((v) => !v)}
+            >
+              {tvMode ? ui.tvExit : ui.tvMode}
+            </button>
+            <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={copyCode}>
+              {copied ? ui.copied : ui.copy}
+            </button>
+            <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={leave}>
+              {ui.leave}
+            </button>
+          </div>
         </div>
       </div>
-      <p className="muted">{ui.shareHint}</p>
-      <p className="muted">{hasParty ? ui.partyTier : ui.freeTier}</p>
 
-      <h3 style={{ marginBottom: 0 }}>{ui.players}</h3>
-      <ul className="player-list">
+      <p className="muted hide-on-tv shareHint-hide">{ui.shareHint}</p>
+      <p className="muted hide-on-tv">{hasParty ? ui.partyTier : ui.freeTier}</p>
+
+      {inLobby && tvMode && (
+        <div className="tv-only tv-lobby-qr">
+          <img
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(joinUrl)}`}
+            alt={`QR ${room.code}`}
+          />
+          <div>
+            <p className="scene-title" style={{ margin: 0 }}>
+              {ui.joinOnPhone}
+            </p>
+            <p className="muted" style={{ fontSize: '1.25rem' }}>
+              partypaths.com · {room.code}
+            </p>
+            <p className="muted">
+              {classesReady}/{classesNeeded} {ui.readyCount}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <h3 className="hide-on-tv" style={{ marginBottom: 0 }}>
+        {ui.players}
+      </h3>
+      <ul className="player-list hide-on-tv">
         {room.players.map((p) => {
           const cls = room.classes.find((c) => c.id === p.classId)
           return (
@@ -709,6 +766,20 @@ function PlayView({
           )
         })}
       </ul>
+      <div className="chip-row tv-only">
+        {room.players.map((p) => {
+          const cls = room.classes.find((c) => c.id === p.classId)
+          return (
+            <span
+              key={p.id}
+              className={`chip${p.connected ? '' : ' offline'}${p.id === playerId ? ' me' : ''}`}
+            >
+              {p.name}
+              {cls ? ` · ${cls.name}` : ''}
+            </span>
+          )
+        })}
+      </div>
 
       {isHost && (
         <div className="host-tools">
@@ -760,6 +831,8 @@ function PlayView({
           <h2 className="scene-title" style={{ marginTop: '1.25rem' }}>
             {ui.pickClass}
           </h2>
+          {!me?.classId && <div className="player-hint">{ui.pickClassHint}</div>}
+          {me?.classId && !isHost && <div className="player-hint ok">{ui.classReadyWait}</div>}
           <div className="class-grid">
             {room.classes.map((c) => (
               <button
@@ -783,12 +856,12 @@ function PlayView({
           {isHost ? (
             <>
               <p className="muted" style={{ marginTop: '1rem' }}>
-                {ui.modes}
+                {ui.modes} · {classesReady}/{classesNeeded} {ui.readyCount}
               </p>
               <ModeButtons onPickMode={(mode) => void onStart(mode)} />
             </>
           ) : (
-            <p className="muted">{ui.waitingHost}</p>
+            me?.classId && <p className="muted">{ui.waitingHost}</p>
           )}
         </>
       )}
@@ -864,6 +937,16 @@ function PlayView({
 
           {voting && (
             <>
+              {!room.yourVote ? (
+                <div className="player-hint">{ui.tapToVote}</div>
+              ) : (
+                <div className="player-hint ok">
+                  {ui.youVoted}: {yourChoiceText} · {ui.waitingOthers}
+                  <div className="muted" style={{ fontWeight: 500, marginTop: '0.25rem' }}>
+                    {ui.changeVote}
+                  </div>
+                </div>
+              )}
               <p className="muted">
                 <span className={`timer${tense ? ' tense' : ''}`}>
                   {seconds}
