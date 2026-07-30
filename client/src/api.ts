@@ -1,16 +1,54 @@
 import { io, type Socket } from 'socket.io-client'
-import type { Lang, PartyInfo, PartyPassLocal, PlayerClass, PublicRoom, Session } from './types'
+import type {
+  AdventureMode,
+  Lang,
+  PartyInfo,
+  PartyPassLocal,
+  PlayerClass,
+  PublicRoom,
+  Session,
+} from './types'
 
 /** Railway API/socket base in production; empty in local Vite (proxy). */
 const API_BASE = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
 
 let socket: Socket | null = null
+let rejoinInFlight: Promise<{ ok: boolean; playerId?: string; room?: PublicRoom; error?: string } | null> | null =
+  null
+let connectionListenersAttached = false
+
+type RoomHandler = (room: PublicRoom) => void
+let onRoomHandler: RoomHandler | null = null
 
 export function getSocket() {
   if (!socket) {
-    socket = io(API_BASE || undefined, { autoConnect: true, transports: ['websocket', 'polling'] })
+    socket = io(API_BASE || undefined, {
+      autoConnect: true,
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 5000,
+      timeout: 20_000,
+    })
   }
+
+  if (!connectionListenersAttached) {
+    connectionListenersAttached = true
+    socket.on('connect', () => {
+      void ensureSessionBound()
+    })
+    socket.on('room', (room: PublicRoom) => {
+      onRoomHandler?.(room)
+    })
+  }
+
   return socket
+}
+
+export function setRoomHandler(handler: RoomHandler | null) {
+  onRoomHandler = handler
+  getSocket()
 }
 
 function apiUrl(path: string) {
@@ -31,9 +69,55 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-function ack<T>(event: string, payload?: unknown): Promise<T> {
+export async function ensureSessionBound(
+  retries = 4,
+): Promise<{ ok: boolean; playerId?: string; room?: PublicRoom; error?: string } | null> {
+  const session = loadSession()
+  if (!session) return null
+  if (rejoinInFlight) return rejoinInFlight
+
+  rejoinInFlight = (async () => {
+    let last: { ok: boolean; playerId?: string; room?: PublicRoom; error?: string } = {
+      ok: false,
+      error: 'rejoin failed',
+    }
+    for (let i = 0; i < retries; i++) {
+      last = await rejoinGame(session.code, session.playerId)
+      if (last.ok && last.room) return last
+      const err = last.error ?? ''
+      if (err.includes('finns inte') || err.includes('hittades inte') || err.includes('not found')) {
+        break
+      }
+      await new Promise((r) => setTimeout(r, 700 * (i + 1)))
+    }
+    return last
+  })()
+
+  try {
+    return await rejoinInFlight
+  } finally {
+    rejoinInFlight = null
+  }
+}
+
+async function ack<T>(event: string, payload?: unknown): Promise<T> {
+  const s = getSocket()
+  if (!s.connected) {
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('Kunde inte ansluta till servern')), 12_000)
+      s.once('connect', () => {
+        clearTimeout(t)
+        resolve()
+      })
+    })
+  }
+
+  if (event !== 'create' && event !== 'join' && event !== 'rejoin') {
+    await ensureSessionBound(2)
+  }
+
   return new Promise((resolve, reject) => {
-    getSocket().timeout(12000).emit(event, payload ?? {}, (err: Error | null, res: T) => {
+    s.timeout(12000).emit(event, payload ?? {}, (err: Error | null, res: T) => {
       if (err) reject(err)
       else resolve(res)
     })
@@ -59,8 +143,13 @@ export async function pickClass(classId: PlayerClass) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('pickClass', { classId })
 }
 
-export async function startAdventure(mode: import('./types').AdventureMode = 'story') {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('start', { mode })
+export async function startAdventure(mode: AdventureMode = 'story') {
+  const session = loadSession()
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('start', {
+    mode,
+    code: session?.code,
+    playerId: session?.playerId,
+  })
 }
 
 export async function castVote(choiceId: string) {
@@ -71,8 +160,13 @@ export async function lockVotes() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('lockVotes', {})
 }
 
-export async function rematch(mode: import('./types').AdventureMode = 'story') {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('rematch', { mode })
+export async function rematch(mode: AdventureMode = 'story') {
+  const session = loadSession()
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('rematch', {
+    mode,
+    code: session?.code,
+    playerId: session?.playerId,
+  })
 }
 
 export async function pauseAdventure() {

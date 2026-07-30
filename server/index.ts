@@ -264,7 +264,15 @@ io.on('connection', (socket) => {
   })
 
   socket.on('start', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    let binding = getBinding(socket.id)
+    if (!binding && payload?.code && payload?.playerId) {
+      const rebound = reconnectSocket(
+        String(payload.code),
+        String(payload.playerId),
+        socket.id,
+      )
+      if (!('error' in rebound)) binding = getBinding(socket.id)
+    }
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const mode = payload?.mode as AdventureMode | undefined
     const result = startAdventure(binding.code, binding.playerId, mode)
@@ -292,7 +300,15 @@ io.on('connection', (socket) => {
   })
 
   socket.on('rematch', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    let binding = getBinding(socket.id)
+    if (!binding && payload?.code && payload?.playerId) {
+      const rebound = reconnectSocket(
+        String(payload.code),
+        String(payload.playerId),
+        socket.id,
+      )
+      if (!('error' in rebound)) binding = getBinding(socket.id)
+    }
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const mode = payload?.mode as AdventureMode | undefined
     const result = rematch(binding.code, binding.playerId, mode)

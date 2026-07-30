@@ -6,7 +6,6 @@ import {
   clearSession,
   createGame,
   fetchPartyInfo,
-  getSocket,
   joinGame,
   loadPartyPass,
   loadSession,
@@ -21,6 +20,7 @@ import {
   saveSession,
   setDmNote,
   setLanguage as setRoomLanguage,
+  setRoomHandler,
   startAdventure,
   startCheckout,
 } from './api'
@@ -87,12 +87,8 @@ export default function App() {
   }, [ui.stripeMissing])
 
   useEffect(() => {
-    const sock = getSocket()
-    const onRoom = (r: PublicRoom) => setRoom(r)
-    sock.on('room', onRoom)
-    return () => {
-      sock.off('room', onRoom)
-    }
+    setRoomHandler((r) => setRoom(r))
+    return () => setRoomHandler(null)
   }, [])
 
   useEffect(() => {
@@ -653,34 +649,24 @@ function PlayView({
   }) {
     return (
       <div className="mode-grid">
-        <button type="button" className="btn" disabled={busy} onClick={() => onPickMode('story')}>
-          {ui.modeStory}
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={busy}
-          onClick={() => onPickMode('orcs')}
-        >
-          {ui.modeOrcs}
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={busy || !hasParty}
-          onClick={() => onPickMode('dragon')}
-          title={!hasParty ? ui.modeDragonLocked : undefined}
-        >
-          {hasParty ? ui.modeDragon : ui.modeDragonLocked}
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={busy}
-          onClick={() => onPickMode('chaos')}
-        >
-          {ui.modeChaos}
-        </button>
+        {(
+          [
+            ['story', ui.modeStory],
+            ['orcs', ui.modeOrcs],
+            ['dragon', hasParty ? ui.modeDragon : ui.modeDragonLocked],
+            ['chaos', ui.modeChaos],
+          ] as const
+        ).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy || (mode === 'dragon' && !hasParty)}
+            onClick={() => onPickMode(mode)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     )
   }
