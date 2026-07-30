@@ -61,20 +61,42 @@ const isProd = process.env.NODE_ENV === 'production'
 const app = express()
 const httpServer = createServer(app)
 
-function resolveCorsOrigin(): boolean | string[] {
-  const raw = process.env.CORS_ORIGIN?.trim()
-  if (raw) {
-    const list = raw.split(',').map((s) => s.trim()).filter(Boolean)
-    if (list.length) return list
+function resolveCorsOrigin():
+  | boolean
+  | string[]
+  | ((origin: string | undefined, cb: (err: Error | null, allow?: boolean | string) => void) => void) {
+  const extras =
+    process.env.CORS_ORIGIN?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean) ?? []
+  const allowed = new Set([
+    'https://partypaths.com',
+    'https://www.partypaths.com',
+    ...extras,
+  ])
+
+  // Reflect matching Origin — empty/misconfigured CORS_ORIGIN must not block the site.
+  return (origin, cb) => {
+    if (!origin) {
+      cb(null, true)
+      return
+    }
+    if (allowed.has(origin) || origin.endsWith('.up.railway.app') || origin.startsWith('http://localhost:')) {
+      cb(null, origin)
+      return
+    }
+    cb(null, false)
   }
-  // Default: allow the public site (empty CORS_ORIGIN must not become [""])
-  return ['https://partypaths.com', 'https://www.partypaths.com']
 }
 
 const corsOrigin = resolveCorsOrigin()
 
 const io = new Server(httpServer, {
-  cors: { origin: corsOrigin, methods: ['GET', 'POST'] },
+  cors: {
+    origin: ['https://partypaths.com', 'https://www.partypaths.com', 'http://localhost:5173'],
+    methods: ['GET', 'POST'],
+    credentials: true,
+  },
 })
 
 function persistNow() {
