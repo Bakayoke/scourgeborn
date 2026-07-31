@@ -144,8 +144,19 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
     await ensureSessionBound(2)
   }
 
+  const session = loadSession()
+  const raw =
+    payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>) } : {}
+  // Always attach session identity for rebound after socket reconnect.
+  // Use roomCode (not code) so promo redeem can keep payload.code.
+  const body = {
+    ...raw,
+    playerId: raw.playerId ?? session?.playerId,
+    roomCode: raw.roomCode ?? session?.code,
+  }
+
   return new Promise((resolve, reject) => {
-    s.timeout(12000).emit(event, payload ?? {}, (err: Error | null, res: T) => {
+    s.timeout(12000).emit(event, body, (err: Error | null, res: T) => {
       if (err) reject(err)
       else resolve(res)
     })

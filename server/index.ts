@@ -201,6 +201,16 @@ app.post('/api/party/claim', async (req, res) => {
 })
 
 io.on('connection', (socket) => {
+  function bindingFrom(payload?: { code?: unknown; roomCode?: unknown; playerId?: unknown }) {
+    let binding = getBinding(socket.id)
+    const code = payload?.roomCode ?? payload?.code
+    if (!binding && code && payload?.playerId) {
+      const rebound = reconnectSocket(String(code), String(payload.playerId), socket.id)
+      if (!('error' in rebound)) binding = getBinding(socket.id)
+    }
+    return binding
+  }
+
   socket.on('create', (payload, ack) => {
     try {
       const name = String(payload?.name ?? '')
@@ -259,7 +269,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('setLanguage', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setLanguage(
       binding.code,
@@ -272,7 +282,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('setVoteSeconds', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setVoteSeconds(binding.code, binding.playerId, Number(payload?.seconds))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -281,7 +291,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('setSecretBallot', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setSecretBallot(binding.code, binding.playerId, Boolean(payload?.enabled))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -290,7 +300,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('setHostPlays', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setHostPlays(binding.code, binding.playerId, Boolean(payload?.plays))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -299,7 +309,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('pickClass', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = pickClass(binding.code, binding.playerId, payload?.classId as PlayerClass)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -308,15 +318,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('start', (payload, ack) => {
-    let binding = getBinding(socket.id)
-    if (!binding && payload?.code && payload?.playerId) {
-      const rebound = reconnectSocket(
-        String(payload.code),
-        String(payload.playerId),
-        socket.id,
-      )
-      if (!('error' in rebound)) binding = getBinding(socket.id)
-    }
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const mode = payload?.mode as AdventureMode | undefined
     const result = startAdventure(binding.code, binding.playerId, mode)
@@ -326,7 +328,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('castVote', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = castVote(binding.code, binding.playerId, String(payload?.choiceId ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -334,8 +336,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('lockVotes', (_payload, ack) => {
-    const binding = getBinding(socket.id)
+  socket.on('lockVotes', (payload, ack) => {
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = lockVotes(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -344,15 +346,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('rematch', (payload, ack) => {
-    let binding = getBinding(socket.id)
-    if (!binding && payload?.code && payload?.playerId) {
-      const rebound = reconnectSocket(
-        String(payload.code),
-        String(payload.playerId),
-        socket.id,
-      )
-      if (!('error' in rebound)) binding = getBinding(socket.id)
-    }
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const mode = payload?.mode as AdventureMode | undefined
     const result = rematch(binding.code, binding.playerId, mode)
@@ -361,8 +355,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('pause', (_payload, ack) => {
-    const binding = getBinding(socket.id)
+  socket.on('pause', (payload, ack) => {
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = pauseAdventure(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -370,8 +364,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('resume', (_payload, ack) => {
-    const binding = getBinding(socket.id)
+  socket.on('resume', (payload, ack) => {
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = resumeAdventure(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -380,7 +374,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('setDmNote', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setDmNote(binding.code, binding.playerId, String(payload?.note ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -389,7 +383,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('redeemParty', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = redeemParty(binding.code, binding.playerId, String(payload?.code ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -398,7 +392,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('applyPartyToken', (payload, ack) => {
-    const binding = getBinding(socket.id)
+    const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = applyPartyToken(binding.code, String(payload?.token ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
