@@ -166,8 +166,13 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
 type OkRoom = { ok: true; playerId: string; room: PublicRoom }
 type Err = { ok: false; error: string; code?: string }
 
-export async function createGame(name: string, language: Lang, partyToken?: string | null) {
-  return ack<OkRoom | Err>('create', { name, language, partyToken })
+export async function createGame(
+  name: string,
+  language: Lang,
+  partyToken?: string | null,
+  isPublic = false,
+) {
+  return ack<OkRoom | Err>('create', { name, language, partyToken, isPublic })
 }
 
 export async function joinGame(code: string, name: string) {

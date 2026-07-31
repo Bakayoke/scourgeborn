@@ -98,6 +98,7 @@ export default function App() {
   const [joinStep, setJoinStep] = useState<'code' | 'profile'>('code')
   const [joinPreview, setJoinPreview] = useState<RoomPreview | null>(null)
   const [joinClassId, setJoinClassId] = useState<PlayerClass | null>(null)
+  const [createPublic, setCreatePublic] = useState(false)
   const [lobbies, setLobbies] = useState<PublicLobbyCard[]>([])
   const [lobbiesBusy, setLobbiesBusy] = useState(false)
   const [room, setRoom] = useState<PublicRoom | null>(null)
@@ -236,7 +237,8 @@ export default function App() {
     setBusy(true)
     setError(null)
     try {
-      const res = await createGame(name, uiLang, hasParty ? partyPass?.token : null)
+      const wantPublic = createPublic && hasParty
+      const res = await createGame(name, uiLang, hasParty ? partyPass?.token : null, wantPublic)
       if (!res.ok) {
         setError(res.error)
         return
@@ -522,6 +524,27 @@ export default function App() {
               autoFocus
             />
           </div>
+          <p className="muted" style={{ marginTop: '0.75rem' }}>
+            {ui.createVisibility}
+          </p>
+          <div className="mode-grid" style={{ marginBottom: '0.5rem' }}>
+            <button
+              type="button"
+              className={`btn btn-ghost${!createPublic ? ' selected-mode' : ''}`}
+              onClick={() => setCreatePublic(false)}
+            >
+              {ui.createPrivate}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-ghost${createPublic ? ' selected-mode' : ''}`}
+              disabled={!hasParty}
+              onClick={() => setCreatePublic(true)}
+            >
+              {ui.createPublic}
+            </button>
+          </div>
+          {!hasParty && <p className="muted" style={{ fontSize: '0.85rem' }}>{ui.createPublicNeedParty}</p>}
           {error && <p className="error">{error}</p>}
           <div className="row">
             <button className="btn" type="submit" disabled={busy}>

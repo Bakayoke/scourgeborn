@@ -147,9 +147,11 @@ export function createRoom(
   socketId: string,
   language: Lang = 'sv',
   partyToken?: string | null,
+  wantPublic = false,
 ): { room: Room; playerId: string } {
   const pass = lookupPass(partyToken)
   const premiumExpiresAt = pass?.expiresAt ?? null
+  const isParty = tierFromExpiry(premiumExpiresAt) === 'party'
   const limits = limitsFor(tierFromExpiry(premiumExpiresAt))
   const code = uniqueCode()
   const playerId = crypto.randomUUID()
@@ -169,7 +171,7 @@ export function createRoom(
     status: 'lobby',
     statusBeforePause: null,
     premiumExpiresAt,
-    isPublic: false,
+    isPublic: Boolean(wantPublic && isParty),
     waitlist: [],
     nodeId: START_NODE,
     partyHp: PARTY_HP_BASE,

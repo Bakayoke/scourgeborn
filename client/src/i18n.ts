@@ -139,6 +139,10 @@ const sv = {
   lobbyPlayers: 'anslutna',
   lobbyAdventurers: 'äventyrare',
   joinThis: 'Gå med',
+  createVisibility: 'Vem kan gå med?',
+  createPrivate: 'Bara med kod',
+  createPublic: 'Öppen i Hitta Party',
+  createPublicNeedParty: 'Öppen lobby kräver Party-pass.',
 }
 
 const en: typeof sv = {
@@ -279,6 +283,10 @@ const en: typeof sv = {
   lobbyPlayers: 'connected',
   lobbyAdventurers: 'adventurers',
   joinThis: 'Join',
+  createVisibility: 'Who can join?',
+  createPrivate: 'Code only',
+  createPublic: 'Open in Find Party',
+  createPublicNeedParty: 'Open lobby requires a Party pass.',
 }
 
 export type UiStrings = typeof sv

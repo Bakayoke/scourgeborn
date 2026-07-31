@@ -224,7 +224,8 @@ io.on('connection', (socket) => {
       const name = String(payload?.name ?? '')
       const language = (payload?.language === 'en' ? 'en' : 'sv') as Lang
       const partyToken = payload?.partyToken ? String(payload.partyToken) : null
-      const { room, playerId } = createRoom(name, socket.id, language, partyToken)
+      const wantPublic = Boolean(payload?.isPublic)
+      const { room, playerId } = createRoom(name, socket.id, language, partyToken, wantPublic)
       ack?.({ ok: true, playerId, room: toPublicRoom(room, playerId) })
       broadcastRoom(room.code)
     } catch (e) {
