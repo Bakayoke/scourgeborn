@@ -111,6 +111,8 @@ export type Room = {
   flags: Record<string, boolean | string | number>
   campaignMode: 'short' | 'full'
   adventureMode: AdventureMode
+  /** Vote window in seconds. 0 = discuss freely (no timer). */
+  voteSeconds: number
   votes: Record<string, string>
   voteEndsAt: number
   /** Remaining ms when paused mid-vote */
@@ -147,6 +149,8 @@ export type PublicRoom = {
   flags: Record<string, boolean | string | number>
   campaignMode: 'short' | 'full'
   adventureMode: AdventureMode
+  /** 0 = discuss freely */
+  voteSeconds: number
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number

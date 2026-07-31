@@ -41,6 +41,7 @@ import {
   setDmNote,
   setLanguage,
   setPersistHook,
+  setVoteSeconds,
   startAdventure,
   toPublicRoom,
   unlockRoomWithPass,
@@ -249,6 +250,15 @@ io.on('connection', (socket) => {
       binding.playerId,
       payload?.language === 'en' ? 'en' : 'sv',
     )
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('setVoteSeconds', (payload, ack) => {
+    const binding = getBinding(socket.id)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = setVoteSeconds(binding.code, binding.playerId, Number(payload?.seconds))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

@@ -82,11 +82,20 @@ const sv = {
   tapToVote: 'Tryck på ett val nedan',
   waitingOthers: 'Väntar på övriga spelare…',
   youVoted: 'Du röstade',
-  changeVote: 'Du kan byta röst tills tiden tar slut',
+  changeVote: 'Du kan byta röst tills omröstningen låses',
   joinOnPhone: 'Gå med på mobilen med koden',
   readyCount: 'klara med klass',
   pickClassHint: 'Välj din klass nedan',
   classReadyWait: 'Klass vald — väntar på att värden startar…',
+  votePace: 'Diskussionstid',
+  voteDiscuss: 'Ingen timer — diskutera fritt',
+  vote30: '30 sek',
+  vote60: '60 sek',
+  vote90: '90 sek',
+  vote120: '2 min',
+  vote180: '3 min',
+  voteDiscussLive: 'Diskutera fritt — värden låser när ni är klara',
+  allVotedAuto: 'När alla röstat går ni vidare automatiskt',
 }
 
 const en: typeof sv = {
@@ -170,11 +179,20 @@ const en: typeof sv = {
   tapToVote: 'Tap a choice below',
   waitingOthers: 'Waiting for other players…',
   youVoted: 'You voted',
-  changeVote: 'You can change your vote until time runs out',
+  changeVote: 'You can change your vote until voting is locked',
   joinOnPhone: 'Join on your phone with the code',
   readyCount: 'classes picked',
   pickClassHint: 'Pick your class below',
   classReadyWait: 'Class chosen — waiting for the host to start…',
+  votePace: 'Discussion time',
+  voteDiscuss: 'No timer — discuss freely',
+  vote30: '30 sec',
+  vote60: '60 sec',
+  vote90: '90 sec',
+  vote120: '2 min',
+  vote180: '3 min',
+  voteDiscussLive: 'Discuss freely — host locks when ready',
+  allVotedAuto: 'When everyone has voted, you continue automatically',
 }
 
 export type UiStrings = typeof sv
@@ -208,4 +226,14 @@ export function formatExpiry(ts: number, lang: Lang) {
     dateStyle: 'short',
     timeStyle: 'short',
   })
+}
+
+export function voteTimerLabel(ui: UiStrings, seconds: number): string {
+  if (seconds <= 0) return ui.voteDiscuss
+  if (seconds === 30) return ui.vote30
+  if (seconds === 60) return ui.vote60
+  if (seconds === 90) return ui.vote90
+  if (seconds === 120) return ui.vote120
+  if (seconds === 180) return ui.vote180
+  return `${seconds}${ui.seconds}`
 }

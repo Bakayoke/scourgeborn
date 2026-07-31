@@ -42,6 +42,8 @@ export type PublicRoom = {
   flags: Record<string, boolean | string | number>
   campaignMode: 'short' | 'full'
   adventureMode: AdventureMode
+  /** 0 = discuss freely */
+  voteSeconds: number
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number

@@ -593,6 +593,12 @@ a {
   letter-spacing: 0.2em;
 }
 
+.btn-ghost.selected-mode {
+  border-color: var(--ember);
+  box-shadow: inset 0 0 0 1px rgba(224, 122, 58, 0.35);
+  color: var(--ember-hot);
+}
+
 .mode-grid {
   display: grid;
   gap: 0.45rem;

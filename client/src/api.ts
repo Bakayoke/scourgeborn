@@ -185,6 +185,10 @@ export async function setLanguage(language: Lang) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setLanguage', { language })
 }
 
+export async function setVoteSeconds(seconds: number) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setVoteSeconds', { seconds })
+}
+
 export async function redeemParty(code: string) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('redeemParty', { code })
 }

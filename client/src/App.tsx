@@ -21,10 +21,11 @@ import {
   setDmNote,
   setLanguage as setRoomLanguage,
   setRoomHandler,
+  setVoteSeconds,
   startAdventure,
   startCheckout,
 } from './api'
-import { detectPreferredLanguage, formatExpiry, rememberLanguage, t } from './i18n'
+import { detectPreferredLanguage, formatExpiry, rememberLanguage, t, voteTimerLabel } from './i18n'
 import { renderEndingCard } from './shareCard'
 import type { AdventureMode, Lang, PartyInfo, PartyPassLocal, PlayerClass, PublicRoom } from './types'
 
@@ -449,7 +450,8 @@ function PlayView({
   const resolving = room.status === 'resolve'
   const finished = room.status === 'finished'
   const paused = room.status === 'paused'
-  const tense = voting && seconds > 0 && seconds <= 5
+  const tense =
+    voting && room.voteEndsAt > 0 && seconds > 0 && seconds <= 5
   const hasParty = room.premiumTier === 'party'
   const joinUrl = `https://partypaths.com/?join=${room.code}`
 
@@ -506,6 +508,20 @@ function PlayView({
         vibe(20)
         setRoom(res.room)
       }
+    } catch {
+      setError(ui.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onVoteTimer(seconds: number) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await setVoteSeconds(seconds)
+      if (!res.ok) setError(res.error || ui.error)
+      else if (res.room) setRoom(res.room)
     } catch {
       setError(ui.error)
     } finally {
@@ -842,6 +858,25 @@ function PlayView({
           {isHost ? (
             <>
               <p className="muted" style={{ marginTop: '1rem' }}>
+                {ui.votePace}
+              </p>
+              <p className="muted" style={{ fontSize: '0.85rem' }}>
+                {ui.allVotedAuto}
+              </p>
+              <div className="mode-grid" style={{ marginBottom: '1rem' }}>
+                {([0, 30, 60, 90, 120, 180] as const).map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    className={`btn btn-ghost${(room.voteSeconds ?? 60) === sec ? ' selected-mode' : ''}`}
+                    disabled={busy}
+                    onClick={() => void onVoteTimer(sec)}
+                  >
+                    {voteTimerLabel(ui, sec)}
+                  </button>
+                ))}
+              </div>
+              <p className="muted" style={{ marginTop: '0.5rem' }}>
                 {ui.modes} · {classesReady}/{classesNeeded} {ui.readyCount}
               </p>
               <ModeButtons onPickMode={(mode) => void onStart(mode)} />
@@ -934,12 +969,20 @@ function PlayView({
                 </div>
               )}
               <p className="muted">
-                <span className={`timer${tense ? ' tense' : ''}`}>
-                  {seconds}
-                  {ui.seconds}
-                </span>
-                {tense && <span className="close-race"> {ui.tense}</span>}
-                {closeRaceLive && <span className="close-race"> · {ui.closeRace}</span>}
+                {(room.voteSeconds ?? 60) <= 0 || room.voteEndsAt <= 0 ? (
+                  <span className="timer" style={{ fontSize: '1.1rem' }}>
+                    {ui.voteDiscussLive}
+                  </span>
+                ) : (
+                  <>
+                    <span className={`timer${tense ? ' tense' : ''}`}>
+                      {seconds}
+                      {ui.seconds}
+                    </span>
+                    {tense && <span className="close-race"> {ui.tense}</span>}
+                    {closeRaceLive && <span className="close-race"> · {ui.closeRace}</span>}
+                  </>
+                )}
                 {' · '}
                 {room.votedCount}/{room.voterCount} {ui.votesIn}
               </p>

@@ -26,10 +26,20 @@ import type {
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
 const DISCONNECT_GRACE_MS = 60_000
 const HOST_TRANSFER_AFTER_MS = 90_000
-const VOTE_MS = 20_000
+const DEFAULT_VOTE_SEC = 60
 const RESOLVE_MS = 5_500
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
 const PARTY_HP_BASE = 40
+
+/** Allowed host choices: 0 = discuss (no timer) */
+export const VOTE_TIMER_OPTIONS = [0, 30, 60, 90, 120, 180] as const
+
+function normalizeVoteSeconds(raw: unknown): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return DEFAULT_VOTE_SEC
+  const sec = Math.round(n)
+  return (VOTE_TIMER_OPTIONS as readonly number[]).includes(sec) ? sec : DEFAULT_VOTE_SEC
+}
 
 const MODE_START: Record<AdventureMode, string> = {
   story: START_NODE,
@@ -87,6 +97,7 @@ export function restoreRooms(list: Room[]) {
       ...room,
       statusBeforePause: room.statusBeforePause ?? null,
       adventureMode: room.adventureMode ?? 'story',
+      voteSeconds: normalizeVoteSeconds(room.voteSeconds ?? DEFAULT_VOTE_SEC),
       voteRemainingMs: room.voteRemainingMs ?? 0,
       dmNote: room.dmNote ?? '',
     })
@@ -126,6 +137,7 @@ export function createRoom(
     flags: {},
     campaignMode: limits.campaignMode,
     adventureMode: 'story',
+    voteSeconds: DEFAULT_VOTE_SEC,
     votes: {},
     voteEndsAt: 0,
     voteRemainingMs: 0,
@@ -294,6 +306,22 @@ function normalizeMode(mode: unknown): AdventureMode {
   return 'story'
 }
 
+export function setVoteSeconds(
+  code: string,
+  playerId: string,
+  seconds: number,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rummet finns inte' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan ändra tid' }
+  if (room.status !== 'lobby' && room.status !== 'class_pick') {
+    return { error: 'Kan bara ändras i lobby' }
+  }
+  room.voteSeconds = normalizeVoteSeconds(seconds)
+  touch(room)
+  return room
+}
+
 function beginVoting(room: Room) {
   const node = getNode(room.nodeId)
   if (!node) return
@@ -307,7 +335,8 @@ function beginVoting(room: Room) {
   room.activeChoiceIds = choices.map((c) => c.id)
   room.votes = {}
   room.status = 'voting'
-  room.voteEndsAt = Date.now() + VOTE_MS
+  // 0 = discuss freely — no auto timeout
+  room.voteEndsAt = room.voteSeconds > 0 ? Date.now() + room.voteSeconds * 1000 : 0
 }
 
 export function castVote(
@@ -470,7 +499,13 @@ export function resumeAdventure(code: string, playerId: string): Room | { error:
   const prev = room.statusBeforePause ?? 'voting'
   room.status = prev
   room.statusBeforePause = null
-  room.voteEndsAt = Date.now() + (room.voteRemainingMs || VOTE_MS)
+  if (prev === 'voting' && room.voteSeconds <= 0) {
+    room.voteEndsAt = 0
+  } else if (prev === 'voting' || prev === 'resolve') {
+    const fallback =
+      prev === 'resolve' ? RESOLVE_MS : Math.max(5_000, room.voteSeconds * 1000)
+    room.voteEndsAt = Date.now() + (room.voteRemainingMs || fallback)
+  }
   room.voteRemainingMs = 0
   touch(room)
   return room
@@ -635,6 +670,7 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     flags: room.flags,
     campaignMode: room.campaignMode,
     adventureMode: room.adventureMode,
+    voteSeconds: room.voteSeconds ?? DEFAULT_VOTE_SEC,
     choices: choices.map((c) => ({
       id: c.id,
       text: loc(c.text, lang),
