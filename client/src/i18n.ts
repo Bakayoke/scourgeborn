@@ -122,6 +122,11 @@ const sv = {
   hostPlaysOff: 'Bara DM (standard)',
   hostPlaysOn: 'Jag spelar med',
   needAdventurers: 'Väntar på att minst en äventyrare går med och väljer klass…',
+  next: 'Nästa',
+  joinStepCode: 'Steg 1 · Sessionskod',
+  joinStepProfile: 'Steg 2 · Namn & klass',
+  joinSpectateNote: 'Äventyret pågår — du går med som åskådare (ingen klass).',
+  joinCodeHint: 'Ange den fyrsiffriga koden från värden.',
 }
 
 const en: typeof sv = {
@@ -245,6 +250,11 @@ const en: typeof sv = {
   hostPlaysOff: 'DM only (default)',
   hostPlaysOn: 'I play too',
   needAdventurers: 'Waiting for at least one adventurer to join and pick a class…',
+  next: 'Next',
+  joinStepCode: 'Step 1 · Session code',
+  joinStepProfile: 'Step 2 · Name & class',
+  joinSpectateNote: 'Adventure in progress — you join as a spectator (no class).',
+  joinCodeHint: 'Enter the four-letter code from the host.',
 }
 
 export type UiStrings = typeof sv

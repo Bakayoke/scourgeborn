@@ -275,6 +275,47 @@ export function getRoom(code: string) {
   return rooms.get(code)
 }
 
+export function previewRoom(code: string): {
+  code: string
+  language: Lang
+  status: Room['status']
+  canPickClass: boolean
+  spectateOnly: boolean
+  playerCount: number
+  classes: {
+    id: PlayerClass
+    name: string
+    blurb: string
+    might: number
+    arcana: number
+    cunning: number
+    ability: string
+  }[]
+} | null {
+  const room = rooms.get(code.toUpperCase().trim())
+  if (!room) return null
+  const lang = room.language
+  const inLobby =
+    room.status === 'lobby' || room.status === 'class_pick' || room.status === 'finished'
+  return {
+    code: room.code,
+    language: lang,
+    status: room.status,
+    canPickClass: inLobby,
+    spectateOnly: !inLobby,
+    playerCount: room.players.filter((p) => p.connected).length,
+    classes: CLASSES.map((c) => ({
+      id: c.id,
+      name: loc(c.name, lang),
+      blurb: loc(c.blurb, lang),
+      might: c.might,
+      arcana: c.arcana,
+      cunning: c.cunning,
+      ability: loc(c.ability, lang),
+    })),
+  }
+}
+
 export function setLanguage(code: string, playerId: string, language: Lang): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }

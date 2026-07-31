@@ -6,6 +6,7 @@ import {
   clearSession,
   createGame,
   fetchPartyInfo,
+  fetchRoomPreview,
   joinGame,
   loadPartyPass,
   loadSession,
@@ -28,6 +29,7 @@ import {
   startCheckout,
   subscribeConnection,
   type ConnState,
+  type RoomPreview,
 } from './api'
 import { detectPreferredLanguage, formatExpiry, rememberLanguage, t, voteTimerLabel } from './i18n'
 import { JoinQr } from './qr'
@@ -90,6 +92,9 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [name, setName] = useState(() => loadSession()?.name ?? '')
   const [joinCode, setJoinCode] = useState('')
+  const [joinStep, setJoinStep] = useState<'code' | 'profile'>('code')
+  const [joinPreview, setJoinPreview] = useState<RoomPreview | null>(null)
+  const [joinClassId, setJoinClassId] = useState<PlayerClass | null>(null)
   const [room, setRoom] = useState<PublicRoom | null>(null)
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -132,6 +137,9 @@ export default function App() {
     const join = params.get('join')
     if (join && /^[A-Z]{4}$/i.test(join)) {
       setJoinCode(join.toUpperCase())
+      setJoinStep('code')
+      setJoinPreview(null)
+      setJoinClassId(null)
       setScreen('join')
       window.history.replaceState({}, '', '/')
     }
@@ -217,20 +225,64 @@ export default function App() {
     }
   }
 
-  async function onJoin(e: React.FormEvent) {
+  async function onJoinCode(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const res = await joinGame(joinCode.trim().toUpperCase(), name)
+      const code = joinCode.trim().toUpperCase()
+      if (!/^[A-Z]{4}$/.test(code)) {
+        setError(ui.error)
+        return
+      }
+      const preview = await fetchRoomPreview(code)
+      setJoinPreview(preview)
+      setJoinClassId(null)
+      setUiLang(preview.language)
+      setJoinStep('profile')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ui.error)
+      setJoinPreview(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onJoin(e: React.FormEvent) {
+    e.preventDefault()
+    if (!joinPreview) {
+      setJoinStep('code')
+      return
+    }
+    if (joinPreview.canPickClass && !joinClassId) {
+      setError(ui.pickClassHint)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await joinGame(joinPreview.code, name)
       if (!res.ok) {
         setError(res.error)
         return
       }
-      saveSession({ code: res.room.code, playerId: res.playerId, name })
-      setRoom(res.room)
+      let nextRoom = res.room
+      if (joinClassId && joinPreview.canPickClass) {
+        const picked = await pickClass(joinClassId)
+        if (!picked.ok) {
+          setError(picked.error || ui.error)
+          // Still enter the room so they can pick again in lobby
+        } else if (picked.room) {
+          nextRoom = picked.room
+        }
+      }
+      saveSession({ code: nextRoom.code, playerId: res.playerId, name })
+      setRoom(nextRoom)
       setPlayerId(res.playerId)
-      setUiLang(res.room.language)
+      setUiLang(nextRoom.language)
+      setJoinStep('code')
+      setJoinPreview(null)
+      setJoinClassId(null)
       setScreen('play')
     } catch {
       setError(ui.error)
@@ -245,6 +297,17 @@ export default function App() {
     setPlayerId(null)
     setScreen('home')
     setError(null)
+    setJoinStep('code')
+    setJoinPreview(null)
+    setJoinClassId(null)
+  }
+
+  function openJoin() {
+    setJoinStep('code')
+    setJoinPreview(null)
+    setJoinClassId(null)
+    setError(null)
+    setScreen('join')
   }
 
   async function checkout(plan: 'day' | 'week') {
@@ -300,7 +363,7 @@ export default function App() {
             <button type="button" className="btn" onClick={() => setScreen('create')}>
               {ui.create}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setScreen('join')}>
+            <button type="button" className="btn btn-ghost" onClick={openJoin}>
               {ui.join}
             </button>
           </div>
@@ -367,19 +430,11 @@ export default function App() {
         </form>
       )}
 
-      {screen === 'join' && (
-        <form className="panel" onSubmit={(e) => void onJoin(e)}>
+      {screen === 'join' && joinStep === 'code' && (
+        <form className="panel" onSubmit={(e) => void onJoinCode(e)}>
           <h2 className="scene-title">{ui.join}</h2>
-          <div className="field">
-            <label htmlFor="join-name">{ui.yourName}</label>
-            <input
-              id="join-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              maxLength={20}
-            />
-          </div>
+          <p className="muted">{ui.joinStepCode}</p>
+          <p className="muted">{ui.joinCodeHint}</p>
           <div className="field">
             <label htmlFor="code">{ui.roomCode}</label>
             <input
@@ -388,16 +443,87 @@ export default function App() {
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
               required
               maxLength={4}
+              minLength={4}
               autoFocus
               autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
             />
           </div>
           {error && <p className="error">{error}</p>}
           <div className="row">
-            <button className="btn" type="submit" disabled={busy}>
-              {ui.join}
+            <button className="btn" type="submit" disabled={busy || joinCode.trim().length !== 4}>
+              {ui.next}
             </button>
             <button className="btn btn-ghost" type="button" onClick={() => setScreen('home')}>
+              {ui.back}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {screen === 'join' && joinStep === 'profile' && joinPreview && (
+        <form className="panel" onSubmit={(e) => void onJoin(e)}>
+          <h2 className="scene-title">{ui.join}</h2>
+          <p className="muted">
+            {ui.joinStepProfile} · {ui.code} {joinPreview.code}
+          </p>
+          {joinPreview.spectateOnly && <div className="player-hint">{ui.joinSpectateNote}</div>}
+          <div className="field">
+            <label htmlFor="join-name">{ui.yourName}</label>
+            <input
+              id="join-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              maxLength={20}
+              autoFocus
+            />
+          </div>
+          {joinPreview.canPickClass && (
+            <>
+              <h3 style={{ marginBottom: 0 }}>{ui.pickClass}</h3>
+              <div className="class-grid">
+                {joinPreview.classes.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`class-btn${joinClassId === c.id ? ' selected' : ''}`}
+                    onClick={() => setJoinClassId(c.id)}
+                  >
+                    <h3>
+                      {c.name}
+                      {joinClassId === c.id ? ` · ${ui.classPicked}` : ''}
+                    </h3>
+                    <p>{c.blurb}</p>
+                    <div className="stats">
+                      {ui.might} {c.might} · {ui.arcana} {c.arcana} · {ui.cunning} {c.cunning} —{' '}
+                      {c.ability}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {error && <p className="error">{error}</p>}
+          <div className="row">
+            <button
+              className="btn"
+              type="submit"
+              disabled={busy || (joinPreview.canPickClass && !joinClassId)}
+            >
+              {ui.join}
+            </button>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => {
+                setJoinStep('code')
+                setJoinPreview(null)
+                setJoinClassId(null)
+                setError(null)
+              }}
+            >
               {ui.back}
             </button>
           </div>

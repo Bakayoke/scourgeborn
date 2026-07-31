@@ -30,6 +30,7 @@ import {
   onResolveTimeout,
   onVoteTimeout,
   pickClass,
+  previewRoom,
   pruneIdleRooms,
   reconnectSocket,
   redeemParty,
@@ -152,6 +153,17 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/party/info', (_req, res) => {
   res.json(partyCheckoutPublicInfo())
+})
+
+app.get('/api/room/:code/preview', (req, res) => {
+  const preview = previewRoom(String(req.params.code ?? ''))
+  if (!preview) {
+    res.status(404).json({
+      error: 'Hittade inget spel med den koden / No game found with that code',
+    })
+    return
+  }
+  res.json(preview)
 })
 
 app.post('/api/party/checkout', async (req, res) => {

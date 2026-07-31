@@ -237,6 +237,34 @@ export async function fetchPartyInfo(): Promise<PartyInfo> {
   return apiJson<PartyInfo>('/api/party/info')
 }
 
+export type RoomPreview = {
+  code: string
+  language: Lang
+  status: string
+  canPickClass: boolean
+  spectateOnly: boolean
+  playerCount: number
+  classes: {
+    id: PlayerClass
+    name: string
+    blurb: string
+    might: number
+    arcana: number
+    cunning: number
+    ability: string
+  }[]
+}
+
+export async function fetchRoomPreview(code: string): Promise<RoomPreview> {
+  const path = `/api/room/${encodeURIComponent(code.trim().toUpperCase())}/preview`
+  const res = await fetch(apiUrl(path))
+  const data = (await res.json().catch(() => ({}))) as RoomPreview & { error?: string }
+  if (!res.ok) {
+    throw new Error(data.error || `API error ${res.status}`)
+  }
+  return data
+}
+
 export async function startCheckout(opts: {
   locale: Lang
   roomCode?: string
