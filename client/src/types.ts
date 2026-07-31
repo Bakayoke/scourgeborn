@@ -34,6 +34,7 @@ export type PublicRoom = {
   premiumTier: PremiumTier
   premiumExpiresAt: number | null
   limits: { maxPlayers: number; campaignMode: 'short' | 'full' }
+  isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   nodeId: string
   title: string

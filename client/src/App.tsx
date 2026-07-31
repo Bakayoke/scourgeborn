@@ -6,6 +6,7 @@ import {
   clearSession,
   createGame,
   fetchPartyInfo,
+  fetchPublicLobbies,
   fetchRoomPreview,
   joinGame,
   loadPartyPass,
@@ -24,11 +25,13 @@ import {
   setRoomHandler,
   setSecretBallot,
   setHostPlays,
+  setPublicLobby,
   setVoteSeconds,
   startAdventure,
   startCheckout,
   subscribeConnection,
   type ConnState,
+  type PublicLobbyCard,
   type RoomPreview,
 } from './api'
 import { detectPreferredLanguage, formatExpiry, rememberLanguage, t, voteTimerLabel } from './i18n'
@@ -36,7 +39,7 @@ import { JoinQr } from './qr'
 import { renderEndingCard } from './shareCard'
 import type { AdventureMode, Lang, PartyInfo, PartyPassLocal, PlayerClass, PublicRoom } from './types'
 
-type Screen = 'home' | 'create' | 'join' | 'play'
+type Screen = 'home' | 'create' | 'join' | 'find' | 'play'
 
 const FACTOPIA_URL = 'https://factopia.net'
 
@@ -95,6 +98,8 @@ export default function App() {
   const [joinStep, setJoinStep] = useState<'code' | 'profile'>('code')
   const [joinPreview, setJoinPreview] = useState<RoomPreview | null>(null)
   const [joinClassId, setJoinClassId] = useState<PlayerClass | null>(null)
+  const [lobbies, setLobbies] = useState<PublicLobbyCard[]>([])
+  const [lobbiesBusy, setLobbiesBusy] = useState(false)
   const [room, setRoom] = useState<PublicRoom | null>(null)
   const [playerId, setPlayerId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -193,6 +198,28 @@ export default function App() {
       }
     })()
   }, [])
+
+  useEffect(() => {
+    if (screen !== 'find') return
+    let cancelled = false
+    async function load() {
+      setLobbiesBusy(true)
+      try {
+        const list = await fetchPublicLobbies(uiLang)
+        if (!cancelled) setLobbies(list)
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : ui.error)
+      } finally {
+        if (!cancelled) setLobbiesBusy(false)
+      }
+    }
+    void load()
+    const id = setInterval(() => void load(), 12_000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [screen, uiLang, ui.error])
 
   function toggleLang() {
     const next: Lang = uiLang === 'sv' ? 'en' : 'sv'
@@ -302,12 +329,32 @@ export default function App() {
     setJoinClassId(null)
   }
 
-  function openJoin() {
-    setJoinStep('code')
+  function openJoin(prefillCode?: string) {
+    setJoinStep(prefillCode ? 'code' : 'code')
     setJoinPreview(null)
     setJoinClassId(null)
     setError(null)
+    if (prefillCode) setJoinCode(prefillCode.toUpperCase())
     setScreen('join')
+  }
+
+  async function openJoinFromLobby(code: string) {
+    setBusy(true)
+    setError(null)
+    setJoinCode(code)
+    try {
+      const preview = await fetchRoomPreview(code)
+      setJoinPreview(preview)
+      setJoinClassId(null)
+      setUiLang(preview.language)
+      setJoinStep('profile')
+      setScreen('join')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ui.error)
+      setScreen('find')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function checkout(plan: 'day' | 'week') {
@@ -363,8 +410,11 @@ export default function App() {
             <button type="button" className="btn" onClick={() => setScreen('create')}>
               {ui.create}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={openJoin}>
+            <button type="button" className="btn btn-ghost" onClick={() => openJoin()}>
               {ui.join}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setScreen('find')}>
+              {ui.findGame}
             </button>
           </div>
           <FactopiaLink ui={ui} />
@@ -401,6 +451,60 @@ export default function App() {
               </label>
             </div>
           )}
+        </section>
+      )}
+
+      {screen === 'find' && (
+        <section className="panel">
+          <h2 className="scene-title">{ui.findGame}</h2>
+          <p className="muted">{ui.findGameHint}</p>
+          <div className="row" style={{ marginBottom: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              disabled={lobbiesBusy}
+              onClick={() => {
+                setLobbiesBusy(true)
+                void fetchPublicLobbies(uiLang)
+                  .then(setLobbies)
+                  .catch((e) => setError(e instanceof Error ? e.message : ui.error))
+                  .finally(() => setLobbiesBusy(false))
+              }}
+            >
+              {ui.refreshLobbies}
+            </button>
+            <button type="button" className="btn btn-ghost btn-small" onClick={() => setScreen('home')}>
+              {ui.back}
+            </button>
+          </div>
+          {lobbies.length === 0 && !lobbiesBusy && (
+            <p className="muted">{ui.noOpenLobbies}</p>
+          )}
+          <ul className="lobby-list">
+            {lobbies.map((lobby) => (
+              <li key={lobby.code}>
+                <button
+                  type="button"
+                  className="lobby-card"
+                  disabled={busy}
+                  onClick={() => void openJoinFromLobby(lobby.code)}
+                >
+                  <strong>
+                    {ui.code} {lobby.code}
+                  </strong>
+                  <span>
+                    {ui.lobbyHost} {lobby.hostName}
+                    {lobby.hostPlays ? '' : ' · DM'} · {lobby.adventurerCount} {ui.lobbyAdventurers} ·{' '}
+                    {lobby.playerCount} {ui.lobbyPlayers}
+                  </span>
+                  <span className="lobby-meta">
+                    {lobby.language.toUpperCase()} · Party · {ui.joinThis}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {error && <p className="error">{error}</p>}
         </section>
       )}
 
@@ -730,6 +834,20 @@ function PlayView({
     setError(null)
     try {
       const res = await setHostPlays(plays)
+      if (!res.ok) setError(res.error || ui.error)
+      else if (res.room) setRoom(res.room)
+    } catch {
+      setError(ui.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onPublicLobby(isPublic: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await setPublicLobby(isPublic)
       if (!res.ok) setError(res.error || ui.error)
       else if (res.room) setRoom(res.room)
     } catch {
@@ -1091,6 +1209,31 @@ function PlayView({
                   {ui.hostPlaysOn}
                 </button>
               </div>
+              <p className="muted">{ui.openLobby}</p>
+              {hasParty ? (
+                <div className="mode-grid" style={{ marginBottom: '0.75rem' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-ghost${!room.isPublic ? ' selected-mode' : ''}`}
+                    disabled={busy}
+                    onClick={() => void onPublicLobby(false)}
+                  >
+                    {ui.openLobbyOff}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-ghost${room.isPublic ? ' selected-mode' : ''}`}
+                    disabled={busy}
+                    onClick={() => void onPublicLobby(true)}
+                  >
+                    {ui.openLobbyOn}
+                  </button>
+                </div>
+              ) : (
+                <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                  {ui.openLobbyNeedParty}
+                </p>
+              )}
             </>
           )}
           {isDm && <div className="player-hint ok">{ui.dmHint}</div>}

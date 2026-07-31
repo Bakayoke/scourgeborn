@@ -588,6 +588,50 @@ a {
   display: none;
 }
 
+.lobby-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.lobby-card {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(18, 32, 24, 0.72);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.lobby-card:hover:not(:disabled) {
+  border-color: rgba(224, 122, 58, 0.45);
+  transform: translateY(-1px);
+}
+
+.lobby-card strong {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--ember-hot);
+}
+
+.lobby-card span {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.lobby-meta {
+  font-weight: 700;
+  color: var(--moss-bright) !important;
+}
+
 .timer.tense {
   color: var(--danger);
   animation: pulse-timer 0.55s ease-in-out infinite;

@@ -236,6 +236,10 @@ export async function setHostPlays(plays: boolean) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setHostPlays', { plays })
 }
 
+export async function setPublicLobby(isPublic: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setPublicLobby', { isPublic })
+}
+
 export async function redeemParty(code: string) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('redeemParty', { code })
 }
@@ -274,6 +278,23 @@ export async function fetchRoomPreview(code: string): Promise<RoomPreview> {
     throw new Error(data.error || `API error ${res.status}`)
   }
   return data
+}
+
+export type PublicLobbyCard = {
+  code: string
+  language: Lang
+  playerCount: number
+  adventurerCount: number
+  hostName: string
+  hostPlays: boolean
+  voteSeconds: number
+  updatedAt: number
+}
+
+export async function fetchPublicLobbies(lang?: Lang): Promise<PublicLobbyCard[]> {
+  const q = lang ? `?lang=${lang}` : ''
+  const data = await apiJson<{ lobbies: PublicLobbyCard[] }>(`/api/lobbies${q}`)
+  return data.lobbies ?? []
 }
 
 export async function startCheckout(opts: {

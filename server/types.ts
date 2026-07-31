@@ -120,6 +120,8 @@ export type Room = {
   /** Status before pause */
   statusBeforePause: RoomStatus | null
   premiumExpiresAt: number | null
+  /** Party host opened this lobby on the public find list */
+  isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   nodeId: string
   partyHp: number
@@ -167,6 +169,7 @@ export type PublicRoom = {
   premiumTier: PremiumTier
   premiumExpiresAt: number | null
   limits: PremiumLimits
+  isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   nodeId: string
   title: string

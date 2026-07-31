@@ -127,6 +127,18 @@ const sv = {
   joinStepProfile: 'Steg 2 · Namn & klass',
   joinSpectateNote: 'Äventyret pågår — du går med som åskådare (ingen klass).',
   joinCodeHint: 'Ange den fyrsiffriga koden från värden.',
+  findGame: 'Hitta Party',
+  findGameHint: 'Öppna Party-lobbyer som letar spelare.',
+  noOpenLobbies: 'Inga öppna Party-lobbyer just nu. Skapa ett själv eller gå med via kod.',
+  refreshLobbies: 'Uppdatera',
+  openLobby: 'Öppen lobby',
+  openLobbyOn: 'Synlig i Hitta Party',
+  openLobbyOff: 'Privat (bara kod)',
+  openLobbyNeedParty: 'Lås upp Party för att synas i Hitta Party.',
+  lobbyHost: 'Värd',
+  lobbyPlayers: 'anslutna',
+  lobbyAdventurers: 'äventyrare',
+  joinThis: 'Gå med',
 }
 
 const en: typeof sv = {
@@ -255,6 +267,18 @@ const en: typeof sv = {
   joinStepProfile: 'Step 2 · Name & class',
   joinSpectateNote: 'Adventure in progress — you join as a spectator (no class).',
   joinCodeHint: 'Enter the four-letter code from the host.',
+  findGame: 'Find Party',
+  findGameHint: 'Open Party lobbies looking for players.',
+  noOpenLobbies: 'No open Party lobbies right now. Create one or join with a code.',
+  refreshLobbies: 'Refresh',
+  openLobby: 'Open lobby',
+  openLobbyOn: 'Listed in Find Party',
+  openLobbyOff: 'Private (code only)',
+  openLobbyNeedParty: 'Unlock Party to appear in Find Party.',
+  lobbyHost: 'Host',
+  lobbyPlayers: 'connected',
+  lobbyAdventurers: 'adventurers',
+  joinThis: 'Join',
 }
 
 export type UiStrings = typeof sv

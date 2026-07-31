@@ -45,7 +45,9 @@ import {
   setPersistHook,
   setSecretBallot,
   setHostPlays,
+  setPublicLobby,
   setVoteSeconds,
+  listPublicLobbies,
   startAdventure,
   toPublicRoom,
   unlockRoomWithPass,
@@ -164,6 +166,12 @@ app.get('/api/room/:code/preview', (req, res) => {
     return
   }
   res.json(preview)
+})
+
+app.get('/api/lobbies', (req, res) => {
+  const lang = req.query.lang === 'en' ? 'en' : req.query.lang === 'sv' ? 'sv' : null
+  const lobbies = listPublicLobbies({ language: lang, limit: 24 })
+  res.json({ lobbies, count: lobbies.length })
 })
 
 app.post('/api/party/checkout', async (req, res) => {
@@ -303,6 +311,15 @@ io.on('connection', (socket) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setHostPlays(binding.code, binding.playerId, Boolean(payload?.plays))
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('setPublicLobby', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = setPublicLobby(binding.code, binding.playerId, Boolean(payload?.isPublic))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

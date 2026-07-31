@@ -131,6 +131,7 @@ export function restoreRooms(list: Room[]) {
       dmNote: room.dmNote ?? '',
       secretBallot: Boolean(room.secretBallot),
       hostPlays: Boolean(room.hostPlays),
+      isPublic: Boolean(room.isPublic),
       adventureLog: Array.isArray(room.adventureLog) ? room.adventureLog : [],
       notice: room.notice ?? null,
       players: room.players.map((p) => ({
@@ -168,6 +169,7 @@ export function createRoom(
     status: 'lobby',
     statusBeforePause: null,
     premiumExpiresAt,
+    isPublic: false,
     waitlist: [],
     nodeId: START_NODE,
     partyHp: PARTY_HP_BASE,
@@ -415,6 +417,7 @@ export function startAdventure(
   room.adventureLog = []
   room.dmNote = ''
   room.notice = null
+  room.isPublic = false
   enterNode(room, MODE_START[adventureMode])
   beginVoting(room)
   touch(room)
@@ -486,6 +489,76 @@ export function setHostPlays(
   }
   touch(room)
   return room
+}
+
+export function setPublicLobby(
+  code: string,
+  playerId: string,
+  isPublic: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return {
+      error: roomMsg(room, 'Bara värden kan öppna lobbyn', 'Only the host can open the lobby'),
+    }
+  }
+  if (room.status !== 'lobby' && room.status !== 'class_pick') {
+    return {
+      error: roomMsg(room, 'Kan bara öppnas i lobby', 'Can only be opened in lobby'),
+    }
+  }
+  if (isPublic && tierFromExpiry(room.premiumExpiresAt) !== 'party') {
+    return {
+      error: roomMsg(
+        room,
+        'Party-pass krävs för öppna lobbyer',
+        'Party pass required for open lobbies',
+      ),
+    }
+  }
+  room.isPublic = Boolean(isPublic)
+  touch(room)
+  return room
+}
+
+export type PublicLobbyCard = {
+  code: string
+  language: Lang
+  playerCount: number
+  adventurerCount: number
+  hostName: string
+  hostPlays: boolean
+  voteSeconds: number
+  updatedAt: number
+}
+
+export function listPublicLobbies(opts?: { language?: Lang | null; limit?: number }): PublicLobbyCard[] {
+  const limit = Math.min(40, Math.max(1, opts?.limit ?? 24))
+  const langFilter = opts?.language
+  const now = Date.now()
+  const cards: PublicLobbyCard[] = []
+  for (const room of rooms.values()) {
+    if (!room.isPublic) continue
+    if (room.status !== 'lobby' && room.status !== 'class_pick') continue
+    if (tierFromExpiry(room.premiumExpiresAt) !== 'party') continue
+    // Drop stale listings (host idle > 45 min)
+    if (now - (room.updatedAt || 0) > 45 * 60 * 1000) continue
+    if (langFilter && room.language !== langFilter) continue
+    const host = room.players.find((p) => p.id === room.hostId)
+    cards.push({
+      code: room.code,
+      language: room.language,
+      playerCount: room.players.filter((p) => p.connected).length,
+      adventurerCount: connectedAdventurers(room).length,
+      hostName: host?.name ?? (room.language === 'en' ? 'Host' : 'Värd'),
+      hostPlays: Boolean(room.hostPlays),
+      voteSeconds: room.voteSeconds,
+      updatedAt: room.updatedAt,
+    })
+  }
+  cards.sort((a, b) => b.updatedAt - a.updatedAt)
+  return cards.slice(0, limit)
 }
 
 function beginVoting(room: Room) {
@@ -680,6 +753,7 @@ export function rematch(
 
   room.partyHp = PARTY_HP_BASE + Math.max(1, connected.length) * 4
   room.partyHpMax = room.partyHp
+  room.isPublic = false
   enterNode(room, MODE_START[adventureMode])
   beginVoting(room)
   touch(room)
@@ -915,6 +989,7 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     premiumTier: tier,
     premiumExpiresAt: room.premiumExpiresAt,
     limits,
+    isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,
     nodeId: room.nodeId,
     title: node ? loc(node.title, lang) : '',
