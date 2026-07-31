@@ -21,15 +21,43 @@ import {
   setDmNote,
   setLanguage as setRoomLanguage,
   setRoomHandler,
+  setSecretBallot,
+  setHostPlays,
   setVoteSeconds,
   startAdventure,
   startCheckout,
+  subscribeConnection,
+  type ConnState,
 } from './api'
 import { detectPreferredLanguage, formatExpiry, rememberLanguage, t, voteTimerLabel } from './i18n'
+import { JoinQr } from './qr'
 import { renderEndingCard } from './shareCard'
 import type { AdventureMode, Lang, PartyInfo, PartyPassLocal, PlayerClass, PublicRoom } from './types'
 
 type Screen = 'home' | 'create' | 'join' | 'play'
+
+const FACTOPIA_URL = 'https://factopia.net'
+
+function FactopiaLink({
+  ui,
+  compact,
+}: {
+  ui: ReturnType<typeof t>
+  compact?: boolean
+}) {
+  return (
+    <a
+      className={`sister-game${compact ? ' compact' : ''}`}
+      href={FACTOPIA_URL}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <strong>Factopia</strong>
+      <span>{ui.factopiaPitch}</span>
+      <em>{ui.factopiaCta}</em>
+    </a>
+  )
+}
 
 function useCountdown(endsAt: number) {
   const [now, setNow] = useState(Date.now())
@@ -72,6 +100,7 @@ export default function App() {
   const [copied, setCopied] = useState(false)
   const [promo, setPromo] = useState('')
   const [firstTime, setFirstTime] = useState(true)
+  const [conn, setConn] = useState<ConnState>('connecting')
 
   const hasParty = Boolean(partyPass && partyPass.expiresAt > Date.now())
 
@@ -91,6 +120,12 @@ export default function App() {
     setRoomHandler((r) => setRoom(r))
     return () => setRoomHandler(null)
   }, [])
+
+  useEffect(() => subscribeConnection(setConn), [])
+
+  useEffect(() => {
+    if (room?.notice) setBanner(room.notice)
+  }, [room?.notice])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -243,6 +278,11 @@ export default function App() {
         </button>
       </div>
 
+      {conn !== 'connected' && (
+        <div className={`conn-banner ${conn}`}>
+          {conn === 'connecting' ? ui.reconnecting : ui.disconnected}
+        </div>
+      )}
       {banner && <div className="banner">{banner}</div>}
       {error && <p className="error">{error}</p>}
       {hasParty && partyPass && (
@@ -264,6 +304,7 @@ export default function App() {
               {ui.join}
             </button>
           </div>
+          <FactopiaLink ui={ui} />
           {!hasParty && (
             <div className="party-box">
               <p className="muted">{ui.partyBlurb}</p>
@@ -441,8 +482,16 @@ function PlayView({
     const sorted = [...room.choices].sort((a, b) => b.votes - a.votes)
     return Boolean(sorted[0] && sorted[1] && sorted[0].votes > 0 && sorted[0].votes === sorted[1].votes)
   }, [room.choices])
-  const classesReady = room.players.filter((p) => p.connected && p.classId).length
-  const classesNeeded = room.players.filter((p) => p.connected).length
+  const classesReady = room.players.filter(
+    (p) =>
+      p.connected &&
+      !p.spectator &&
+      p.classId &&
+      !(p.id === room.hostId && !room.hostPlays),
+  ).length
+  const classesNeeded = room.players.filter(
+    (p) => p.connected && !p.spectator && !(p.id === room.hostId && !room.hostPlays),
+  ).length
   const yourChoiceText = room.choices.find((c) => c.id === room.yourVote)?.text
 
   const inLobby = room.status === 'lobby' || room.status === 'class_pick'
@@ -454,6 +503,13 @@ function PlayView({
     voting && room.voteEndsAt > 0 && seconds > 0 && seconds <= 5
   const hasParty = room.premiumTier === 'party'
   const joinUrl = `https://partypaths.com/?join=${room.code}`
+  const isSpectator = room.youAreSpectator || Boolean(me?.spectator)
+  const isDm = Boolean(room.youAreDm || (isHost && !room.hostPlays))
+  const canPickClass = !isSpectator && !isDm
+  const canVote = canPickClass && Boolean(me?.classId)
+  const showTallies = !room.secretBallot || !voting
+  const shortEnding = finished && room.nodeId === 'ending_short'
+  const log = room.adventureLog ?? []
 
   useEffect(() => {
     const app = document.querySelector('.app')
@@ -520,6 +576,34 @@ function PlayView({
     setError(null)
     try {
       const res = await setVoteSeconds(seconds)
+      if (!res.ok) setError(res.error || ui.error)
+      else if (res.room) setRoom(res.room)
+    } catch {
+      setError(ui.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onSecretBallot(enabled: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await setSecretBallot(enabled)
+      if (!res.ok) setError(res.error || ui.error)
+      else if (res.room) setRoom(res.room)
+    } catch {
+      setError(ui.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onHostPlays(plays: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await setHostPlays(plays)
       if (!res.ok) setError(res.error || ui.error)
       else if (res.room) setRoom(res.room)
     } catch {
@@ -658,6 +742,13 @@ function PlayView({
     })
   }
 
+  function copyJoinLink() {
+    void navigator.clipboard.writeText(joinUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
   function ModeButtons({
     onPickMode,
   }: {
@@ -691,12 +782,12 @@ function PlayView({
     <div className="panel">
       {showQr && (
         <div className="qr-overlay" role="dialog" aria-label={ui.showQr}>
-          <img
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(joinUrl)}`}
-            alt={`QR ${room.code}`}
-          />
+          <JoinQr url={joinUrl} size={320} alt={`QR ${room.code}`} />
           <div className="code-big">{room.code}</div>
           <p className="muted">{ui.joinUrl}</p>
+          <button type="button" className="btn btn-ghost btn-small" onClick={copyJoinLink}>
+            {copied ? ui.copied : ui.copyLink}
+          </button>
           <button type="button" className="btn" onClick={() => setShowQr(false)}>
             {ui.hideQr}
           </button>
@@ -720,6 +811,9 @@ function PlayView({
             <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={copyCode}>
               {copied ? ui.copied : ui.copy}
             </button>
+            <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={copyJoinLink}>
+              {ui.copyLink}
+            </button>
             <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={leave}>
               {ui.leave}
             </button>
@@ -729,13 +823,14 @@ function PlayView({
 
       <p className="muted hide-on-tv shareHint-hide">{ui.shareHint}</p>
       <p className="muted hide-on-tv">{hasParty ? ui.partyTier : ui.freeTier}</p>
+      {isSpectator && !inLobby && <div className="player-hint">{ui.spectatorHint}</div>}
+      {isDm && !inLobby && (
+        <div className="player-hint ok hide-on-tv">{ui.dmRole} — {ui.lockVotes}</div>
+      )}
 
       {inLobby && tvMode && (
         <div className="tv-only tv-lobby-qr">
-          <img
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(joinUrl)}`}
-            alt={`QR ${room.code}`}
-          />
+          <JoinQr url={joinUrl} size={280} alt={`QR ${room.code}`} />
           <div>
             <p className="scene-title" style={{ margin: 0 }}>
               {ui.joinOnPhone}
@@ -761,6 +856,8 @@ function PlayView({
               <span>
                 {p.name}
                 {p.id === room.hostId ? ` · ${ui.host}` : ''}
+                {p.id === room.hostId && !room.hostPlays ? ` · ${ui.dmRole}` : ''}
+                {p.spectator ? ` · ${ui.spectator}` : ''}
                 {cls ? ` · ${cls.name}` : ''}
               </span>
               <span className="muted">{p.connected ? '●' : '○'}</span>
@@ -768,6 +865,19 @@ function PlayView({
           )
         })}
       </ul>
+      {room.waitlist.length > 0 && (
+        <div className="waitlist hide-on-tv">
+          <h3 style={{ marginBottom: 0 }}>{ui.waitlist}</h3>
+          <ul className="player-list">
+            {room.waitlist.map((w) => (
+              <li key={w.id}>
+                <span>{w.name}</span>
+                <span className="muted">○</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="chip-row tv-only">
         {room.players.map((p) => {
           const cls = room.classes.find((c) => c.id === p.classId)
@@ -777,6 +887,8 @@ function PlayView({
               className={`chip${p.connected ? '' : ' offline'}${p.id === playerId ? ' me' : ''}`}
             >
               {p.name}
+              {p.id === room.hostId && !room.hostPlays ? ` · DM` : ''}
+              {p.spectator ? ` · ${ui.spectator}` : ''}
               {cls ? ` · ${cls.name}` : ''}
             </span>
           )
@@ -830,31 +942,63 @@ function PlayView({
 
       {inLobby && (
         <>
-          <h2 className="scene-title" style={{ marginTop: '1.25rem' }}>
-            {ui.pickClass}
-          </h2>
-          {!me?.classId && <div className="player-hint">{ui.pickClassHint}</div>}
-          {me?.classId && !isHost && <div className="player-hint ok">{ui.classReadyWait}</div>}
-          <div className="class-grid">
-            {room.classes.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`class-btn${me?.classId === c.id ? ' selected' : ''}`}
-                onClick={() => void onPick(c.id)}
-                disabled={busy}
-              >
-                <h3>
-                  {c.name}
-                  {me?.classId === c.id ? ` · ${ui.classPicked}` : ''}
-                </h3>
-                <p>{c.blurb}</p>
-                <div className="stats">
-                  M{c.might} · A{c.arcana} · C{c.cunning} — {c.ability}
-                </div>
-              </button>
-            ))}
-          </div>
+          {isHost && (
+            <>
+              <p className="muted" style={{ marginTop: '1.25rem' }}>
+                {ui.hostPlaysLabel}
+              </p>
+              <div className="mode-grid" style={{ marginBottom: '0.75rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-ghost${!room.hostPlays ? ' selected-mode' : ''}`}
+                  disabled={busy}
+                  onClick={() => void onHostPlays(false)}
+                >
+                  {ui.hostPlaysOff}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-ghost${room.hostPlays ? ' selected-mode' : ''}`}
+                  disabled={busy}
+                  onClick={() => void onHostPlays(true)}
+                >
+                  {ui.hostPlaysOn}
+                </button>
+              </div>
+            </>
+          )}
+          {isDm && <div className="player-hint ok">{ui.dmHint}</div>}
+          {isSpectator && <div className="player-hint">{ui.spectatorHint}</div>}
+          {canPickClass && (
+            <>
+              <h2 className="scene-title" style={{ marginTop: '1.25rem' }}>
+                {ui.pickClass}
+              </h2>
+              {!me?.classId && <div className="player-hint">{ui.pickClassHint}</div>}
+              {me?.classId && !isHost && <div className="player-hint ok">{ui.classReadyWait}</div>}
+              <div className="class-grid">
+                {room.classes.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`class-btn${me?.classId === c.id ? ' selected' : ''}`}
+                    onClick={() => void onPick(c.id)}
+                    disabled={busy}
+                  >
+                    <h3>
+                      {c.name}
+                      {me?.classId === c.id ? ` · ${ui.classPicked}` : ''}
+                    </h3>
+                    <p>{c.blurb}</p>
+                    <div className="stats">
+                      {ui.might} {c.might} · {ui.arcana} {c.arcana} · {ui.cunning} {c.cunning} —{' '}
+                      {c.ability}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           {isHost ? (
             <>
               <p className="muted" style={{ marginTop: '1rem' }}>
@@ -876,9 +1020,29 @@ function PlayView({
                   </button>
                 ))}
               </div>
+              <p className="muted">{ui.secretBallot}</p>
+              <div className="mode-grid" style={{ marginBottom: '1rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-ghost${!room.secretBallot ? ' selected-mode' : ''}`}
+                  disabled={busy}
+                  onClick={() => void onSecretBallot(false)}
+                >
+                  {ui.secretBallotOff}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-ghost${room.secretBallot ? ' selected-mode' : ''}`}
+                  disabled={busy}
+                  onClick={() => void onSecretBallot(true)}
+                >
+                  {ui.secretBallotOn}
+                </button>
+              </div>
               <p className="muted" style={{ marginTop: '0.5rem' }}>
                 {ui.modes} · {classesReady}/{classesNeeded} {ui.readyCount}
               </p>
+              {classesNeeded < 1 && <p className="muted">{ui.needAdventurers}</p>}
               <ModeButtons onPickMode={(mode) => void onStart(mode)} />
             </>
           ) : (
@@ -958,7 +1122,11 @@ function PlayView({
 
           {voting && (
             <>
-              {!room.yourVote ? (
+              {isDm ? (
+                <div className="player-hint ok">{ui.dmHint}</div>
+              ) : isSpectator ? (
+                <div className="player-hint">{ui.spectatorHint}</div>
+              ) : !room.yourVote ? (
                 <div className="player-hint">{ui.tapToVote}</div>
               ) : (
                 <div className="player-hint ok">
@@ -980,11 +1148,16 @@ function PlayView({
                       {ui.seconds}
                     </span>
                     {tense && <span className="close-race"> {ui.tense}</span>}
-                    {closeRaceLive && <span className="close-race"> · {ui.closeRace}</span>}
+                    {showTallies && closeRaceLive && (
+                      <span className="close-race"> · {ui.closeRace}</span>
+                    )}
                   </>
                 )}
                 {' · '}
                 {room.votedCount}/{room.voterCount} {ui.votesIn}
+                {room.secretBallot && (
+                  <span className="muted"> · {ui.secretLive}</span>
+                )}
               </p>
               <div className="vote-grid">
                 {room.choices.map((c) => (
@@ -993,14 +1166,16 @@ function PlayView({
                     type="button"
                     className={`vote-btn${room.yourVote === c.id ? ' mine' : ''}`}
                     onClick={() => void onVote(c.id)}
-                    disabled={busy}
+                    disabled={busy || !canVote}
                   >
-                    <span className="vote-count">{c.votes}</span>
+                    {showTallies && <span className="vote-count">{c.votes}</span>}
                     {c.text}
-                    <span
-                      className="tally-bar"
-                      style={{ width: `${(100 * c.votes) / maxVotes}%` }}
-                    />
+                    {showTallies && (
+                      <span
+                        className="tally-bar"
+                        style={{ width: `${(100 * c.votes) / maxVotes}%` }}
+                      />
+                    )}
                   </button>
                 ))}
               </div>
@@ -1035,6 +1210,46 @@ function PlayView({
 
           {finished && (
             <>
+              {log.length > 0 && (
+                <div className="resolve-box recap">
+                  <strong>{ui.adventureRecap}</strong>
+                  <ol className="recap-list">
+                    {log.map((e, i) => (
+                      <li key={`${e.title}-${i}`}>
+                        <span className="muted">{e.title}</span>
+                        <div>
+                          {e.winningText}
+                          {e.closeRace ? ` · ${ui.closeRace}` : ''}
+                        </div>
+                        {e.heroBanner && <div className="hero-banner small">{e.heroBanner}</div>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {shortEnding && !hasParty && (
+                <div className="party-box upgrade-cta">
+                  <p>{ui.upgradeShort}</p>
+                  <div className="cta-row">
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      disabled={busy || partyInfo?.enabled === false}
+                      onClick={() => void checkout('day')}
+                    >
+                      {ui.unlockParty} · {partyInfo?.amountLabel ?? '…'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small"
+                      disabled={busy || partyInfo?.enabled === false}
+                      onClick={() => void checkout('week')}
+                    >
+                      {partyInfo?.weekAmountLabel ?? '…'} / {ui.partyWeek}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="cta-row">
                 <button type="button" className="btn" disabled={busy} onClick={() => void onShare()}>
                   {ui.shareCard}
@@ -1049,6 +1264,7 @@ function PlayView({
                   <ModeButtons onPickMode={(mode) => void onRematch(mode)} />
                 </>
               )}
+              <FactopiaLink ui={ui} compact />
             </>
           )}
         </>

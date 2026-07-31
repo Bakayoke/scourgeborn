@@ -40,7 +40,10 @@ import {
   roomsNeedingTick,
   setDmNote,
   setLanguage,
+  setBroadcastHook,
   setPersistHook,
+  setSecretBallot,
+  setHostPlays,
   setVoteSeconds,
   startAdventure,
   toPublicRoom,
@@ -106,6 +109,7 @@ function persistNow() {
 
 setPersistHook(persistNow)
 setPassPersistHook(persistNow)
+setBroadcastHook(broadcastRoom)
 
 function broadcastRoom(code: string) {
   const room = getRoom(code)
@@ -259,6 +263,24 @@ io.on('connection', (socket) => {
     const binding = getBinding(socket.id)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setVoteSeconds(binding.code, binding.playerId, Number(payload?.seconds))
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('setSecretBallot', (payload, ack) => {
+    const binding = getBinding(socket.id)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = setSecretBallot(binding.code, binding.playerId, Boolean(payload?.enabled))
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('setHostPlays', (payload, ack) => {
+    const binding = getBinding(socket.id)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = setHostPlays(binding.code, binding.playerId, Boolean(payload?.plays))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

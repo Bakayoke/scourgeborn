@@ -123,8 +123,16 @@ function applyEffects(room: Room, choice: StoryChoice) {
   }
 }
 
+function adventurerPlayers(room: Room): Player[] {
+  return room.players.filter((p) => {
+    if (p.spectator) return false
+    if (p.id === room.hostId && !room.hostPlays) return false
+    return true
+  })
+}
+
 function effectiveStats(room: Room) {
-  const base = partyStats(room.players.map((p) => p.classId))
+  const base = partyStats(adventurerPlayers(room).map((p) => p.classId))
   return {
     might: base.might + Number(room.flags.partyMightBonus ?? 0),
     arcana: base.arcana + Number(room.flags.partyArcanaBonus ?? 0),
@@ -165,7 +173,9 @@ export function resolveVote(room: Room): ResolveResult | { error: string } {
 
   const tally = tallyVotes(room.votes)
   const host = room.players.find((p) => p.id === room.hostId)
-  const hostVote = host ? room.votes[host.id] ?? null : null
+  // Host tie-break only if the host is playing (and voted)
+  const hostVote =
+    host && room.hostPlays ? room.votes[host.id] ?? null : null
   const winningId = pickWinner(tally, choiceIds, hostVote)
   const winning = choices.find((c) => c.id === winningId) ?? choices[0]
 
@@ -214,7 +224,7 @@ function resolveCombatRound(
   }
 
   const stats = effectiveStats(room)
-  const maj = majorityClass(room.players)
+  const maj = majorityClass(adventurerPlayers(room))
   const majClass = getClass(maj)
 
   let dmgToEnemy = 0

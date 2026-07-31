@@ -68,7 +68,19 @@ async function redisBackend(url: string): Promise<Backend> {
       return JSON.parse(raw) as PersistedSnapshot
     },
     async save(snapshot) {
-      await client.set(key, JSON.stringify(snapshot), { EX: 60 * 60 * 48 })
+      // Keep state at least as long as the longest Party pass / room premium (+1h buffer).
+      // Floor at 48h so idle free rooms still survive short outages.
+      const now = Date.now()
+      const maxPassMs = Math.max(0, ...snapshot.passes.map((p) => p.expiresAt - now))
+      const maxRoomMs = Math.max(
+        0,
+        ...snapshot.rooms.map((r) => (r.premiumExpiresAt ?? 0) - now),
+      )
+      const ttlSec = Math.max(
+        60 * 60 * 48,
+        Math.ceil(Math.max(maxPassMs, maxRoomMs) / 1000) + 60 * 60,
+      )
+      await client.set(key, JSON.stringify(snapshot), { EX: ttlSec })
     },
   }
 }

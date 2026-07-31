@@ -34,7 +34,7 @@ function touchPasses() {
 }
 
 function configuredPassCodes(): Set<string> {
-  const raw = process.env.PARTY_PASS_CODES ?? 'LinusÄrBästHundraProcent'
+  const raw = process.env.PARTY_PASS_CODES?.trim() ?? ''
   return new Set(
     raw
       .split(',')
@@ -83,7 +83,9 @@ export function allPasses() {
 export function redeemPassCode(code: string): PartyPass | { error: string } {
   const normalized = code.trim().toUpperCase()
   if (!normalized) return { error: 'Ange en party-kod' }
-  if (!configuredPassCodes().has(normalized)) {
+  const codes = configuredPassCodes()
+  if (codes.size === 0) return { error: 'Inga party-koder är konfigurerade' }
+  if (!codes.has(normalized)) {
     return { error: 'Ogiltig party-kod' }
   }
   return issuePartyPass()

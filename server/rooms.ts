@@ -30,9 +30,33 @@ const DEFAULT_VOTE_SEC = 60
 const RESOLVE_MS = 5_500
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
 const PARTY_HP_BASE = 40
+const NOTICE_TTL_MS = 45_000
 
 /** Allowed host choices: 0 = discuss (no timer) */
 export const VOTE_TIMER_OPTIONS = [0, 30, 60, 90, 120, 180] as const
+
+function msg(lang: Lang, sv: string, en: string) {
+  return lang === 'en' ? en : sv
+}
+
+function roomMsg(room: Room, sv: string, en: string) {
+  return msg(room.language, sv, en)
+}
+
+/** Adventurer = plays a character (votes + class). Excludes spectators and DM-only host. */
+function isAdventurer(room: Room, p: Player): boolean {
+  if (p.spectator) return false
+  if (p.id === room.hostId && !room.hostPlays) return false
+  return true
+}
+
+function eligibleVoters(room: Room) {
+  return room.players.filter((p) => p.connected && isAdventurer(room, p) && p.classId)
+}
+
+function connectedAdventurers(room: Room) {
+  return room.players.filter((p) => p.connected && isAdventurer(room, p))
+}
 
 function normalizeVoteSeconds(raw: unknown): number {
   const n = Number(raw)
@@ -53,9 +77,14 @@ const socketToPlayer = new Map<string, { code: string; playerId: string }>()
 const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 let onPersist: (() => void) | null = null
+let onBroadcast: ((code: string) => void) | null = null
 
 export function setPersistHook(fn: (() => void) | null) {
   onPersist = fn
+}
+
+export function setBroadcastHook(fn: ((code: string) => void) | null) {
+  onBroadcast = fn
 }
 
 function touch(room?: Room) {
@@ -100,6 +129,14 @@ export function restoreRooms(list: Room[]) {
       voteSeconds: normalizeVoteSeconds(room.voteSeconds ?? DEFAULT_VOTE_SEC),
       voteRemainingMs: room.voteRemainingMs ?? 0,
       dmNote: room.dmNote ?? '',
+      secretBallot: Boolean(room.secretBallot),
+      hostPlays: Boolean(room.hostPlays),
+      adventureLog: Array.isArray(room.adventureLog) ? room.adventureLog : [],
+      notice: room.notice ?? null,
+      players: room.players.map((p) => ({
+        ...p,
+        spectator: Boolean(p.spectator),
+      })),
     })
   }
 }
@@ -120,6 +157,7 @@ export function createRoom(
     name: hostName.trim().slice(0, 20) || (language === 'en' ? 'Host' : 'Värd'),
     connected: true,
     classId: null,
+    spectator: false,
   }
 
   const room: Room = {
@@ -138,13 +176,17 @@ export function createRoom(
     campaignMode: limits.campaignMode,
     adventureMode: 'story',
     voteSeconds: DEFAULT_VOTE_SEC,
+    secretBallot: false,
+    hostPlays: false,
     votes: {},
     voteEndsAt: 0,
     voteRemainingMs: 0,
     lastResolve: null,
+    adventureLog: [],
     activeChoiceIds: [],
     combatEnemyHp: null,
     dmNote: '',
+    notice: null,
     updatedAt: Date.now(),
   }
 
@@ -167,17 +209,22 @@ export function joinRoom(
       waitlistCount?: number
     } {
   const room = rooms.get(code.toUpperCase().trim())
-  if (!room) return { error: 'Hittade inget spel med den koden', code: 'NOT_FOUND' }
-
-  if (room.status !== 'lobby' && room.status !== 'class_pick' && room.status !== 'finished') {
-    // Allow spectate mid-game
+  if (!room) {
+    return {
+      error: 'Hittade inget spel med den koden / No game found with that code',
+      code: 'NOT_FOUND',
+    }
   }
+
+  const midGame =
+    room.status !== 'lobby' && room.status !== 'class_pick' && room.status !== 'finished'
 
   const displayName =
     name.trim().slice(0, 20) || (room.language === 'en' ? 'Player' : 'Spelare')
 
   const maxPlayers = roomLimits(room).maxPlayers
-  if (maxPlayers > 0 && room.players.length >= maxPlayers) {
+  const seated = room.players.filter((p) => isAdventurer(room, p))
+  if (maxPlayers > 0 && seated.length >= maxPlayers && !midGame) {
     const existing = room.waitlist.find(
       (w) => w.name.toLowerCase() === displayName.toLowerCase(),
     )
@@ -191,10 +238,15 @@ export function joinRoom(
     }
     touch(room)
     return {
-      error:
+      error: roomMsg(
+        room,
         maxPlayers <= 5
-          ? `Rummet är fullt (max ${maxPlayers} gratis). Lås upp Party för fler spelare.`
-          : `Rummet är fullt (max ${maxPlayers})`,
+          ? `Rummet är fullt (max ${maxPlayers} gratis). Du står i kö (${room.waitlist.length}). Lås upp Party för fler.`
+          : `Rummet är fullt (max ${maxPlayers}). Du står i kö (${room.waitlist.length}).`,
+        maxPlayers <= 5
+          ? `Room is full (max ${maxPlayers} free). You're on the waitlist (${room.waitlist.length}). Unlock Party for more.`
+          : `Room is full (max ${maxPlayers}). You're on the waitlist (${room.waitlist.length}).`,
+      ),
       code: 'ROOM_FULL',
       roomCode: room.code,
       waitlistCount: room.waitlist.length,
@@ -207,6 +259,7 @@ export function joinRoom(
     name: displayName,
     connected: true,
     classId: null,
+    spectator: midGame,
   })
   room.waitlist = room.waitlist.filter((w) => w.name.toLowerCase() !== displayName.toLowerCase())
   socketToPlayer.set(socketId, { code: room.code, playerId })
@@ -224,10 +277,12 @@ export function getRoom(code: string) {
 
 export function setLanguage(code: string, playerId: string, language: Lang): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan ändra språk' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan ändra språk', 'Only the host can change language') }
+  }
   if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: 'Kan inte byta språk mid-spel' }
+    return { error: roomMsg(room, 'Kan inte byta språk mid-spel', 'Cannot change language mid-game') }
   }
   room.language = language === 'en' ? 'en' : 'sv'
   touch(room)
@@ -240,13 +295,27 @@ export function pickClass(
   classId: PlayerClass,
 ): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
   if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: 'Klassval är stängt' }
+    return { error: roomMsg(room, 'Klassval är stängt', 'Class pick is closed') }
   }
-  if (!CLASSES.some((c) => c.id === classId)) return { error: 'Ogiltig klass' }
+  if (!CLASSES.some((c) => c.id === classId)) {
+    return { error: roomMsg(room, 'Ogiltig klass', 'Invalid class') }
+  }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player) return { error: 'Spelaren hittades inte' }
+  if (!player) return { error: roomMsg(room, 'Spelaren hittades inte', 'Player not found') }
+  if (player.spectator) {
+    return { error: roomMsg(room, 'Åskådare kan inte välja klass', 'Spectators cannot pick a class') }
+  }
+  if (player.id === room.hostId && !room.hostPlays) {
+    return {
+      error: roomMsg(
+        room,
+        'Slå på ”Jag spelar med” för att välja klass',
+        'Turn on “I play too” to pick a class',
+      ),
+    }
+  }
   player.classId = classId
   if (room.status === 'lobby') room.status = 'class_pick'
   touch(room)
@@ -259,31 +328,39 @@ export function startAdventure(
   mode: AdventureMode = 'story',
 ): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan starta' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan starta', 'Only the host can start') }
+  }
   if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: 'Äventyret har redan startat' }
+    return { error: roomMsg(room, 'Äventyret har redan startat', 'Adventure already started') }
   }
 
-  const connected = room.players.filter((p) => p.connected)
-  if (connected.length < 1) return { error: 'Behöver minst en spelare' }
+  const connected = connectedAdventurers(room)
+  if (connected.length < 1) {
+    return {
+      error: roomMsg(
+        room,
+        'Behöver minst en äventyrare (värden kan vara DM)',
+        'Need at least one adventurer (host can stay as DM)',
+      ),
+    }
+  }
   const missing = connected.filter((p) => !p.classId)
   if (missing.length > 0) {
     return {
-      error:
-        room.language === 'en'
-          ? 'All connected players must pick a class'
-          : 'Alla anslutna spelare måste välja klass',
+      error: roomMsg(
+        room,
+        'Alla äventyrare måste välja klass',
+        'All adventurers must pick a class',
+      ),
     }
   }
 
   const adventureMode = normalizeMode(mode)
   if (adventureMode === 'dragon' && roomLimits(room).campaignMode !== 'full') {
     return {
-      error:
-        room.language === 'en'
-          ? 'Dragon mode needs Party pass'
-          : 'Drakläget kräver Party-pass',
+      error: roomMsg(room, 'Drakläget kräver Party-pass', 'Dragon mode needs Party pass'),
     }
   }
 
@@ -294,7 +371,9 @@ export function startAdventure(
   room.partyHpMax = room.partyHp
   room.flags = adventureMode === 'chaos' ? { chaos: true } : {}
   room.lastResolve = null
+  room.adventureLog = []
   room.dmNote = ''
+  room.notice = null
   enterNode(room, MODE_START[adventureMode])
   beginVoting(room)
   touch(room)
@@ -312,12 +391,58 @@ export function setVoteSeconds(
   seconds: number,
 ): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan ändra tid' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan ändra tid', 'Only the host can change the timer') }
+  }
   if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: 'Kan bara ändras i lobby' }
+    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
   }
   room.voteSeconds = normalizeVoteSeconds(seconds)
+  touch(room)
+  return room
+}
+
+export function setSecretBallot(
+  code: string,
+  playerId: string,
+  enabled: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return {
+      error: roomMsg(room, 'Bara värden kan ändra hemlig omröstning', 'Only the host can change secret ballot'),
+    }
+  }
+  if (room.status !== 'lobby' && room.status !== 'class_pick') {
+    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
+  }
+  room.secretBallot = Boolean(enabled)
+  touch(room)
+  return room
+}
+
+export function setHostPlays(
+  code: string,
+  playerId: string,
+  plays: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return {
+      error: roomMsg(room, 'Bara värden kan ändra DM-läge', 'Only the host can change DM mode'),
+    }
+  }
+  if (room.status !== 'lobby' && room.status !== 'class_pick') {
+    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
+  }
+  room.hostPlays = Boolean(plays)
+  const host = room.players.find((p) => p.id === room.hostId)
+  if (host && !room.hostPlays) {
+    host.classId = null
+  }
   touch(room)
   return room
 }
@@ -345,16 +470,31 @@ export function castVote(
   choiceId: string,
 ): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.status !== 'voting') return { error: 'Ingen omröstning pågår' }
-  if (!room.activeChoiceIds.includes(choiceId)) return { error: 'Ogiltigt val' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.status !== 'voting') {
+    return { error: roomMsg(room, 'Ingen omröstning pågår', 'No vote in progress') }
+  }
+  if (!room.activeChoiceIds.includes(choiceId)) {
+    return { error: roomMsg(room, 'Ogiltigt val', 'Invalid choice') }
+  }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player || !player.connected) return { error: 'Du är inte med i spelet' }
+  if (!player || !player.connected) {
+    return { error: roomMsg(room, 'Du är inte med i spelet', 'You are not in the game') }
+  }
+  if (player.spectator || !player.classId || !isAdventurer(room, player)) {
+    return {
+      error: roomMsg(
+        room,
+        'Bara äventyrare kan rösta (DM leder spelet)',
+        'Only adventurers can vote (the DM runs the game)',
+      ),
+    }
+  }
   room.votes[playerId] = choiceId
   touch(room)
 
-  // Auto-lock when everyone connected has voted
-  const voters = room.players.filter((p) => p.connected)
+  // Auto-lock when everyone eligible has voted
+  const voters = eligibleVoters(room)
   if (voters.length > 0 && voters.every((p) => room.votes[p.id])) {
     return lockVotes(code, room.hostId)
   }
@@ -363,12 +503,16 @@ export function castVote(
 
 export function lockVotes(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.status !== 'voting') return { error: 'Ingen omröstning pågår' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.status !== 'voting') {
+    return { error: roomMsg(room, 'Ingen omröstning pågår', 'No vote in progress') }
+  }
   if (room.hostId !== playerId) {
-    const voters = room.players.filter((p) => p.connected)
+    const voters = eligibleVoters(room)
     const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id])
-    if (!allVoted) return { error: 'Bara värden kan låsa tidigt' }
+    if (!allVoted) {
+      return { error: roomMsg(room, 'Bara värden kan låsa tidigt', 'Only the host can lock early') }
+    }
   }
 
   const node = getNode(room.nodeId)
@@ -394,6 +538,16 @@ export function lockVotes(code: string, playerId: string): Room | { error: strin
     ...result.lastResolve,
     voteReveal,
   }
+  room.adventureLog = [
+    ...(room.adventureLog ?? []),
+    {
+      nodeId: room.nodeId,
+      title: node?.title ?? { sv: '', en: '' },
+      winningText: result.lastResolve.winningText,
+      closeRace: result.lastResolve.closeRace,
+      heroBanner: result.lastResolve.heroBanner,
+    },
+  ].slice(-40)
   room.status = 'resolve'
   room.voteEndsAt = Date.now() + RESOLVE_MS
   room.votes = {}
@@ -441,20 +595,25 @@ export function rematch(
   mode: AdventureMode = 'story',
 ): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan starta om' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan starta om', 'Only the host can rematch') }
+  }
   if (room.status !== 'finished' && room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: 'Kan inte starta om nu' }
+    return { error: roomMsg(room, 'Kan inte starta om nu', 'Cannot rematch now') }
   }
 
   const adventureMode = normalizeMode(mode)
   if (adventureMode === 'dragon' && roomLimits(room).campaignMode !== 'full') {
     return {
-      error:
-        room.language === 'en'
-          ? 'Dragon mode needs Party pass'
-          : 'Drakläget kräver Party-pass',
+      error: roomMsg(room, 'Drakläget kräver Party-pass', 'Dragon mode needs Party pass'),
     }
+  }
+
+  // Promote mid-game spectators so they can play the next run.
+  // Keep host as DM unless hostPlays is on.
+  for (const p of room.players) {
+    p.spectator = false
   }
 
   const limits = roomLimits(room)
@@ -462,11 +621,23 @@ export function rematch(
   room.adventureMode = adventureMode
   room.flags = adventureMode === 'chaos' ? { chaos: true } : {}
   room.lastResolve = null
+  room.adventureLog = []
   room.votes = {}
   room.combatEnemyHp = null
   room.dmNote = ''
+  room.notice = null
   room.statusBeforePause = null
-  room.partyHp = PARTY_HP_BASE + room.players.filter((p) => p.connected).length * 4
+
+  const connected = connectedAdventurers(room)
+  if (connected.length < 1 || connected.some((p) => !p.classId)) {
+    room.status = connected.length < 1 ? 'lobby' : 'class_pick'
+    room.voteEndsAt = 0
+    room.activeChoiceIds = []
+    touch(room)
+    return room
+  }
+
+  room.partyHp = PARTY_HP_BASE + Math.max(1, connected.length) * 4
   room.partyHpMax = room.partyHp
   enterNode(room, MODE_START[adventureMode])
   beginVoting(room)
@@ -476,10 +647,12 @@ export function rematch(
 
 export function pauseAdventure(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan pausa' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan pausa', 'Only the host can pause') }
+  }
   if (room.status !== 'voting' && room.status !== 'resolve') {
-    return { error: 'Inget att pausa' }
+    return { error: roomMsg(room, 'Inget att pausa', 'Nothing to pause') }
   }
   room.statusBeforePause = room.status
   if (room.status === 'voting' || room.status === 'resolve') {
@@ -493,9 +666,13 @@ export function pauseAdventure(code: string, playerId: string): Room | { error: 
 
 export function resumeAdventure(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan återuppta' }
-  if (room.status !== 'paused') return { error: 'Spelet är inte pausat' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan återuppta', 'Only the host can resume') }
+  }
+  if (room.status !== 'paused') {
+    return { error: roomMsg(room, 'Spelet är inte pausat', 'Game is not paused') }
+  }
   const prev = room.statusBeforePause ?? 'voting'
   room.status = prev
   room.statusBeforePause = null
@@ -513,8 +690,10 @@ export function resumeAdventure(code: string, playerId: string): Room | { error:
 
 export function setDmNote(code: string, playerId: string, note: string): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan skriva DM-text' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan skriva DM-text', 'Only the host can set DM notes') }
+  }
   room.dmNote = String(note ?? '').trim().slice(0, 280)
   touch(room)
   return room
@@ -522,9 +701,11 @@ export function setDmNote(code: string, playerId: string, note: string): Room | 
 
 export function applyPartyToken(code: string, token: string): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
   const pass = lookupPass(token)
-  if (!pass) return { error: 'Ogiltigt eller utgånget Party-pass' }
+  if (!pass) {
+    return { error: roomMsg(room, 'Ogiltigt eller utgånget Party-pass', 'Invalid or expired Party pass') }
+  }
   room.premiumExpiresAt = pass.expiresAt
   room.campaignMode = 'full'
   touch(room)
@@ -537,10 +718,21 @@ export function redeemParty(
   passCode: string,
 ): Room | { error: string } {
   const room = rooms.get(code)
-  if (!room) return { error: 'Rummet finns inte' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan lösa in kod' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return { error: roomMsg(room, 'Bara värden kan lösa in kod', 'Only the host can redeem codes') }
+  }
   const pass = redeemPassCode(passCode)
-  if ('error' in pass) return pass
+  if ('error' in pass) {
+    const e = pass.error
+    if (e === 'Ange en party-kod') {
+      return { error: roomMsg(room, e, 'Enter a party code') }
+    }
+    if (e === 'Inga party-koder är konfigurerade') {
+      return { error: roomMsg(room, e, 'No party codes are configured') }
+    }
+    return { error: roomMsg(room, e, 'Invalid party code') }
+  }
   room.premiumExpiresAt = pass.expiresAt
   room.campaignMode = 'full'
   touch(room)
@@ -566,9 +758,9 @@ export function reconnectSocket(
   socketId: string,
 ): Room | { error: string } {
   const room = rooms.get(code.toUpperCase())
-  if (!room) return { error: 'Rummet finns inte' }
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player) return { error: 'Spelaren hittades inte' }
+  if (!player) return { error: roomMsg(room, 'Spelaren hittades inte', 'Player not found') }
   cancelDisconnectTimer(code, playerId)
   player.connected = true
   socketToPlayer.set(socketId, { code: room.code, playerId })
@@ -607,7 +799,15 @@ export function handleDisconnect(socketId: string) {
           const next = rr.players.find((x) => x.connected && x.id !== binding.playerId)
           if (next) {
             rr.hostId = next.id
+            // Keep them as adventurer if they already have a class
+            if (next.classId) rr.hostPlays = true
+            rr.notice = {
+              kind: 'host_transfer',
+              hostName: next.name,
+              at: Date.now(),
+            }
             touch(rr)
+            onBroadcast?.(rr.code)
           }
         }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
       }
@@ -649,8 +849,21 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     tally[v] = (tally[v] ?? 0) + 1
   }
 
-  const voters = room.players.filter((p) => p.connected)
+  const hideTallies = room.secretBallot && room.status === 'voting'
+  const voters = eligibleVoters(room)
   const last = room.lastResolve
+  const viewer = viewerId ? room.players.find((p) => p.id === viewerId) : null
+
+  let notice: string | null = null
+  if (room.notice && Date.now() - room.notice.at < NOTICE_TTL_MS) {
+    if (room.notice.kind === 'host_transfer') {
+      notice = msg(
+        lang,
+        `${room.notice.hostName} är nu värd`,
+        `${room.notice.hostName} is now the host`,
+      )
+    }
+  }
 
   return {
     code: room.code,
@@ -671,10 +884,12 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     campaignMode: room.campaignMode,
     adventureMode: room.adventureMode,
     voteSeconds: room.voteSeconds ?? DEFAULT_VOTE_SEC,
+    secretBallot: Boolean(room.secretBallot),
+    hostPlays: Boolean(room.hostPlays),
     choices: choices.map((c) => ({
       id: c.id,
       text: loc(c.text, lang),
-      votes: tally[c.id] ?? 0,
+      votes: hideTallies ? 0 : (tally[c.id] ?? 0),
     })),
     yourVote: viewerId ? room.votes[viewerId] ?? null : null,
     voteEndsAt: room.voteEndsAt,
@@ -697,6 +912,12 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
           })),
         }
       : null,
+    adventureLog: (room.adventureLog ?? []).map((e) => ({
+      title: loc(e.title, lang),
+      winningText: loc(e.winningText, lang),
+      closeRace: e.closeRace,
+      heroBanner: e.heroBanner ? loc(e.heroBanner, lang) : undefined,
+    })),
     combat:
       node?.combat && room.combatEnemyHp !== null
         ? {
@@ -708,6 +929,11 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     isEnding: Boolean(node?.ending),
     dmNote: room.dmNote,
     paused: room.status === 'paused',
+    notice,
+    youAreSpectator: Boolean(viewer?.spectator),
+    youAreDm: Boolean(
+      viewer && viewer.id === room.hostId && !room.hostPlays && !viewer.spectator,
+    ),
     classes: CLASSES.map((c) => ({
       id: c.id,
       name: loc(c.name, lang),

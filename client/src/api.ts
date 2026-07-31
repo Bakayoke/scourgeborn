@@ -46,6 +46,31 @@ export function getSocket() {
   return socket
 }
 
+export type ConnState = 'connected' | 'connecting' | 'disconnected'
+
+export function subscribeConnection(handler: (state: ConnState) => void): () => void {
+  const s = getSocket()
+  const emit = () => {
+    if (s.connected) handler('connected')
+    else if (s.active) handler('connecting')
+    else handler('disconnected')
+  }
+  const onConnect = () => handler('connected')
+  const onDisconnect = () => handler('disconnected')
+  const onAttempt = () => handler('connecting')
+  s.on('connect', onConnect)
+  s.on('disconnect', onDisconnect)
+  s.on('reconnect_attempt', onAttempt)
+  s.on('reconnect', onConnect)
+  emit()
+  return () => {
+    s.off('connect', onConnect)
+    s.off('disconnect', onDisconnect)
+    s.off('reconnect_attempt', onAttempt)
+    s.off('reconnect', onConnect)
+  }
+}
+
 export function setRoomHandler(handler: RoomHandler | null) {
   onRoomHandler = handler
   getSocket()
@@ -63,8 +88,8 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error(
       res.ok
-        ? 'Ogiltigt API-svar'
-        : `API-fel (${res.status}). Kontrollera VITE_SOCKET_URL / Railway.`,
+        ? 'Invalid API response / Ogiltigt API-svar'
+        : `API error ${res.status}. Check VITE_SOCKET_URL / Railway.`,
     )
   }
 }
@@ -104,7 +129,10 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
   const s = getSocket()
   if (!s.connected) {
     await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('Kunde inte ansluta till servern')), 12_000)
+      const t = setTimeout(
+        () => reject(new Error('Could not reach server / Kunde inte ansluta till servern')),
+        12_000,
+      )
       s.once('connect', () => {
         clearTimeout(t)
         resolve()
@@ -187,6 +215,14 @@ export async function setLanguage(language: Lang) {
 
 export async function setVoteSeconds(seconds: number) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setVoteSeconds', { seconds })
+}
+
+export async function setSecretBallot(enabled: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setSecretBallot', { enabled })
+}
+
+export async function setHostPlays(plays: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setHostPlays', { plays })
 }
 
 export async function redeemParty(code: string) {

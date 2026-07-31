@@ -16,6 +16,7 @@ export type Player = {
   name: string
   connected: boolean
   classId: PlayerClass | null
+  spectator?: boolean
 }
 
 export type PublicChoice = {
@@ -44,6 +45,8 @@ export type PublicRoom = {
   adventureMode: AdventureMode
   /** 0 = discuss freely */
   voteSeconds: number
+  secretBallot: boolean
+  hostPlays: boolean
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number
@@ -59,10 +62,14 @@ export type PublicRoom = {
     closeRace?: boolean
     voteReveal?: { playerId: string; playerName: string; choiceId: string; choiceText: string }[]
   } | null
+  adventureLog: { title: string; winningText: string; closeRace?: boolean; heroBanner?: string }[]
   combat: { enemyName: string; enemyHp: number; enemyHpMax: number } | null
   isEnding: boolean
   dmNote: string
   paused: boolean
+  notice: string | null
+  youAreSpectator: boolean
+  youAreDm: boolean
   classes: {
     id: PlayerClass
     name: string

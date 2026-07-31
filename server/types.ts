@@ -70,6 +70,22 @@ export type Player = {
   name: string
   connected: boolean
   classId: PlayerClass | null
+  /** Mid-game joiners watch only until rematch/new lobby */
+  spectator?: boolean
+}
+
+export type AdventureLogEntry = {
+  nodeId: string
+  title: Localized
+  winningText: Localized
+  closeRace?: boolean
+  heroBanner?: Localized
+}
+
+export type RoomNotice = {
+  kind: 'host_transfer'
+  hostName: string
+  at: number
 }
 
 export type RoomStatus = 'lobby' | 'class_pick' | 'scene' | 'voting' | 'resolve' | 'finished' | 'paused'
@@ -113,15 +129,26 @@ export type Room = {
   adventureMode: AdventureMode
   /** Vote window in seconds. 0 = discuss freely (no timer). */
   voteSeconds: number
+  /** Hide live tallies until votes lock */
+  secretBallot: boolean
+  /**
+   * When false (default), the host is dungeon master only —
+   * no class, no vote. When true, host plays as an adventurer too.
+   */
+  hostPlays: boolean
   votes: Record<string, string>
   voteEndsAt: number
   /** Remaining ms when paused mid-vote */
   voteRemainingMs: number
   lastResolve: LastResolve | null
+  /** Path of winning choices this adventure */
+  adventureLog: AdventureLogEntry[]
   activeChoiceIds: string[]
   combatEnemyHp: number | null
   /** Host DM interjection shown to all */
   dmNote: string
+  /** Ephemeral UI notice (host transfer, etc.) */
+  notice: RoomNotice | null
   updatedAt: number
 }
 
@@ -151,6 +178,8 @@ export type PublicRoom = {
   adventureMode: AdventureMode
   /** 0 = discuss freely */
   voteSeconds: number
+  secretBallot: boolean
+  hostPlays: boolean
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number
@@ -166,10 +195,15 @@ export type PublicRoom = {
     voteReveal?: { playerId: string; playerName: string; choiceId: string; choiceText: string }[]
     closeRace?: boolean
   } | null
+  adventureLog: { title: string; winningText: string; closeRace?: boolean; heroBanner?: string }[]
   combat: { enemyName: string; enemyHp: number; enemyHpMax: number } | null
   isEnding: boolean
   dmNote: string
   paused: boolean
+  notice: string | null
+  youAreSpectator: boolean
+  /** Host is DM-only (not playing a character) */
+  youAreDm: boolean
   classes: {
     id: PlayerClass
     name: string
