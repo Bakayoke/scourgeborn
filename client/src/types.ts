@@ -48,6 +48,7 @@ export type PublicRoom = {
   voteSeconds: number
   secretBallot: boolean
   hostPlays: boolean
+  autoLockWhenAllVoted: boolean
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number

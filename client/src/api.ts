@@ -237,6 +237,10 @@ export async function setSecretBallot(enabled: boolean) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setSecretBallot', { enabled })
 }
 
+export async function setAutoLock(enabled: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setAutoLock', { enabled })
+}
+
 export async function setHostPlays(plays: boolean) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setHostPlays', { plays })
 }

@@ -95,7 +95,7 @@ const sv = {
   vote120: '2 min',
   vote180: '3 min',
   voteDiscussLive: 'Diskutera fritt — värden låser när ni är klara',
-  allVotedAuto: 'När alla röstat går ni vidare automatiskt',
+  allVotedAuto: 'När alla röstat kan ni gå vidare automatiskt — eller låta DM styra',
   copyLink: 'Kopiera länk',
   waitlist: 'Väntelista',
   spectator: 'Åskådare',
@@ -143,6 +143,14 @@ const sv = {
   createPrivate: 'Bara med kod',
   createPublic: 'Öppen i Hitta Party',
   createPublicNeedParty: 'Öppen lobby kräver Party-pass.',
+  autoLockLabel: 'När alla röstat',
+  autoLockOn: 'Gå vidare automatiskt',
+  autoLockOff: 'DM trycker vidare',
+  autoLockHint:
+    'Med ingen timer är standard att DM låser. Du kan alltid ändra här.',
+  dmAdvanceHint: 'Väntar på att DM låser omröstningen…',
+  lockVotesDm: 'Lås & gå vidare',
+  revoteBanner: 'Oavgjort — rösta igen!',
 }
 
 const en: typeof sv = {
@@ -239,7 +247,7 @@ const en: typeof sv = {
   vote120: '2 min',
   vote180: '3 min',
   voteDiscussLive: 'Discuss freely — host locks when ready',
-  allVotedAuto: 'When everyone has voted, you continue automatically',
+  allVotedAuto: 'When everyone has voted you can auto-advance — or let the DM decide',
   copyLink: 'Copy link',
   waitlist: 'Waitlist',
   spectator: 'Spectator',
@@ -287,6 +295,13 @@ const en: typeof sv = {
   createPrivate: 'Code only',
   createPublic: 'Open in Find Party',
   createPublicNeedParty: 'Open lobby requires a Party pass.',
+  autoLockLabel: 'When everyone has voted',
+  autoLockOn: 'Advance automatically',
+  autoLockOff: 'DM presses advance',
+  autoLockHint: 'With no timer, DM lock is the default. You can always change it here.',
+  dmAdvanceHint: 'Waiting for the DM to lock the vote…',
+  lockVotesDm: 'Lock & continue',
+  revoteBanner: 'Tie — vote again!',
 }
 
 export type UiStrings = typeof sv

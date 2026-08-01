@@ -83,7 +83,7 @@ export type AdventureLogEntry = {
 }
 
 export type RoomNotice = {
-  kind: 'host_transfer'
+  kind: 'host_transfer' | 'revote'
   hostName: string
   at: number
 }
@@ -138,6 +138,11 @@ export type Room = {
    * no class, no vote. When true, host plays as an adventurer too.
    */
   hostPlays: boolean
+  /**
+   * When true, lock as soon as every adventurer has voted.
+   * When false, only the host/DM can advance (recommended with voteSeconds 0).
+   */
+  autoLockWhenAllVoted: boolean
   votes: Record<string, string>
   voteEndsAt: number
   /** Remaining ms when paused mid-vote */
@@ -183,6 +188,7 @@ export type PublicRoom = {
   voteSeconds: number
   secretBallot: boolean
   hostPlays: boolean
+  autoLockWhenAllVoted: boolean
   choices: PublicChoice[]
   yourVote: string | null
   voteEndsAt: number

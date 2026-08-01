@@ -4,8 +4,10 @@ import { START_NODE, getNode } from './campaign/emberwood.js'
 import {
   availableChoices,
   enterNode,
+  isExactTie,
   loc,
   resolveVote,
+  tallyVotes,
 } from './campaign/resolve.js'
 import {
   limitsFor,
@@ -131,6 +133,7 @@ export function restoreRooms(list: Room[]) {
       dmNote: room.dmNote ?? '',
       secretBallot: Boolean(room.secretBallot),
       hostPlays: Boolean(room.hostPlays),
+      autoLockWhenAllVoted: room.autoLockWhenAllVoted !== false,
       isPublic: Boolean(room.isPublic),
       adventureLog: Array.isArray(room.adventureLog) ? room.adventureLog : [],
       notice: room.notice ?? null,
@@ -182,6 +185,7 @@ export function createRoom(
     voteSeconds: DEFAULT_VOTE_SEC,
     secretBallot: false,
     hostPlays: false,
+    autoLockWhenAllVoted: true,
     votes: {},
     voteEndsAt: 0,
     voteRemainingMs: 0,
@@ -445,6 +449,8 @@ export function setVoteSeconds(
     return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
   }
   room.voteSeconds = normalizeVoteSeconds(seconds)
+  // Sync sensible default: no timer → DM advances; timed → auto when all voted
+  room.autoLockWhenAllVoted = room.voteSeconds > 0
   touch(room)
   return room
 }
@@ -465,6 +471,30 @@ export function setSecretBallot(
     return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
   }
   room.secretBallot = Boolean(enabled)
+  touch(room)
+  return room
+}
+
+export function setAutoLock(
+  code: string,
+  playerId: string,
+  enabled: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  if (room.hostId !== playerId) {
+    return {
+      error: roomMsg(
+        room,
+        'Bara värden kan ändra låsläge',
+        'Only the host can change auto-lock',
+      ),
+    }
+  }
+  if (room.status !== 'lobby' && room.status !== 'class_pick') {
+    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
+  }
+  room.autoLockWhenAllVoted = Boolean(enabled)
   touch(room)
   return room
 }
@@ -609,9 +639,9 @@ export function castVote(
   room.votes[playerId] = choiceId
   touch(room)
 
-  // Auto-lock when everyone eligible has voted
   const voters = eligibleVoters(room)
-  if (voters.length > 0 && voters.every((p) => room.votes[p.id])) {
+  const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id])
+  if (allVoted && room.autoLockWhenAllVoted !== false) {
     return lockVotes(code, room.hostId)
   }
   return room
@@ -623,7 +653,17 @@ export function lockVotes(code: string, playerId: string): Room | { error: strin
   if (room.status !== 'voting') {
     return { error: roomMsg(room, 'Ingen omröstning pågår', 'No vote in progress') }
   }
+  // Manual advance: only host (DM) — unless auto-lock path called with hostId
   if (room.hostId !== playerId) {
+    if (room.autoLockWhenAllVoted === false || room.voteSeconds <= 0) {
+      return {
+        error: roomMsg(
+          room,
+          'Bara värden/DM kan gå vidare',
+          'Only the host/DM can advance',
+        ),
+      }
+    }
     const voters = eligibleVoters(room)
     const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id])
     if (!allVoted) {
@@ -633,6 +673,24 @@ export function lockVotes(code: string, playerId: string): Room | { error: strin
 
   const node = getNode(room.nodeId)
   const choices = node ? availableChoices(room, node) : []
+  const choiceIds = choices.map((c) => c.id)
+  const tally = tallyVotes(room.votes)
+
+  // Exact tie with votes cast → revote same scene
+  if (Object.keys(room.votes).length > 0 && isExactTie(tally, choiceIds)) {
+    room.votes = {}
+    room.status = 'voting'
+    room.voteEndsAt = room.voteSeconds > 0 ? Date.now() + room.voteSeconds * 1000 : 0
+    room.notice = {
+      kind: 'revote',
+      hostName: '',
+      at: Date.now(),
+    }
+    room.dmNote = ''
+    touch(room)
+    return room
+  }
+
   const choiceMap = new Map(choices.map((c) => [c.id, c]))
   const voteReveal: VoteReveal[] = []
   for (const [pid, choiceId] of Object.entries(room.votes)) {
@@ -668,6 +726,7 @@ export function lockVotes(code: string, playerId: string): Room | { error: strin
   room.voteEndsAt = Date.now() + RESOLVE_MS
   room.votes = {}
   room.dmNote = ''
+  room.notice = null
 
   room.flags.__pendingNext = result.nextNodeId
   room.flags.__pendingFinished = result.finished ? 1 : 0
@@ -979,6 +1038,12 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
         `${room.notice.hostName} är nu värd`,
         `${room.notice.hostName} is now the host`,
       )
+    } else if (room.notice.kind === 'revote') {
+      notice = msg(
+        lang,
+        'Oavgjort! Rösta igen — samma scen.',
+        'Tie! Vote again — same scene.',
+      )
     }
   }
 
@@ -1004,6 +1069,7 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     voteSeconds: room.voteSeconds ?? DEFAULT_VOTE_SEC,
     secretBallot: Boolean(room.secretBallot),
     hostPlays: Boolean(room.hostPlays),
+    autoLockWhenAllVoted: room.autoLockWhenAllVoted !== false,
     choices: choices.map((c) => ({
       id: c.id,
       text: loc(c.text, lang),

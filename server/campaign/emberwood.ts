@@ -16,9 +16,14 @@ export const NODES: Record<string, CampaignNode> = {
     },
     choices: [
       {
+        id: 'go_market',
+        text: { sv: 'Gå till torget och lyssna på rykten', en: 'Go to the square and hear the rumors' },
+        next: 'village_square',
+      },
+      {
         id: 'go_forest',
         text: { sv: 'Gå in i Emberwood efter orcherna', en: 'Enter Emberwood after the orcs' },
-        next: 'forest_edge',
+        next: 'forest_road',
       },
       {
         id: 'go_tower',
@@ -43,9 +48,15 @@ export const NODES: Record<string, CampaignNode> = {
     },
     choices: [
       {
+        id: 'to_square',
+        text: { sv: 'Samla mer info på torget', en: 'Gather more info in the square' },
+        next: 'village_square',
+        effects: { flags: { elder_lore: true }, partyCunningBonus: 1 },
+      },
+      {
         id: 'to_forest',
         text: { sv: 'Jaga orcherna i skogen', en: 'Hunt the orcs in the forest' },
-        next: 'forest_edge',
+        next: 'forest_road',
         effects: { flags: { elder_lore: true }, partyCunningBonus: 1 },
       },
       {
@@ -55,6 +66,119 @@ export const NODES: Record<string, CampaignNode> = {
         effects: { flags: { elder_lore: true, sought_wizard: true }, partyArcanaBonus: 1 },
       },
     ],
+  },
+
+  village_square: {
+    id: 'village_square',
+    title: { sv: 'Asklundas torg', en: 'Ashgrove Square' },
+    narrative: {
+      sv: 'Handlare viskar, barn leker krig, och en jägare svär att hon sett gröna ögon i dimman. En smed erbjuder er ett amulett — mot ett löfte.',
+      en: 'Traders whisper, children play at war, and a hunter swears she saw green eyes in the mist. A smith offers you an amulet — for a promise.',
+    },
+    choices: [
+      {
+        id: 'take_amulet',
+        text: { sv: 'Lova att skydda byn — ta amuletten', en: 'Promise to protect the village — take the amulet' },
+        next: 'forest_road',
+        effects: { flags: { amulet: true }, hp: 4, partyMightBonus: 1 },
+      },
+      {
+        id: 'buy_info',
+        text: { sv: 'Mutas jägare för en säker stig', en: 'Bribe the hunter for a safe path' },
+        next: 'forest_road',
+        favorStat: 'cunning',
+        effects: { flags: { hunter_path: true }, partyCunningBonus: 1 },
+      },
+      {
+        id: 'ignore_rumors',
+        text: { sv: 'Ignorera ryktena och gå', en: 'Ignore the rumors and leave' },
+        next: 'forest_road',
+      },
+    ],
+  },
+
+  forest_road: {
+    id: 'forest_road',
+    title: { sv: 'Den rökiga stigen', en: 'The Smoky Path' },
+    narrative: {
+      sv: 'Asklukt och tysta fåglar. Något rör sig mellan stammarna — vargar, eller värre. Ni kan också vila vid en gammal vägmärke.',
+      en: 'Smell of ash and silent birds. Something moves between the trunks — wolves, or worse. You could also rest by an old trail marker.',
+    },
+    choices: [
+      {
+        id: 'press_on',
+        text: { sv: 'Fortsätt rakt mot trummorna', en: 'Press on toward the drums' },
+        next: 'forest_edge',
+      },
+      {
+        id: 'face_wolves',
+        text: { sv: 'Konfrontera skuggorna i buskarna', en: 'Confront the shapes in the brush' },
+        next: 'wolf_combat',
+      },
+      {
+        id: 'rest_marker',
+        text: { sv: 'Vila vid vägmärket och samla kraft', en: 'Rest at the marker and gather strength' },
+        next: 'forest_edge',
+        effects: { hp: 6, flags: { rested: true } },
+      },
+      {
+        id: 'scout_ahead',
+        text: { sv: 'Skicka spejare framför er', en: 'Send scouts ahead' },
+        next: 'forest_mist',
+        favorStat: 'cunning',
+        effects: { flags: { scouted: true } },
+      },
+    ],
+  },
+
+  forest_mist: {
+    id: 'forest_mist',
+    title: { sv: 'Dimslöjan', en: 'The Mist Veil' },
+    narrative: {
+      sv: 'Spejarna kommer tillbaka bleka: orchpatrullen är större än ni trodde, men ni har sett deras vaktbyten. Dimman döljer er — om ni vågar.',
+      en: 'The scouts return pale: the orc patrol is larger than you thought, but you have seen their watch changes. The mist will hide you — if you dare.',
+    },
+    choices: [
+      {
+        id: 'use_mist',
+        text: { sv: 'Använd dimman till bakhåll', en: 'Use the mist for an ambush' },
+        next: 'orc_combat',
+        favorStat: 'cunning',
+        effects: { flags: { ambush: true, scouted: true } },
+      },
+      {
+        id: 'mist_sneak',
+        text: { sv: 'Smyg hela vägen till lägret', en: 'Sneak all the way to the camp' },
+        next: 'orc_camp',
+        favorStat: 'cunning',
+        effects: { flags: { sneaked: true, scouted: true } },
+      },
+      {
+        id: 'mist_talk',
+        text: { sv: 'Gå fram öppet och förhandla', en: 'Step out openly and negotiate' },
+        next: 'orc_talk',
+        effects: { flags: { scouted: true } },
+      },
+    ],
+  },
+
+  wolf_combat: {
+    id: 'wolf_combat',
+    title: { sv: 'Askvargar!', en: 'Ash Wolves!' },
+    narrative: {
+      sv: 'Gråa vargar med glödande ögon kastar sig fram. De jagar inte kött — de jagar rädsla. Rösta fram ert drag!',
+      en: 'Grey wolves with glowing eyes leap forward. They hunt fear, not meat. Vote your move!',
+    },
+    combat: {
+      enemy: {
+        name: { sv: 'Askvargar', en: 'Ash Wolves' },
+        hp: 22,
+        attack: 5,
+      },
+      fleeNext: 'forest_edge',
+      winNext: 'forest_edge',
+      loseNext: 'ending_defeat',
+    },
   },
 
   forest_edge: {
@@ -126,7 +250,7 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'bluff_ok',
         text: { sv: 'Håll pokerfejs (slughet)', en: 'Hold the poker face (cunning)' },
-        next: 'short_gate',
+        next: 'ash_clearing',
         effects: { flags: { bluffed_orcs: true, sought_wizard: true } },
       },
       {
@@ -179,8 +303,8 @@ export const NODES: Record<string, CampaignNode> = {
     combat: {
       enemy: {
         name: { sv: 'Orchpatrull', en: 'Orc Patrol' },
-        hp: 28,
-        attack: 6,
+        hp: 40,
+        attack: 7,
       },
       fleeNext: 'ending_orc_flee',
       winNext: 'orc_camp',
@@ -199,20 +323,136 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'help_villager',
         text: { sv: 'Hjälp bybon först', en: 'Help the villager first' },
-        next: 'short_gate',
+        next: 'ash_clearing',
         effects: { hp: 8, flags: { saved_villager: true, has_map: true } },
       },
       {
         id: 'to_tower_map',
         text: { sv: 'Följ kartan till tornet', en: 'Follow the map to the tower' },
-        next: 'short_gate',
+        next: 'ash_clearing',
         effects: { flags: { has_map: true, sought_wizard: true } },
+      },
+      {
+        id: 'search_tents',
+        text: { sv: 'Sök igenom tälten efter ledtrådar', en: 'Search the tents for clues' },
+        next: 'haunted_well',
+        favorStat: 'cunning',
+        effects: { flags: { has_map: true, tent_loot: true } },
       },
       {
         id: 'to_dragon_early',
         text: { sv: 'Gå direkt mot drakens grotta', en: "Go straight to the dragon's cave" },
-        next: 'short_gate_dragon',
+        next: 'mountain_foothills',
         effects: { flags: { has_map: true, rushed_dragon: true } },
+      },
+    ],
+  },
+
+  ash_clearing: {
+    id: 'ash_clearing',
+    title: { sv: 'Askgläntan', en: 'Ash Clearing' },
+    narrative: {
+      sv: 'Träden öppnar sig kring en cirkel av svart jord. Runor glöder svagt under askan — ett eko av stenen som stals. Här måste ni välja riktning.',
+      en: 'The trees open around a circle of black earth. Runes glow faintly under the ash — an echo of the stolen stone. Here you must choose a direction.',
+    },
+    choices: [
+      {
+        id: 'study_runes',
+        text: { sv: 'Studera runorna (magi)', en: 'Study the runes (arcana)' },
+        next: 'ruined_shrine',
+        favorStat: 'arcana',
+        effects: { flags: { read_ash_runes: true }, partyArcanaBonus: 1 },
+      },
+      {
+        id: 'follow_map',
+        text: { sv: 'Lita på kartan mot tornet', en: 'Trust the map toward the tower' },
+        next: 'ruined_shrine',
+        effects: { flags: { sought_wizard: true } },
+      },
+      {
+        id: 'well_path',
+        text: { sv: 'Följ spår till den gamla brunnen', en: 'Follow tracks to the old well' },
+        next: 'haunted_well',
+      },
+    ],
+  },
+
+  haunted_well: {
+    id: 'haunted_well',
+    title: { sv: 'Den torra brunnen', en: 'The Dry Well' },
+    narrative: {
+      sv: 'En röst ekar ur djupet: "Ge mig ett minne, så ger jag er en sanning." Ni ser glimtar av Veylin, Grakka och draken Ember.',
+      en: 'A voice echoes from the deep: "Give me a memory, and I give you a truth." You glimpse Veylin, Grakka, and Ember the dragon.',
+    },
+    choices: [
+      {
+        id: 'give_memory',
+        text: { sv: 'Offra ett minne — få sanningen', en: 'Sacrifice a memory — learn the truth' },
+        next: 'ruined_shrine',
+        effects: { flags: { well_truth: true }, partyCunningBonus: 1, hp: -2 },
+      },
+      {
+        id: 'refuse_well',
+        text: { sv: 'Vägra och gå vidare', en: 'Refuse and move on' },
+        next: 'ruined_shrine',
+      },
+      {
+        id: 'drop_amulet',
+        text: { sv: 'Kasta ner amuletten som offer', en: 'Drop the amulet as an offering' },
+        next: 'ruined_shrine',
+        requireFlag: 'amulet',
+        effects: { flags: { well_truth: true, amulet: false }, hp: 10 },
+      },
+    ],
+  },
+
+  ruined_shrine: {
+    id: 'ruined_shrine',
+    title: { sv: 'Det sönderslagna templet', en: 'The Broken Shrine' },
+    narrative: {
+      sv: 'Ett litet tempel till skogens ande ligger i ruiner. Härifrån syns både byns rök och tornets blåa eld. Den korta sagan kan sluta — eller fortsätta.',
+      en: "A small shrine to the forest spirit lies in ruins. From here you see the village smoke and the tower's blue fire. The short tale can end — or continue.",
+    },
+    choices: [
+      {
+        id: 'pray_heal',
+        text: { sv: 'Be vid ruinerna och läka', en: 'Pray at the ruins and heal' },
+        next: 'short_gate',
+        effects: { hp: 10, flags: { shrine_blessed: true } },
+      },
+      {
+        id: 'push_on',
+        text: { sv: 'Gå vidare utan att stanna', en: 'Press on without stopping' },
+        next: 'short_gate',
+      },
+      {
+        id: 'leave_offering',
+        text: { sv: 'Lämna ett offer och be om vägledning', en: 'Leave an offering and ask for guidance' },
+        next: 'short_gate',
+        favorStat: 'arcana',
+        effects: { flags: { shrine_blessed: true }, partyArcanaBonus: 1 },
+      },
+    ],
+  },
+
+  mountain_foothills: {
+    id: 'mountain_foothills',
+    title: { sv: 'Bergsfoten', en: 'Mountain Foothills' },
+    narrative: {
+      sv: 'Luften blir tunn. Svaveldoft. En storm av aska sveper över stigen — bakom den skymtar drakens näste, men också en väg tillbaka till skogens vägskäl.',
+      en: "The air thins. Smell of sulfur. An ash storm sweeps the path — beyond it looms the dragon's lair, but also a way back to the forest crossroads.",
+    },
+    choices: [
+      {
+        id: 'turn_crossroads',
+        text: { sv: 'Vänd till skogens vägskäl', en: 'Turn back to the forest crossroads' },
+        next: 'short_gate',
+      },
+      {
+        id: 'keep_climbing',
+        text: { sv: 'Fortsätt klättra mot draken', en: 'Keep climbing toward the dragon' },
+        next: 'short_gate_dragon',
+        effects: { flags: { rushed_dragon: true } },
       },
     ],
   },
@@ -262,7 +502,7 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'push_dragon',
         text: { sv: 'Fortsätt mot draken (Party)', en: 'Press on to the dragon (Party)' },
-        next: 'dragon_approach',
+        next: 'mountain_pass',
       },
     ],
   },
@@ -279,7 +519,7 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'riddle_time',
         text: { sv: 'Svara: Tiden', en: 'Answer: Time' },
-        next: 'tower_hall',
+        next: 'tower_courtyard',
         effects: { flags: { riddle_ok: true } },
       },
       {
@@ -290,14 +530,14 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'force_gate',
         text: { sv: 'Bryt upp porten med kraft', en: 'Force the gate open' },
-        next: 'tower_hall',
+        next: 'tower_courtyard',
         favorStat: 'might',
         effects: { hp: -4, flags: { forced_gate: true } },
       },
       {
         id: 'pick_lock',
         text: { sv: 'Dyrka upp låset', en: 'Pick the lock' },
-        next: 'tower_hall',
+        next: 'tower_courtyard',
         favorStat: 'cunning',
         effects: { flags: { picked_lock: true } },
       },
@@ -316,8 +556,97 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'enter_hurt',
         text: { sv: 'Gå in trots skadan', en: 'Enter despite the wounds' },
-        next: 'tower_hall',
+        next: 'tower_courtyard',
         effects: { hp: -6 },
+      },
+    ],
+  },
+
+  tower_courtyard: {
+    id: 'tower_courtyard',
+    title: { sv: 'Tornets gård', en: 'Tower Courtyard' },
+    narrative: {
+      sv: 'Innanför muren: trasiga golems, en brunn med stjärnljus, och två trappor — en upp till biblioteket, en ner i fängelsehålan.',
+      en: 'Inside the wall: broken golems, a well of starlight, and two stairs — one up to the library, one down into the dungeon.',
+    },
+    partyOnly: true,
+    choices: [
+      {
+        id: 'up_library',
+        text: { sv: 'Gå upp till biblioteket', en: 'Go up to the library' },
+        next: 'tower_library',
+      },
+      {
+        id: 'down_dungeon',
+        text: { sv: 'Gå ner i fängelsehålan', en: 'Go down into the dungeon' },
+        next: 'tower_dungeon',
+      },
+      {
+        id: 'drink_well',
+        text: { sv: 'Drick av stjärnbrunnens vatten', en: "Drink the star-well's water" },
+        next: 'tower_library',
+        effects: { hp: 8, flags: { star_well: true }, partyArcanaBonus: 1 },
+      },
+    ],
+  },
+
+  tower_library: {
+    id: 'tower_library',
+    title: { sv: 'Det förbjudna biblioteket', en: 'The Forbidden Library' },
+    narrative: {
+      sv: 'Böcker viskar. En uppslagen volym visar hur runstenen väcker — och somnar — drakar. Kunskap är makt, men tiden tickar.',
+      en: 'Books whisper. An open volume shows how the runestone wakes — and lulls — dragons. Knowledge is power, but time ticks.',
+    },
+    partyOnly: true,
+    choices: [
+      {
+        id: 'read_tome',
+        text: { sv: 'Läs volymen om draken', en: 'Read the tome about the dragon' },
+        next: 'tower_hall',
+        favorStat: 'arcana',
+        effects: { flags: { dragon_lore: true }, partyArcanaBonus: 2 },
+      },
+      {
+        id: 'rush_hall',
+        text: { sv: 'Skynda till salen utan att läsa', en: 'Rush to the hall without reading' },
+        next: 'tower_hall',
+      },
+      {
+        id: 'steal_scroll',
+        text: { sv: 'Snu en skyddsskrift', en: 'Steal a ward scroll' },
+        next: 'tower_hall',
+        favorStat: 'cunning',
+        effects: { flags: { ward_scroll: true }, hp: 4 },
+      },
+    ],
+  },
+
+  tower_dungeon: {
+    id: 'tower_dungeon',
+    title: { sv: 'Fängelsehålan', en: 'The Dungeon' },
+    narrative: {
+      sv: 'Kedjor och kalla stenar. En fångad orch viskar: "Veylin ljuger. Stenen tillhör berget — inte honom."',
+      en: 'Chains and cold stone. A captive orc whispers: "Veylin lies. The stone belongs to the mountain — not to him."',
+    },
+    partyOnly: true,
+    choices: [
+      {
+        id: 'free_orc',
+        text: { sv: 'Frigör fången', en: 'Free the captive' },
+        next: 'tower_hall',
+        effects: { flags: { freed_captive: true, orc_ally: true }, partyMightBonus: 1 },
+      },
+      {
+        id: 'leave_captive',
+        text: { sv: 'Lämna fången och gå upp', en: 'Leave the captive and go up' },
+        next: 'tower_hall',
+      },
+      {
+        id: 'question_hard',
+        text: { sv: 'Pressa fången på mer info', en: 'Press the captive for more info' },
+        next: 'tower_hall',
+        favorStat: 'might',
+        effects: { flags: { dungeon_intel: true }, partyCunningBonus: 1 },
       },
     ],
   },
@@ -371,7 +700,7 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'to_dragon',
         text: { sv: 'Marschera mot drakens näste', en: "March to the dragon's lair" },
-        next: 'dragon_approach',
+        next: 'mountain_pass',
         effects: { flags: { has_stone: true, wizard_ally: true }, partyArcanaBonus: 2 },
       },
     ],
@@ -388,8 +717,8 @@ export const NODES: Record<string, CampaignNode> = {
     combat: {
       enemy: {
         name: { sv: 'Trollkarlen Veylin', en: 'Wizard Veylin' },
-        hp: 36,
-        attack: 8,
+        hp: 52,
+        attack: 9,
       },
       fleeNext: 'ending_coward',
       winNext: 'wizard_defeated',
@@ -416,7 +745,7 @@ export const NODES: Record<string, CampaignNode> = {
       {
         id: 'face_dragon',
         text: { sv: 'Bär stenen till draken', en: 'Carry the stone to the dragon' },
-        next: 'dragon_approach',
+        next: 'mountain_pass',
         effects: { flags: { has_stone: true } },
       },
       {
@@ -424,6 +753,38 @@ export const NODES: Record<string, CampaignNode> = {
         text: { sv: 'Behåll stenen och gå hem', en: 'Keep the stone and go home' },
         next: 'ending_power',
         effects: { flags: { kept_stone: true } },
+      },
+    ],
+  },
+
+  mountain_pass: {
+    id: 'mountain_pass',
+    title: { sv: 'Askpasset', en: 'Ash Pass' },
+    narrative: {
+      sv: 'Vinden river. Broar av lava-sten leder över raviner. En skadad bergsget visar en genväg — eller en fälla.',
+      en: 'Wind tears at you. Bridges of lava-stone span ravines. An injured mountain goat shows a shortcut — or a trap.',
+    },
+    partyOnly: true,
+    choices: [
+      {
+        id: 'safe_path',
+        text: { sv: 'Ta den långsamma, säkra stigen', en: 'Take the slow, safe path' },
+        next: 'dragon_approach',
+        effects: { hp: 6, flags: { careful_climb: true } },
+      },
+      {
+        id: 'goat_path',
+        text: { sv: 'Följ getens genväg', en: "Follow the goat's shortcut" },
+        next: 'dragon_approach',
+        favorStat: 'cunning',
+        effects: { flags: { goat_path: true } },
+      },
+      {
+        id: 'force_climb',
+        text: { sv: 'Klättra rakt upp i stormen', en: 'Climb straight up into the storm' },
+        next: 'dragon_approach',
+        favorStat: 'might',
+        effects: { hp: -5, flags: { storm_climb: true }, partyMightBonus: 1 },
       },
     ],
   },
@@ -477,8 +838,8 @@ export const NODES: Record<string, CampaignNode> = {
     combat: {
       enemy: {
         name: { sv: 'Draken Ember', en: 'Ember the Dragon' },
-        hp: 48,
-        attack: 10,
+        hp: 64,
+        attack: 11,
       },
       fleeNext: 'ending_coward',
       winNext: 'ending_dragon_slay',

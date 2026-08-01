@@ -44,6 +44,7 @@ import {
   setBroadcastHook,
   setPersistHook,
   setSecretBallot,
+  setAutoLock,
   setHostPlays,
   setPublicLobby,
   setVoteSeconds,
@@ -303,6 +304,15 @@ io.on('connection', (socket) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setSecretBallot(binding.code, binding.playerId, Boolean(payload?.enabled))
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('setAutoLock', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = setAutoLock(binding.code, binding.playerId, Boolean(payload?.enabled))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

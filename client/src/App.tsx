@@ -24,6 +24,7 @@ import {
   setLanguage as setRoomLanguage,
   setRoomHandler,
   setSecretBallot,
+  setAutoLock,
   setHostPlays,
   setPublicLobby,
   setVoteSeconds,
@@ -763,6 +764,8 @@ function PlayView({
   const showTallies = !room.secretBallot || !voting
   const shortEnding = finished && room.nodeId === 'ending_short'
   const log = room.adventureLog ?? []
+  const autoLock = room.autoLockWhenAllVoted !== false
+  const dmMustAdvance = !autoLock || (room.voteSeconds ?? 60) <= 0
 
   useEffect(() => {
     const app = document.querySelector('.app')
@@ -843,6 +846,20 @@ function PlayView({
     setError(null)
     try {
       const res = await setSecretBallot(enabled)
+      if (!res.ok) setError(res.error || ui.error)
+      else if (res.room) setRoom(res.room)
+    } catch {
+      setError(ui.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onAutoLock(enabled: boolean) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await setAutoLock(enabled)
       if (!res.ok) setError(res.error || ui.error)
       else if (res.room) setRoom(res.room)
     } catch {
@@ -1164,7 +1181,7 @@ function PlayView({
 
       {isHost && (
         <div className="host-tools">
-          <div className="row">
+          <div className="row hide-on-tv">
             <button type="button" className="btn btn-ghost btn-small" onClick={() => setShowQr(true)}>
               {ui.showQr}
             </button>
@@ -1180,7 +1197,7 @@ function PlayView({
             )}
           </div>
           {(voting || paused) && (
-            <form onSubmit={(e) => void onSendDm(e)}>
+            <form className="hide-on-tv" onSubmit={(e) => void onSendDm(e)}>
               <label className="muted">{ui.dmNote}</label>
               <textarea
                 value={dmDraft}
@@ -1203,6 +1220,28 @@ function PlayView({
                 )}
               </div>
             </form>
+          )}
+          {tvMode && (voting || paused) && (
+            <div className="tv-host-bar tv-only">
+              {voting && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => void onLock()}
+                >
+                  {dmMustAdvance ? ui.lockVotesDm : ui.lockVotes}
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() => void onPauseToggle()}
+              >
+                {paused ? ui.resume : ui.pause}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1296,9 +1335,6 @@ function PlayView({
               <p className="muted" style={{ marginTop: '1rem' }}>
                 {ui.votePace}
               </p>
-              <p className="muted" style={{ fontSize: '0.85rem' }}>
-                {ui.allVotedAuto}
-              </p>
               <div className="mode-grid" style={{ marginBottom: '1rem' }}>
                 {([0, 30, 60, 90, 120, 180] as const).map((sec) => (
                   <button
@@ -1311,6 +1347,28 @@ function PlayView({
                     {voteTimerLabel(ui, sec)}
                   </button>
                 ))}
+              </div>
+              <p className="muted">{ui.autoLockLabel}</p>
+              <p className="muted" style={{ fontSize: '0.85rem' }}>
+                {ui.autoLockHint}
+              </p>
+              <div className="mode-grid" style={{ marginBottom: '1rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-ghost${autoLock ? ' selected-mode' : ''}`}
+                  disabled={busy}
+                  onClick={() => void onAutoLock(true)}
+                >
+                  {ui.autoLockOn}
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-ghost${!autoLock ? ' selected-mode' : ''}`}
+                  disabled={busy}
+                  onClick={() => void onAutoLock(false)}
+                >
+                  {ui.autoLockOff}
+                </button>
               </div>
               <p className="muted">{ui.secretBallot}</p>
               <div className="mode-grid" style={{ marginBottom: '1rem' }}>
@@ -1428,6 +1486,9 @@ function PlayView({
                   </div>
                 </div>
               )}
+              {dmMustAdvance && room.votedCount >= room.voterCount && room.voterCount > 0 && (
+                <div className="player-hint">{ui.dmAdvanceHint}</div>
+              )}
               <p className="muted">
                 {(room.voteSeconds ?? 60) <= 0 || room.voteEndsAt <= 0 ? (
                   <span className="timer" style={{ fontSize: '1.1rem' }}>
@@ -1471,15 +1532,15 @@ function PlayView({
                   </button>
                 ))}
               </div>
-              {isHost && (
+              {isHost && !tvMode && (
                 <div className="cta-row">
                   <button
                     type="button"
-                    className="btn btn-ghost"
+                    className={dmMustAdvance ? 'btn' : 'btn btn-ghost'}
                     disabled={busy}
                     onClick={() => void onLock()}
                   >
-                    {ui.lockVotes}
+                    {dmMustAdvance ? ui.lockVotesDm : ui.lockVotes}
                   </button>
                 </div>
               )}

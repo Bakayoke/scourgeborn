@@ -75,10 +75,17 @@ export function tallyVotes(votes: Record<string, string>): VoteTally {
   return tally
 }
 
+export function isExactTie(tally: VoteTally, choiceIds: string[]): boolean {
+  const max = Math.max(0, ...choiceIds.map((id) => tally[id] ?? 0))
+  if (max <= 0) return false
+  return choiceIds.filter((id) => (tally[id] ?? 0) === max).length >= 2
+}
+
+/** Plurality winner. Ties should be handled before calling (revote). */
 export function pickWinner(
   tally: VoteTally,
   choiceIds: string[],
-  hostVote: string | null,
+  _hostVote: string | null,
 ): string {
   let bestId = choiceIds[0] ?? ''
   let bestCount = -1
@@ -87,15 +94,7 @@ export function pickWinner(
     if (n > bestCount) {
       bestCount = n
       bestId = id
-    } else if (n === bestCount && hostVote && id === hostVote) {
-      bestId = id
     }
-  }
-  // Tie: prefer host vote if it is among tied max
-  if (hostVote && choiceIds.includes(hostVote)) {
-    const hostCount = tally[hostVote] ?? 0
-    const max = Math.max(0, ...choiceIds.map((id) => tally[id] ?? 0))
-    if (hostCount === max) return hostVote
   }
   return bestId
 }

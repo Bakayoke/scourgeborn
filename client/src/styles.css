@@ -883,10 +883,31 @@ a {
   font-size: 1.1rem;
 }
 
-.app.tv .host-tools,
 .app.tv .party-box,
 .app.tv .shareHint-hide {
   display: none;
+}
+
+.app.tv .host-tools {
+  margin-top: 1.25rem;
+  padding-top: 0;
+  border-top: none;
+}
+
+.app.tv .tv-host-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(224, 122, 58, 0.4);
+  background: rgba(8, 14, 10, 0.72);
+}
+
+.app.tv .tv-host-bar .btn {
+  font-size: clamp(1.1rem, 2vw, 1.45rem);
+  padding: 0.85rem 1.4rem;
 }
 
 .app.tv .tv-chrome {
