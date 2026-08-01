@@ -115,6 +115,8 @@ const sv = {
   cunning: 'List',
   factopiaPitch: 'Hellre party-quiz? Utmana kompisarna på Factopia.',
   factopiaCta: 'Öppna factopia.net →',
+  sabotextPitch: 'Hellre SMS-kaos? Sabotera varandras texter på Sabotext.',
+  sabotextCta: 'Öppna sabotext.com →',
   dmRole: 'Dungeon Master',
   dmHint:
     'Du leder spelet — ingen klass, ingen röst. Starta när äventyrarna är klara. DM-anteckningar och lås fungerar fortfarande.',
@@ -267,6 +269,8 @@ const en: typeof sv = {
   cunning: 'Cunning',
   factopiaPitch: 'Prefer a party quiz? Challenge your friends on Factopia.',
   factopiaCta: 'Open factopia.net →',
+  sabotextPitch: 'Prefer SMS chaos? Sabotage each other’s texts on Sabotext.',
+  sabotextCta: 'Open sabotext.com →',
   dmRole: 'Dungeon Master',
   dmHint:
     'You run the game — no class, no vote. Start when adventurers are ready. DM notes and vote lock still work.',

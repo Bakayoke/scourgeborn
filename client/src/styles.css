@@ -530,6 +530,21 @@ a {
   border: 1px dashed var(--line);
 }
 
+.sister-games {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.sister-games.compact {
+  margin-top: 0.85rem;
+}
+
+.sister-games .sister-game,
+.sister-games .sister-game.compact {
+  margin-top: 0;
+}
+
 .sister-game {
   display: grid;
   gap: 0.3rem;
@@ -584,6 +599,7 @@ a {
   margin-top: 0.85rem;
 }
 
+.app.tv .sister-games,
 .app.tv .sister-game {
   display: none;
 }

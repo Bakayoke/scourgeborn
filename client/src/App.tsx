@@ -43,8 +43,36 @@ import type { AdventureMode, Lang, PartyInfo, PartyPassLocal, PlayerClass, Publi
 type Screen = 'home' | 'create' | 'join' | 'find' | 'play'
 
 const FACTOPIA_URL = 'https://factopia.net'
+const SABOTEXT_URL = 'https://sabotext.com'
 
-function FactopiaLink({
+function SisterGameLink({
+  name,
+  href,
+  pitch,
+  cta,
+  compact,
+}: {
+  name: string
+  href: string
+  pitch: string
+  cta: string
+  compact?: boolean
+}) {
+  return (
+    <a
+      className={`sister-game${compact ? ' compact' : ''}`}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <strong>{name}</strong>
+      <span>{pitch}</span>
+      <em>{cta}</em>
+    </a>
+  )
+}
+
+function SisterGameLinks({
   ui,
   compact,
 }: {
@@ -52,16 +80,22 @@ function FactopiaLink({
   compact?: boolean
 }) {
   return (
-    <a
-      className={`sister-game${compact ? ' compact' : ''}`}
-      href={FACTOPIA_URL}
-      target="_blank"
-      rel="noreferrer"
-    >
-      <strong>Factopia</strong>
-      <span>{ui.factopiaPitch}</span>
-      <em>{ui.factopiaCta}</em>
-    </a>
+    <div className={`sister-games${compact ? ' compact' : ''}`}>
+      <SisterGameLink
+        name="Factopia"
+        href={FACTOPIA_URL}
+        pitch={ui.factopiaPitch}
+        cta={ui.factopiaCta}
+        compact={compact}
+      />
+      <SisterGameLink
+        name="Sabotext"
+        href={SABOTEXT_URL}
+        pitch={ui.sabotextPitch}
+        cta={ui.sabotextCta}
+        compact={compact}
+      />
+    </div>
   )
 }
 
@@ -420,7 +454,7 @@ export default function App() {
               {ui.findGame}
             </button>
           </div>
-          <FactopiaLink ui={ui} />
+          <SisterGameLinks ui={ui} />
           {!hasParty && (
             <div className="party-box">
               <p className="muted">{ui.partyBlurb}</p>
@@ -1617,7 +1651,7 @@ function PlayView({
                   <ModeButtons onPickMode={(mode) => void onRematch(mode)} />
                 </>
               )}
-              <FactopiaLink ui={ui} compact />
+              <SisterGameLinks ui={ui} compact />
             </>
           )}
         </>
