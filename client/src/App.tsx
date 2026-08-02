@@ -1,46 +1,39 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   applyPartyToken,
-  castVote,
+  backToLobby,
   claimPartySession,
   clearSession,
   createGame,
+  endParty,
   fetchPartyInfo,
   fetchPublicLobbies,
   fetchRoomPreview,
   joinGame,
   loadPartyPass,
   loadSession,
-  lockVotes,
-  pauseAdventure,
-  pickClass,
+  nextRound,
   redeemParty,
   rejoinGame,
-  rematch,
-  resumeAdventure,
   savePartyPass,
   saveSession,
-  setDmNote,
   setLanguage as setRoomLanguage,
-  setRoomHandler,
-  setSecretBallot,
-  setAutoLock,
-  setHostPlays,
+  setPhaseTimers,
   setPublicLobby,
-  setVoteSeconds,
-  startAdventure,
+  setRoomHandler,
   startCheckout,
+  startGame,
+  submitEmojis,
+  submitGuess,
   subscribeConnection,
   type ConnState,
   type PublicLobbyCard,
   type RoomPreview,
+  voteFunny,
 } from './api'
-import { detectPreferredLanguage, formatExpiry, rememberLanguage, t, voteTimerLabel } from './i18n'
+import { loadLanguage, rememberLanguage, t } from './i18n'
 import { JoinQr } from './qr'
-import { renderEndingCard } from './shareCard'
-import type { AdventureMode, Lang, PartyInfo, PartyPassLocal, PlayerClass, PublicRoom } from './types'
-
-type Screen = 'home' | 'create' | 'join' | 'find' | 'play'
+import type { Lang, PartyInfo, PartyPassLocal, PublicRoom } from './types'
 
 const FACTOPIA_URL = 'https://factopia.net'
 const SABOTEXT_URL = 'https://sabotext.com'
@@ -72,13 +65,7 @@ function SisterGameLink({
   )
 }
 
-function SisterGameLinks({
-  ui,
-  compact,
-}: {
-  ui: ReturnType<typeof t>
-  compact?: boolean
-}) {
+function SisterGameLinks({ ui, compact }: { ui: ReturnType<typeof t>; compact?: boolean }) {
   return (
     <div className={`sister-games${compact ? ' compact' : ''}`}>
       <SisterGameLink
@@ -106,33 +93,27 @@ function useCountdown(endsAt: number) {
     const id = setInterval(() => setNow(Date.now()), 200)
     return () => clearInterval(id)
   }, [endsAt])
+  if (!endsAt) return 0
   return Math.max(0, Math.ceil((endsAt - now) / 1000))
 }
 
-function vibe(pattern: number | number[] = 12) {
-  try {
-    navigator.vibrate?.(pattern)
-  } catch {
-    /* ignore */
-  }
-}
-
-function modeLabel(mode: AdventureMode, ui: ReturnType<typeof t>) {
-  if (mode === 'orcs') return ui.modeOrcs
-  if (mode === 'dragon') return ui.modeDragon
-  if (mode === 'chaos') return ui.modeChaos
-  return ui.modeStory
+function ConnBadge({ conn, ui }: { conn: ConnState; ui: ReturnType<typeof t> }) {
+  if (conn === 'connected') return null
+  return (
+    <div className={`conn-badge ${conn}`}>
+      {conn === 'connecting' ? ui.reconnecting : ui.disconnected}
+    </div>
+  )
 }
 
 export default function App() {
-  const [uiLang, setUiLang] = useState<Lang>(() => detectPreferredLanguage())
+  const [uiLang, setUiLang] = useState<Lang>(() => loadLanguage())
   const ui = t(uiLang)
-  const [screen, setScreen] = useState<Screen>('home')
-  const [name, setName] = useState(() => loadSession()?.name ?? '')
+  const [screen, setScreen] = useState<'home' | 'create' | 'join' | 'find' | 'play'>('home')
+  const [name, setName] = useState('')
   const [joinCode, setJoinCode] = useState('')
-  const [joinStep, setJoinStep] = useState<'code' | 'profile'>('code')
+  const [joinStep, setJoinStep] = useState<'code' | 'name'>('code')
   const [joinPreview, setJoinPreview] = useState<RoomPreview | null>(null)
-  const [joinClassId, setJoinClassId] = useState<PlayerClass | null>(null)
   const [createPublic, setCreatePublic] = useState(false)
   const [lobbies, setLobbies] = useState<PublicLobbyCard[]>([])
   const [lobbiesBusy, setLobbiesBusy] = useState(false)
@@ -180,7 +161,6 @@ export default function App() {
       setJoinCode(join.toUpperCase())
       setJoinStep('code')
       setJoinPreview(null)
-      setJoinClassId(null)
       setScreen('join')
       window.history.replaceState({}, '', '/')
     }
@@ -218,7 +198,7 @@ export default function App() {
     void (async () => {
       try {
         const res = await rejoinGame(session.code, session.playerId)
-        if (res.ok) {
+        if (res.ok && res.room && res.playerId) {
           setRoom(res.room)
           setPlayerId(res.playerId)
           setName(session.name)
@@ -233,6 +213,7 @@ export default function App() {
         /* stay on home */
       }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -250,20 +231,29 @@ export default function App() {
       }
     }
     void load()
-    const id = setInterval(() => void load(), 12_000)
+    const id = setInterval(() => void load(), 8000)
     return () => {
       cancelled = true
       clearInterval(id)
     }
   }, [screen, uiLang, ui.error])
 
-  function toggleLang() {
-    const next: Lang = uiLang === 'sv' ? 'en' : 'sv'
-    setUiLang(next)
-    if (room && playerId === room.hostId) {
-      void setRoomLanguage(next).then((res) => {
-        if (res.ok && res.room) setRoom(res.room)
+  async function checkout(plan: 'day' | 'week') {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await startCheckout({
+        locale: uiLang,
+        roomCode: room?.code,
+        plan,
+        firstTime,
       })
+      if (res.url) window.location.href = res.url
+      else setError(res.error || ui.error)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : ui.error)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -272,8 +262,7 @@ export default function App() {
     setBusy(true)
     setError(null)
     try {
-      const wantPublic = createPublic && hasParty
-      const res = await createGame(name, uiLang, hasParty ? partyPass?.token : null, wantPublic)
+      const res = await createGame(name, uiLang, partyPass?.token, createPublic && hasParty)
       if (!res.ok) {
         setError(res.error)
         return
@@ -282,31 +271,23 @@ export default function App() {
       setRoom(res.room)
       setPlayerId(res.playerId)
       setScreen('play')
-    } catch {
-      setError(ui.error)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ui.error)
     } finally {
       setBusy(false)
     }
   }
 
-  async function onJoinCode(e: React.FormEvent) {
+  async function onPreviewJoin(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const code = joinCode.trim().toUpperCase()
-      if (!/^[A-Z]{4}$/.test(code)) {
-        setError(ui.error)
-        return
-      }
-      const preview = await fetchRoomPreview(code)
+      const preview = await fetchRoomPreview(joinCode)
       setJoinPreview(preview)
-      setJoinClassId(null)
-      setUiLang(preview.language)
-      setJoinStep('profile')
+      setJoinStep('name')
     } catch (err) {
       setError(err instanceof Error ? err.message : ui.error)
-      setJoinPreview(null)
     } finally {
       setBusy(false)
     }
@@ -314,40 +295,33 @@ export default function App() {
 
   async function onJoin(e: React.FormEvent) {
     e.preventDefault()
-    if (!joinPreview) {
-      setJoinStep('code')
-      return
-    }
-    if (joinPreview.canPickClass && !joinClassId) {
-      setError(ui.pickClassHint)
-      return
-    }
     setBusy(true)
     setError(null)
     try {
-      const res = await joinGame(joinPreview.code, name)
+      const res = await joinGame(joinCode, name)
       if (!res.ok) {
         setError(res.error)
         return
       }
-      let nextRoom = res.room
-      if (joinClassId && joinPreview.canPickClass) {
-        const picked = await pickClass(joinClassId)
-        if (!picked.ok) {
-          setError(picked.error || ui.error)
-          // Still enter the room so they can pick again in lobby
-        } else if (picked.room) {
-          nextRoom = picked.room
-        }
-      }
-      saveSession({ code: nextRoom.code, playerId: res.playerId, name })
-      setRoom(nextRoom)
+      saveSession({ code: res.room.code, playerId: res.playerId, name })
+      setRoom(res.room)
       setPlayerId(res.playerId)
-      setUiLang(nextRoom.language)
-      setJoinStep('code')
-      setJoinPreview(null)
-      setJoinClassId(null)
       setScreen('play')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ui.error)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onRedeem(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await redeemParty(promo)
+      if (!res.ok) setError(res.error || ui.error)
+      else if (res.room) setRoom(res.room)
     } catch {
       setError(ui.error)
     } finally {
@@ -360,87 +334,52 @@ export default function App() {
     setRoom(null)
     setPlayerId(null)
     setScreen('home')
-    setError(null)
+  }
+
+  function openJoin(code?: string) {
+    setJoinCode(code ?? '')
     setJoinStep('code')
     setJoinPreview(null)
-    setJoinClassId(null)
-  }
-
-  function openJoin(prefillCode?: string) {
-    setJoinStep(prefillCode ? 'code' : 'code')
-    setJoinPreview(null)
-    setJoinClassId(null)
-    setError(null)
-    if (prefillCode) setJoinCode(prefillCode.toUpperCase())
     setScreen('join')
-  }
-
-  async function openJoinFromLobby(code: string) {
-    setBusy(true)
-    setError(null)
-    setJoinCode(code)
-    try {
-      const preview = await fetchRoomPreview(code)
-      setJoinPreview(preview)
-      setJoinClassId(null)
-      setUiLang(preview.language)
-      setJoinStep('profile')
-      setScreen('join')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : ui.error)
-      setScreen('find')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function checkout(plan: 'day' | 'week') {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await startCheckout({
-        locale: uiLang,
-        roomCode: room?.code,
-        plan,
-        firstTime,
-      })
-      if (res.url) {
-        window.location.href = res.url
-        return
-      }
-      setError(res.error || ui.stripeMissing)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : ui.stripeMissing)
-    } finally {
-      setBusy(false)
-    }
   }
 
   return (
     <div className="app">
-      <div className="topbar">
-        <p className="brand-sm">{ui.brand}</p>
-        <button type="button" className="lang-toggle" onClick={toggleLang}>
-          {ui.language}: {uiLang.toUpperCase()}
+      <ConnBadge conn={conn} ui={ui} />
+      <header className="topbar">
+        <button type="button" className="brand" onClick={() => (room ? null : setScreen('home'))}>
+          {ui.brand}
         </button>
-      </div>
-
-      {conn !== 'connected' && (
-        <div className={`conn-banner ${conn}`}>
-          {conn === 'connecting' ? ui.reconnecting : ui.disconnected}
+        <div className="row">
+          <button
+            type="button"
+            className={`btn btn-ghost btn-small${uiLang === 'sv' ? ' selected-mode' : ''}`}
+            onClick={() => setUiLang('sv')}
+          >
+            SV
+          </button>
+          <button
+            type="button"
+            className={`btn btn-ghost btn-small${uiLang === 'en' ? ' selected-mode' : ''}`}
+            onClick={() => setUiLang('en')}
+          >
+            EN
+          </button>
         </div>
-      )}
-      {banner && <div className="banner">{banner}</div>}
-      {error && <p className="error">{error}</p>}
-      {hasParty && partyPass && (
-        <p className="muted">
-          {ui.partyActive} · {ui.partyUntil} {formatExpiry(partyPass.expiresAt, uiLang)}
-        </p>
+      </header>
+
+      {banner && (
+        <div className="banner" role="status">
+          {banner}
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => setBanner(null)}>
+            ×
+          </button>
+        </div>
       )}
 
       {screen === 'home' && (
-        <section className="hero">
-          <h1 className="brand">{ui.brand}</h1>
+        <div className="panel hero">
+          <h1 className="logo">{ui.brand}</h1>
           <p className="tagline">{ui.tagline}</p>
           <p className="support">{ui.heroSupport}</p>
           <div className="cta-row">
@@ -477,115 +416,49 @@ export default function App() {
                   {partyInfo?.weekAmountLabel ?? '…'} / {ui.partyWeek}
                 </button>
               </div>
-              <label className="muted" style={{ display: 'block', marginTop: '0.6rem' }}>
+              <label className="muted row" style={{ marginTop: '0.75rem' }}>
                 <input
                   type="checkbox"
                   checked={firstTime}
                   onChange={(e) => setFirstTime(e.target.checked)}
-                />{' '}
+                />
                 {ui.firstTime}
-                {partyInfo ? ` (${partyInfo.firstPartyDayLabel})` : ''}
               </label>
             </div>
           )}
-        </section>
-      )}
-
-      {screen === 'find' && (
-        <section className="panel">
-          <h2 className="scene-title">{ui.findGame}</h2>
-          <p className="muted">{ui.findGameHint}</p>
-          <div className="row" style={{ marginBottom: '0.75rem' }}>
-            <button
-              type="button"
-              className="btn btn-ghost btn-small"
-              disabled={lobbiesBusy}
-              onClick={() => {
-                setLobbiesBusy(true)
-                void fetchPublicLobbies(uiLang)
-                  .then(setLobbies)
-                  .catch((e) => setError(e instanceof Error ? e.message : ui.error))
-                  .finally(() => setLobbiesBusy(false))
-              }}
-            >
-              {ui.refreshLobbies}
-            </button>
-            <button type="button" className="btn btn-ghost btn-small" onClick={() => setScreen('home')}>
-              {ui.back}
-            </button>
-          </div>
-          {lobbies.length === 0 && !lobbiesBusy && (
-            <p className="muted">{ui.noOpenLobbies}</p>
+          {hasParty && partyPass && (
+            <p className="muted">
+              {ui.partyActive} {ui.partyUntil}{' '}
+              {new Date(partyPass.expiresAt).toLocaleString(uiLang === 'en' ? 'en' : 'sv')}
+            </p>
           )}
-          <ul className="lobby-list">
-            {lobbies.map((lobby) => (
-              <li key={lobby.code}>
-                <button
-                  type="button"
-                  className="lobby-card"
-                  disabled={busy}
-                  onClick={() => void openJoinFromLobby(lobby.code)}
-                >
-                  <strong>
-                    {ui.code} {lobby.code}
-                  </strong>
-                  <span>
-                    {ui.lobbyHost} {lobby.hostName}
-                    {lobby.hostPlays ? '' : ' · DM'} · {lobby.adventurerCount} {ui.lobbyAdventurers} ·{' '}
-                    {lobby.playerCount} {ui.lobbyPlayers}
-                  </span>
-                  <span className="lobby-meta">
-                    {lobby.language.toUpperCase()} · Party · {ui.joinThis}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {error && <p className="error">{error}</p>}
-        </section>
+        </div>
       )}
 
       {screen === 'create' && (
         <form className="panel" onSubmit={(e) => void onCreate(e)}>
-          <h2 className="scene-title">{ui.create}</h2>
-          <div className="field">
-            <label htmlFor="name">{ui.yourName}</label>
-            <input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              maxLength={20}
-              autoFocus
-            />
-          </div>
-          <p className="muted" style={{ marginTop: '0.75rem' }}>
-            {ui.createVisibility}
-          </p>
-          <div className="mode-grid" style={{ marginBottom: '0.5rem' }}>
-            <button
-              type="button"
-              className={`btn btn-ghost${!createPublic ? ' selected-mode' : ''}`}
-              onClick={() => setCreatePublic(false)}
-            >
-              {ui.createPrivate}
-            </button>
-            <button
-              type="button"
-              className={`btn btn-ghost${createPublic ? ' selected-mode' : ''}`}
-              disabled={!hasParty}
-              onClick={() => setCreatePublic(true)}
-            >
+          <h2>{ui.create}</h2>
+          <label>
+            {ui.yourName}
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={20} required />
+          </label>
+          {hasParty ? (
+            <label className="row" style={{ marginTop: '0.75rem' }}>
+              <input
+                type="checkbox"
+                checked={createPublic}
+                onChange={(e) => setCreatePublic(e.target.checked)}
+              />
               {ui.createPublic}
-            </button>
-          </div>
-          {!hasParty && <p className="muted" style={{ fontSize: '0.85rem' }}>{ui.createPublicNeedParty}</p>}
-          {error && <p className="error">{error}</p>}
-          <div className="row">
-            <button className="btn" type="submit" disabled={busy}>
+            </label>
+          ) : (
+            <p className="muted">{ui.createPublicNeedParty}</p>
+          )}
+          <div className="cta-row">
+            <button type="submit" className="btn" disabled={busy}>
               {ui.start}
             </button>
-            <button className="btn btn-ghost" type="button" onClick={() => setScreen('home')}>
+            <button type="button" className="btn btn-ghost" onClick={() => setScreen('home')}>
               {ui.back}
             </button>
           </div>
@@ -593,97 +466,51 @@ export default function App() {
       )}
 
       {screen === 'join' && joinStep === 'code' && (
-        <form className="panel" onSubmit={(e) => void onJoinCode(e)}>
-          <h2 className="scene-title">{ui.join}</h2>
-          <p className="muted">{ui.joinStepCode}</p>
-          <p className="muted">{ui.joinCodeHint}</p>
-          <div className="field">
-            <label htmlFor="code">{ui.roomCode}</label>
+        <form className="panel" onSubmit={(e) => void onPreviewJoin(e)}>
+          <h2>{ui.join}</h2>
+          <label>
+            {ui.roomCode}
             <input
-              id="code"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              required
               maxLength={4}
-              minLength={4}
-              autoFocus
-              autoCapitalize="characters"
-              autoComplete="off"
-              spellCheck={false}
+              required
             />
-          </div>
-          {error && <p className="error">{error}</p>}
-          <div className="row">
-            <button className="btn" type="submit" disabled={busy || joinCode.trim().length !== 4}>
-              {ui.next}
+          </label>
+          <div className="cta-row">
+            <button type="submit" className="btn" disabled={busy || joinCode.length < 4}>
+              {ui.continueJoin}
             </button>
-            <button className="btn btn-ghost" type="button" onClick={() => setScreen('home')}>
+            <button type="button" className="btn btn-ghost" onClick={() => setScreen('home')}>
               {ui.back}
             </button>
           </div>
         </form>
       )}
 
-      {screen === 'join' && joinStep === 'profile' && joinPreview && (
+      {screen === 'join' && joinStep === 'name' && (
         <form className="panel" onSubmit={(e) => void onJoin(e)}>
-          <h2 className="scene-title">{ui.join}</h2>
-          <p className="muted">
-            {ui.joinStepProfile} · {ui.code} {joinPreview.code}
-          </p>
-          {joinPreview.spectateOnly && <div className="player-hint">{ui.joinSpectateNote}</div>}
-          <div className="field">
-            <label htmlFor="join-name">{ui.yourName}</label>
-            <input
-              id="join-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              maxLength={20}
-              autoFocus
-            />
-          </div>
-          {joinPreview.canPickClass && (
-            <>
-              <h3 style={{ marginBottom: 0 }}>{ui.pickClass}</h3>
-              <div className="class-grid">
-                {joinPreview.classes.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`class-btn${joinClassId === c.id ? ' selected' : ''}`}
-                    onClick={() => setJoinClassId(c.id)}
-                  >
-                    <h3>
-                      {c.name}
-                      {joinClassId === c.id ? ` · ${ui.classPicked}` : ''}
-                    </h3>
-                    <p>{c.blurb}</p>
-                    <div className="stats">
-                      {ui.might} {c.might} · {ui.arcana} {c.arcana} · {ui.cunning} {c.cunning} —{' '}
-                      {c.ability}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
+          <h2>{ui.join}</h2>
+          {joinPreview && (
+            <p className="muted">
+              {joinPreview.code} · {joinPreview.playerCount} {ui.previewPlayers} ·{' '}
+              {joinPreview.hostName}
+            </p>
           )}
-          {error && <p className="error">{error}</p>}
-          <div className="row">
-            <button
-              className="btn"
-              type="submit"
-              disabled={busy || (joinPreview.canPickClass && !joinClassId)}
-            >
+          <label>
+            {ui.yourName}
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={20} required />
+          </label>
+          <div className="cta-row">
+            <button type="submit" className="btn" disabled={busy}>
               {ui.join}
             </button>
             <button
-              className="btn btn-ghost"
               type="button"
+              className="btn btn-ghost"
               onClick={() => {
                 setJoinStep('code')
                 setJoinPreview(null)
-                setJoinClassId(null)
-                setError(null)
               }}
             >
               {ui.back}
@@ -692,27 +519,55 @@ export default function App() {
         </form>
       )}
 
+      {screen === 'find' && (
+        <div className="panel">
+          <h2>{ui.findGame}</h2>
+          {lobbiesBusy && lobbies.length === 0 && <p className="muted">{ui.findBusy}</p>}
+          {!lobbiesBusy && lobbies.length === 0 && <p className="muted">{ui.findEmpty}</p>}
+          <ul className="lobby-list">
+            {lobbies.map((l) => (
+              <li key={l.code}>
+                <button type="button" className="btn btn-ghost" onClick={() => openJoin(l.code)}>
+                  <strong>{l.code}</strong>
+                  <span className="muted">
+                    {l.hostName} · {l.playerCount} {ui.previewPlayers}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button type="button" className="btn btn-ghost" onClick={() => setScreen('home')}>
+            {ui.back}
+          </button>
+        </div>
+      )}
+
       {screen === 'play' && room && playerId && (
         <PlayView
           room={room}
           playerId={playerId}
           uiLang={uiLang}
-          partyInfo={partyInfo}
+          setUiLang={setUiLang}
+          setRoom={setRoom}
           busy={busy}
           setBusy={setBusy}
           error={error}
           setError={setError}
-          setRoom={setRoom}
+          copied={copied}
+          setCopied={setCopied}
           leave={leave}
+          hasParty={hasParty}
+          partyInfo={partyInfo}
           checkout={checkout}
           promo={promo}
           setPromo={setPromo}
-          copied={copied}
-          setCopied={setCopied}
+          onRedeem={onRedeem}
           firstTime={firstTime}
           setFirstTime={setFirstTime}
         />
       )}
+
+      {error && screen !== 'play' && <p className="error">{error}</p>}
     </div>
   )
 }
@@ -721,85 +576,55 @@ function PlayView({
   room,
   playerId,
   uiLang,
-  partyInfo,
+  setUiLang,
+  setRoom,
   busy,
   setBusy,
   error,
   setError,
-  setRoom,
+  copied,
+  setCopied,
   leave,
+  hasParty,
+  partyInfo,
   checkout,
   promo,
   setPromo,
-  copied,
-  setCopied,
+  onRedeem,
   firstTime,
   setFirstTime,
 }: {
   room: PublicRoom
   playerId: string
   uiLang: Lang
-  partyInfo: PartyInfo | null
-  busy: boolean
-  setBusy: (v: boolean) => void
-  error: string | null
-  setError: (v: string | null) => void
+  setUiLang: (l: Lang) => void
   setRoom: (r: PublicRoom) => void
+  busy: boolean
+  setBusy: (b: boolean) => void
+  error: string | null
+  setError: (e: string | null) => void
+  copied: boolean
+  setCopied: (v: boolean) => void
   leave: () => void
+  hasParty: boolean
+  partyInfo: PartyInfo | null
   checkout: (plan: 'day' | 'week') => Promise<void>
   promo: string
   setPromo: (v: string) => void
-  copied: boolean
-  setCopied: (v: boolean) => void
+  onRedeem: (e: React.FormEvent) => Promise<void>
   firstTime: boolean
   setFirstTime: (v: boolean) => void
 }) {
   const ui = t(room.language || uiLang)
   const isHost = room.hostId === playerId
-  const me = room.players.find((p) => p.id === playerId)
-  const seconds = useCountdown(room.voteEndsAt)
+  const seconds = useCountdown(room.phaseEndsAt)
   const [showQr, setShowQr] = useState(false)
-  const [dmDraft, setDmDraft] = useState('')
-  const [shareMsg, setShareMsg] = useState<string | null>(null)
   const [tvMode, setTvMode] = useState(false)
-  const maxVotes = useMemo(
-    () => Math.max(1, ...room.choices.map((c) => c.votes), room.voterCount || 1),
-    [room.choices, room.voterCount],
-  )
-  const closeRaceLive = useMemo(() => {
-    const sorted = [...room.choices].sort((a, b) => b.votes - a.votes)
-    return Boolean(sorted[0] && sorted[1] && sorted[0].votes > 0 && sorted[0].votes === sorted[1].votes)
-  }, [room.choices])
-  const classesReady = room.players.filter(
-    (p) =>
-      p.connected &&
-      !p.spectator &&
-      p.classId &&
-      !(p.id === room.hostId && !room.hostPlays),
-  ).length
-  const classesNeeded = room.players.filter(
-    (p) => p.connected && !p.spectator && !(p.id === room.hostId && !room.hostPlays),
-  ).length
-  const yourChoiceText = room.choices.find((c) => c.id === room.yourVote)?.text
-
-  const inLobby = room.status === 'lobby' || room.status === 'class_pick'
-  const voting = room.status === 'voting'
-  const resolving = room.status === 'resolve'
-  const finished = room.status === 'finished'
-  const paused = room.status === 'paused'
-  const tense =
-    voting && room.voteEndsAt > 0 && seconds > 0 && seconds <= 5
-  const hasParty = room.premiumTier === 'party'
+  const [emojiDraft, setEmojiDraft] = useState('')
+  const [guessDraft, setGuessDraft] = useState('')
   const joinUrl = `https://partypaths.com/?join=${room.code}`
-  const isSpectator = room.youAreSpectator || Boolean(me?.spectator)
-  const isDm = Boolean(room.youAreDm || (isHost && !room.hostPlays))
-  const canPickClass = !isSpectator && !isDm
-  const canVote = canPickClass && Boolean(me?.classId)
-  const showTallies = !room.secretBallot || !voting
-  const shortEnding = finished && room.nodeId === 'ending_short'
-  const log = room.adventureLog ?? []
-  const autoLock = room.autoLockWhenAllVoted !== false
-  const dmMustAdvance = !autoLock || (room.voteSeconds ?? 60) <= 0
+  const inLobby = room.status === 'lobby'
+  const connectedCount = room.players.filter((p) => p.connected && !p.spectator).length
 
   useEffect(() => {
     const app = document.querySelector('.app')
@@ -823,18 +648,27 @@ function PlayView({
   }, [])
 
   useEffect(() => {
-    if (tense) vibe([30, 40, 30])
-  }, [tense, seconds])
+    setEmojiDraft('')
+    setGuessDraft('')
+  }, [room.status, room.hopIndex, room.roundIndex])
 
-  useEffect(() => {
-    if (resolving && room.lastResolve?.heroBanner) vibe([40, 30, 60])
-  }, [resolving, room.lastResolve?.heroBanner])
+  async function copyCode() {
+    await navigator.clipboard.writeText(room.code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
-  async function onPick(classId: PlayerClass) {
+  async function copyJoinLink() {
+    await navigator.clipboard.writeText(joinUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  async function run(fn: () => Promise<{ ok: boolean; error?: string; room?: PublicRoom }>) {
     setBusy(true)
     setError(null)
     try {
-      const res = await pickClass(classId)
+      const res = await fn()
       if (!res.ok) setError(res.error || ui.error)
       else if (res.room) setRoom(res.room)
     } catch {
@@ -844,256 +678,23 @@ function PlayView({
     }
   }
 
-  async function onStart(mode: AdventureMode = 'story') {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await startAdventure(mode)
-      if (!res.ok) setError(res.error || ui.needClasses)
-      else if (res.room) {
-        vibe(20)
-        setRoom(res.room)
-      }
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
+  function phaseTitle() {
+    switch (room.status) {
+      case 'emoji':
+        return ui.phaseEmoji
+      case 'guess':
+        return ui.phaseGuess
+      case 'reveal':
+        return ui.phaseReveal
+      case 'funny_vote':
+        return ui.phaseFunny
+      case 'scoreboard':
+        return ui.phaseScore
+      case 'finished':
+        return ui.phaseFinished
+      default:
+        return ui.lobby
     }
-  }
-
-  async function onVoteTimer(seconds: number) {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await setVoteSeconds(seconds)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onSecretBallot(enabled: boolean) {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await setSecretBallot(enabled)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onAutoLock(enabled: boolean) {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await setAutoLock(enabled)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onHostPlays(plays: boolean) {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await setHostPlays(plays)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onPublicLobby(isPublic: boolean) {
-    setBusy(true)
-    setError(null)
-    try {
-      const res = await setPublicLobby(isPublic)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onVote(choiceId: string) {
-    setBusy(true)
-    setError(null)
-    vibe(12)
-    try {
-      const res = await castVote(choiceId)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onLock() {
-    setBusy(true)
-    try {
-      const res = await lockVotes()
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) {
-        vibe([20, 30, 40])
-        setRoom(res.room)
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onRematch(mode: AdventureMode = 'story') {
-    setBusy(true)
-    try {
-      const res = await rematch(mode)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onPauseToggle() {
-    setBusy(true)
-    try {
-      const res = paused ? await resumeAdventure() : await pauseAdventure()
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onSendDm(e: React.FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    try {
-      const res = await setDmNote(dmDraft)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) {
-        setRoom(res.room)
-        setDmDraft('')
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function onClearDm() {
-    const res = await setDmNote('')
-    if (res.ok && res.room) setRoom(res.room)
-  }
-
-  async function onShare() {
-    setShareMsg(ui.sharing)
-    const blob = await renderEndingCard({
-      title: room.title,
-      ending: room.narrative,
-      players: room.players.map((p) => {
-        const cls = room.classes.find((c) => c.id === p.classId)
-        return cls ? `${p.name} (${cls.name})` : p.name
-      }),
-      code: room.code,
-      modeLabel: modeLabel(room.adventureMode || 'story', ui),
-    })
-    if (!blob) {
-      setShareMsg(ui.error)
-      return
-    }
-    const file = new File([blob], `partypaths-${room.code}.png`, { type: 'image/png' })
-    try {
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'Party Paths',
-          text: `${room.title} — ${ui.joinUrl}`,
-        })
-        setShareMsg(ui.shareSaved)
-      } else {
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = file.name
-        a.click()
-        URL.revokeObjectURL(url)
-        setShareMsg(ui.shareSaved)
-      }
-    } catch {
-      setShareMsg(null)
-    }
-  }
-
-  async function onRedeem(e: React.FormEvent) {
-    e.preventDefault()
-    setBusy(true)
-    try {
-      const res = await redeemParty(promo)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function copyCode() {
-    void navigator.clipboard.writeText(room.code).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
-
-  function copyJoinLink() {
-    void navigator.clipboard.writeText(joinUrl).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
-  }
-
-  function ModeButtons({
-    onPickMode,
-  }: {
-    onPickMode: (mode: AdventureMode) => void
-  }) {
-    return (
-      <div className="mode-grid">
-        {(
-          [
-            ['story', ui.modeStory],
-            ['orcs', ui.modeOrcs],
-            ['dragon', hasParty ? ui.modeDragon : ui.modeDragonLocked],
-            ['chaos', ui.modeChaos],
-          ] as const
-        ).map(([mode, label]) => (
-          <button
-            key={mode}
-            type="button"
-            className="btn btn-ghost"
-            disabled={busy || (mode === 'dragon' && !hasParty)}
-            onClick={() => onPickMode(mode)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-    )
   }
 
   return (
@@ -1103,7 +704,7 @@ function PlayView({
           <JoinQr url={joinUrl} size={320} alt={`QR ${room.code}`} />
           <div className="code-big">{room.code}</div>
           <p className="muted">{ui.joinUrl}</p>
-          <button type="button" className="btn btn-ghost btn-small" onClick={copyJoinLink}>
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => void copyJoinLink()}>
             {copied ? ui.copied : ui.copyLink}
           </button>
           <button type="button" className="btn" onClick={() => setShowQr(false)}>
@@ -1119,17 +720,17 @@ function PlayView({
             <div className="code-big">{room.code}</div>
           </div>
           <div className="row">
-            <button
-              type="button"
-              className="btn btn-small"
-              onClick={() => setTvMode((v) => !v)}
-            >
+            <button type="button" className="btn btn-small" onClick={() => setTvMode((v) => !v)}>
               {tvMode ? ui.tvExit : ui.tvMode}
             </button>
-            <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={copyCode}>
+            <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={() => void copyCode()}>
               {copied ? ui.copied : ui.copy}
             </button>
-            <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={copyJoinLink}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small hide-on-tv"
+              onClick={() => void copyJoinLink()}
+            >
               {ui.copyLink}
             </button>
             <button type="button" className="btn btn-ghost btn-small hide-on-tv" onClick={leave}>
@@ -1139,12 +740,9 @@ function PlayView({
         </div>
       </div>
 
-      <p className="muted hide-on-tv shareHint-hide">{ui.shareHint}</p>
+      <p className="muted hide-on-tv">{ui.shareHint}</p>
       <p className="muted hide-on-tv">{hasParty ? ui.partyTier : ui.freeTier}</p>
-      {isSpectator && !inLobby && <div className="player-hint">{ui.spectatorHint}</div>}
-      {isDm && !inLobby && (
-        <div className="player-hint ok hide-on-tv">{ui.dmRole} — {ui.lockVotes}</div>
-      )}
+      {room.youAreSpectator && <div className="player-hint">{ui.spectatorHint}</div>}
 
       {inLobby && tvMode && (
         <div className="tv-only tv-lobby-qr">
@@ -1156,9 +754,6 @@ function PlayView({
             <p className="muted" style={{ fontSize: '1.25rem' }}>
               partypaths.com · {room.code}
             </p>
-            <p className="muted">
-              {classesReady}/{classesNeeded} {ui.readyCount}
-            </p>
           </div>
         </div>
       )}
@@ -1167,21 +762,16 @@ function PlayView({
         {ui.players}
       </h3>
       <ul className="player-list hide-on-tv">
-        {room.players.map((p) => {
-          const cls = room.classes.find((c) => c.id === p.classId)
-          return (
-            <li key={p.id} className={p.connected ? undefined : 'offline'}>
-              <span>
-                {p.name}
-                {p.id === room.hostId ? ` · ${ui.host}` : ''}
-                {p.id === room.hostId && !room.hostPlays ? ` · ${ui.dmRole}` : ''}
-                {p.spectator ? ` · ${ui.spectator}` : ''}
-                {cls ? ` · ${cls.name}` : ''}
-              </span>
-              <span className="muted">{p.connected ? '●' : '○'}</span>
-            </li>
-          )
-        })}
+        {room.players.map((p) => (
+          <li key={p.id} className={p.connected ? undefined : 'offline'}>
+            <span>
+              {p.name}
+              {p.id === room.hostId ? ` · ${ui.host}` : ''}
+              {p.spectator ? ` · ${ui.spectator}` : ''}
+            </span>
+            <span className="muted">{p.connected ? '●' : '○'}</span>
+          </li>
+        ))}
       </ul>
       {room.waitlist.length > 0 && (
         <div className="waitlist hide-on-tv">
@@ -1197,114 +787,36 @@ function PlayView({
         </div>
       )}
       <div className="chip-row tv-only">
-        {room.players.map((p) => {
-          const cls = room.classes.find((c) => c.id === p.classId)
-          return (
-            <span
-              key={p.id}
-              className={`chip${p.connected ? '' : ' offline'}${p.id === playerId ? ' me' : ''}`}
-            >
-              {p.name}
-              {p.id === room.hostId && !room.hostPlays ? ` · DM` : ''}
-              {p.spectator ? ` · ${ui.spectator}` : ''}
-              {cls ? ` · ${cls.name}` : ''}
-            </span>
-          )
-        })}
+        {room.players.map((p) => (
+          <span
+            key={p.id}
+            className={`chip${p.connected ? '' : ' offline'}${p.id === playerId ? ' me' : ''}`}
+          >
+            {p.name}
+            {p.spectator ? ` · ${ui.spectator}` : ''}
+          </span>
+        ))}
       </div>
 
       {isHost && (
-        <div className="host-tools">
-          <div className="row hide-on-tv">
+        <div className="host-tools hide-on-tv">
+          <div className="row">
             <button type="button" className="btn btn-ghost btn-small" onClick={() => setShowQr(true)}>
               {ui.showQr}
             </button>
-            {(voting || resolving || paused) && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-small"
-                disabled={busy}
-                onClick={() => void onPauseToggle()}
-              >
-                {paused ? ui.resume : ui.pause}
-              </button>
-            )}
           </div>
-          {(voting || paused) && (
-            <form className="hide-on-tv" onSubmit={(e) => void onSendDm(e)}>
-              <label className="muted">{ui.dmNote}</label>
-              <textarea
-                value={dmDraft}
-                onChange={(e) => setDmDraft(e.target.value)}
-                placeholder={ui.dmPlaceholder}
-                maxLength={280}
-              />
-              <div className="row">
-                <button type="submit" className="btn btn-small" disabled={busy || !dmDraft.trim()}>
-                  {ui.sendDm}
-                </button>
-                {room.dmNote && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-small"
-                    onClick={() => void onClearDm()}
-                  >
-                    {ui.clearDm}
-                  </button>
-                )}
-              </div>
-            </form>
-          )}
-          {tvMode && (voting || paused) && (
-            <div className="tv-host-bar tv-only">
-              {voting && (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy}
-                  onClick={() => void onLock()}
-                >
-                  {dmMustAdvance ? ui.lockVotesDm : ui.lockVotes}
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={busy}
-                onClick={() => void onPauseToggle()}
-              >
-                {paused ? ui.resume : ui.pause}
-              </button>
-            </div>
-          )}
         </div>
       )}
 
       {inLobby && (
         <>
+          <div className="player-hint ok hide-on-tv" style={{ whiteSpace: 'pre-line' }}>
+            <strong>{ui.howTo}</strong>
+            {'\n'}
+            {ui.howToBody}
+          </div>
           {isHost && (
             <>
-              <p className="muted" style={{ marginTop: '1.25rem' }}>
-                {ui.hostPlaysLabel}
-              </p>
-              <div className="mode-grid" style={{ marginBottom: '0.75rem' }}>
-                <button
-                  type="button"
-                  className={`btn btn-ghost${!room.hostPlays ? ' selected-mode' : ''}`}
-                  disabled={busy}
-                  onClick={() => void onHostPlays(false)}
-                >
-                  {ui.hostPlaysOff}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-ghost${room.hostPlays ? ' selected-mode' : ''}`}
-                  disabled={busy}
-                  onClick={() => void onHostPlays(true)}
-                >
-                  {ui.hostPlaysOn}
-                </button>
-              </div>
               <p className="muted">{ui.openLobby}</p>
               {hasParty ? (
                 <div className="mode-grid" style={{ marginBottom: '0.75rem' }}>
@@ -1312,7 +824,7 @@ function PlayView({
                     type="button"
                     className={`btn btn-ghost${!room.isPublic ? ' selected-mode' : ''}`}
                     disabled={busy}
-                    onClick={() => void onPublicLobby(false)}
+                    onClick={() => void run(() => setPublicLobby(false))}
                   >
                     {ui.openLobbyOff}
                   </button>
@@ -1320,336 +832,262 @@ function PlayView({
                     type="button"
                     className={`btn btn-ghost${room.isPublic ? ' selected-mode' : ''}`}
                     disabled={busy}
-                    onClick={() => void onPublicLobby(true)}
+                    onClick={() => void run(() => setPublicLobby(true))}
                   >
                     {ui.openLobbyOn}
                   </button>
                 </div>
               ) : (
-                <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-                  {ui.openLobbyNeedParty}
-                </p>
+                <p className="muted">{ui.openLobbyNeedParty}</p>
               )}
-            </>
-          )}
-          {isDm && <div className="player-hint ok">{ui.dmHint}</div>}
-          {isSpectator && <div className="player-hint">{ui.spectatorHint}</div>}
-          {canPickClass && (
-            <>
-              <h2 className="scene-title" style={{ marginTop: '1.25rem' }}>
-                {ui.pickClass}
-              </h2>
-              {!me?.classId && <div className="player-hint">{ui.pickClassHint}</div>}
-              {me?.classId && !isHost && <div className="player-hint ok">{ui.classReadyWait}</div>}
-              <div className="class-grid">
-                {room.classes.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`class-btn${me?.classId === c.id ? ' selected' : ''}`}
-                    onClick={() => void onPick(c.id)}
-                    disabled={busy}
-                  >
-                    <h3>
-                      {c.name}
-                      {me?.classId === c.id ? ` · ${ui.classPicked}` : ''}
-                    </h3>
-                    <p>{c.blurb}</p>
-                    <div className="stats">
-                      {ui.might} {c.might} · {ui.arcana} {c.arcana} · {ui.cunning} {c.cunning} —{' '}
-                      {c.ability}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          {isHost ? (
-            <>
-              <p className="muted" style={{ marginTop: '1rem' }}>
-                {ui.votePace}
-              </p>
-              <div className="mode-grid" style={{ marginBottom: '1rem' }}>
-                {([0, 30, 60, 90, 120, 180] as const).map((sec) => (
+              <p className="muted">{ui.emojiTime}</p>
+              <div className="mode-grid" style={{ marginBottom: '0.75rem' }}>
+                {([20, 35, 50] as const).map((sec) => (
                   <button
                     key={sec}
                     type="button"
-                    className={`btn btn-ghost${(room.voteSeconds ?? 60) === sec ? ' selected-mode' : ''}`}
+                    className={`btn btn-ghost${room.emojiSeconds === sec ? ' selected-mode' : ''}`}
                     disabled={busy}
-                    onClick={() => void onVoteTimer(sec)}
+                    onClick={() => void run(() => setPhaseTimers(sec, undefined))}
                   >
-                    {voteTimerLabel(ui, sec)}
+                    {sec}
+                    {ui.seconds}
                   </button>
                 ))}
               </div>
-              <p className="muted">{ui.autoLockLabel}</p>
-              <p className="muted" style={{ fontSize: '0.85rem' }}>
-                {ui.autoLockHint}
-              </p>
+              <p className="muted">{ui.guessTime}</p>
               <div className="mode-grid" style={{ marginBottom: '1rem' }}>
+                {([15, 25, 40] as const).map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    className={`btn btn-ghost${room.guessSeconds === sec ? ' selected-mode' : ''}`}
+                    disabled={busy}
+                    onClick={() => void run(() => setPhaseTimers(undefined, sec))}
+                  >
+                    {sec}
+                    {ui.seconds}
+                  </button>
+                ))}
+              </div>
+              <div className="row" style={{ marginBottom: '0.75rem' }}>
                 <button
                   type="button"
-                  className={`btn btn-ghost${autoLock ? ' selected-mode' : ''}`}
+                  className={`btn btn-ghost btn-small${room.language === 'sv' ? ' selected-mode' : ''}`}
                   disabled={busy}
-                  onClick={() => void onAutoLock(true)}
+                  onClick={() => {
+                    setUiLang('sv')
+                    void run(() => setRoomLanguage('sv'))
+                  }}
                 >
-                  {ui.autoLockOn}
+                  SV
                 </button>
                 <button
                   type="button"
-                  className={`btn btn-ghost${!autoLock ? ' selected-mode' : ''}`}
+                  className={`btn btn-ghost btn-small${room.language === 'en' ? ' selected-mode' : ''}`}
                   disabled={busy}
-                  onClick={() => void onAutoLock(false)}
+                  onClick={() => {
+                    setUiLang('en')
+                    void run(() => setRoomLanguage('en'))
+                  }}
                 >
-                  {ui.autoLockOff}
+                  EN
                 </button>
               </div>
-              <p className="muted">{ui.secretBallot}</p>
-              <div className="mode-grid" style={{ marginBottom: '1rem' }}>
-                <button
-                  type="button"
-                  className={`btn btn-ghost${!room.secretBallot ? ' selected-mode' : ''}`}
-                  disabled={busy}
-                  onClick={() => void onSecretBallot(false)}
-                >
-                  {ui.secretBallotOff}
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-ghost${room.secretBallot ? ' selected-mode' : ''}`}
-                  disabled={busy}
-                  onClick={() => void onSecretBallot(true)}
-                >
-                  {ui.secretBallotOn}
-                </button>
-              </div>
-              <p className="muted" style={{ marginTop: '0.5rem' }}>
-                {ui.modes} · {classesReady}/{classesNeeded} {ui.readyCount}
-              </p>
-              {classesNeeded < 1 && <p className="muted">{ui.needAdventurers}</p>}
-              <ModeButtons onPickMode={(mode) => void onStart(mode)} />
+              {connectedCount < 3 && <p className="muted">{ui.needPlayers}</p>}
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || connectedCount < 3}
+                onClick={() => void run(() => startGame())}
+              >
+                {ui.startGame}
+              </button>
             </>
-          ) : (
-            me?.classId && <p className="muted">{ui.waitingHost}</p>
           )}
+          {!isHost && <p className="muted">{ui.waitingHost}</p>}
         </>
       )}
 
-      {paused && <div className="paused-banner">{ui.paused}</div>}
-      {room.dmNote && <div className="dm-banner">{room.dmNote}</div>}
-
-      {(voting || resolving || finished || paused) && !inLobby && (
+      {!inLobby && (
         <>
-          <div className="bars" style={{ marginTop: '1rem' }}>
-            <div>
-              <div className="bar-label">
-                <span>{ui.partyHp}</span>
-                <span>
-                  {room.partyHp}/{room.partyHpMax}
-                </span>
-              </div>
-              <div className="bar-track">
-                <div
-                  className="bar-fill"
-                  style={{ width: `${(100 * room.partyHp) / Math.max(1, room.partyHpMax)}%` }}
-                />
-              </div>
-            </div>
-            {room.combat && (
-              <div>
-                <div className="bar-label">
-                  <span>
-                    {ui.enemy}: {room.combat.enemyName}
-                  </span>
-                  <span>
-                    {room.combat.enemyHp}/{room.combat.enemyHpMax}
-                  </span>
-                </div>
-                <div className="bar-track">
-                  <div
-                    className="bar-fill enemy"
-                    style={{
-                      width: `${(100 * room.combat.enemyHp) / Math.max(1, room.combat.enemyHpMax)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <p className="muted">{room.combat ? ui.combat : finished ? ui.ending : ui.scene}</p>
-          <h2 className="scene-title">{room.title}</h2>
-          <p className="scene-body">{room.narrative}</p>
-
-          {room.lastResolve?.heroBanner && (resolving || finished) && (
-            <div className="hero-banner">{room.lastResolve.heroBanner}</div>
-          )}
-
-          {(resolving || finished) && room.lastResolve && (
-            <div className="resolve-box">
-              <strong>{ui.winning}:</strong> {room.lastResolve.winningText}
-              {room.lastResolve.closeRace && (
-                <span className="close-race"> · {ui.closeRace}</span>
-              )}
-              {room.lastResolve.combatLog && <p>{room.lastResolve.combatLog}</p>}
-              {room.lastResolve.voteReveal && room.lastResolve.voteReveal.length > 0 && (
-                <ul className="vote-reveal">
-                  {room.lastResolve.voteReveal.map((v) => (
-                    <li key={v.playerId}>
-                      <strong>{v.playerName}</strong> {ui.votedFor} {v.choiceText}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {voting && (
-            <>
-              {isDm ? (
-                <div className="player-hint ok">{ui.dmHint}</div>
-              ) : isSpectator ? (
-                <div className="player-hint">{ui.spectatorHint}</div>
-              ) : !room.yourVote ? (
-                <div className="player-hint">{ui.tapToVote}</div>
-              ) : (
-                <div className="player-hint ok">
-                  {ui.youVoted}: {yourChoiceText} · {ui.waitingOthers}
-                  <div className="muted" style={{ fontWeight: 500, marginTop: '0.25rem' }}>
-                    {ui.changeVote}
-                  </div>
-                </div>
-              )}
-              {dmMustAdvance && room.votedCount >= room.voterCount && room.voterCount > 0 && (
-                <div className="player-hint">{ui.dmAdvanceHint}</div>
-              )}
-              <p className="muted">
-                {(room.voteSeconds ?? 60) <= 0 || room.voteEndsAt <= 0 ? (
-                  <span className="timer" style={{ fontSize: '1.1rem' }}>
-                    {ui.voteDiscussLive}
-                  </span>
-                ) : (
-                  <>
-                    <span className={`timer${tense ? ' tense' : ''}`}>
-                      {seconds}
-                      {ui.seconds}
-                    </span>
-                    {tense && <span className="close-race"> {ui.tense}</span>}
-                    {showTallies && closeRaceLive && (
-                      <span className="close-race"> · {ui.closeRace}</span>
-                    )}
-                  </>
-                )}
+          <p className="muted" style={{ marginTop: '1rem' }}>
+            {ui.roundOf} {room.roundIndex}/{room.maxRounds}
+            {(room.status === 'emoji' || room.status === 'guess') && (
+              <>
                 {' · '}
-                {room.votedCount}/{room.voterCount} {ui.votesIn}
-                {room.secretBallot && (
-                  <span className="muted"> · {ui.secretLive}</span>
-                )}
+                {ui.hopOf} {room.hopIndex + 1}/{room.hopCount}
+              </>
+            )}
+          </p>
+          <h2 className="scene-title">{phaseTitle()}</h2>
+          {(room.status === 'emoji' || room.status === 'guess' || room.status === 'funny_vote') &&
+            room.phaseEndsAt > 0 && (
+              <p className="muted">
+                <span className="timer">
+                  {seconds}
+                  {ui.seconds}
+                </span>
+                {' · '}
+                {room.submittedCount}/{room.submitterCount} {ui.submitted}
               </p>
-              <div className="vote-grid">
-                {room.choices.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={`vote-btn${room.yourVote === c.id ? ' mine' : ''}`}
-                    onClick={() => void onVote(c.id)}
-                    disabled={busy || !canVote}
+            )}
+
+          {room.status === 'emoji' && !room.youAreSpectator && room.yourMeaning && (
+            <div className="hide-on-tv">
+              <p className="muted">{ui.yourWord}</p>
+              <h3 className="scene-title" style={{ fontSize: '2rem' }}>
+                {room.yourMeaning}
+              </h3>
+              <p className="muted">{ui.explainWithEmoji}</p>
+              <input
+                value={emojiDraft}
+                onChange={(e) => setEmojiDraft(e.target.value)}
+                placeholder={ui.emojiPlaceholder}
+                inputMode="text"
+                autoComplete="off"
+                style={{ fontSize: '1.8rem', textAlign: 'center' }}
+              />
+              <div className="cta-row">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || !emojiDraft.trim()}
+                  onClick={() => void run(() => submitEmojis(emojiDraft))}
+                >
+                  {ui.submitEmojis}
+                </button>
+              </div>
+              {room.youSubmitted && <div className="player-hint ok">{ui.youSubmitted}</div>}
+            </div>
+          )}
+
+          {room.status === 'guess' && !room.youAreSpectator && room.yourPromptEmojis && (
+            <div className="hide-on-tv">
+              <p className="muted">{ui.guessTheWord}</p>
+              <div className="emoji-prompt">{room.yourPromptEmojis}</div>
+              <input
+                value={guessDraft}
+                onChange={(e) => setGuessDraft(e.target.value)}
+                placeholder={ui.guessPlaceholder}
+                maxLength={48}
+                autoComplete="off"
+              />
+              <div className="cta-row">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || !guessDraft.trim()}
+                  onClick={() => void run(() => submitGuess(guessDraft))}
+                >
+                  {ui.submitGuess}
+                </button>
+              </div>
+              {room.youSubmitted && <div className="player-hint ok">{ui.youSubmitted}</div>}
+            </div>
+          )}
+
+          {(room.status === 'emoji' || room.status === 'guess') && tvMode && (
+            <div className="tv-only">
+              <p className="scene-body">
+                {room.submittedCount}/{room.submitterCount} {ui.submitted}
+              </p>
+            </div>
+          )}
+
+          {room.paths &&
+            (room.status === 'reveal' ||
+              room.status === 'funny_vote' ||
+              room.status === 'scoreboard' ||
+              room.status === 'finished') && (
+              <div className="path-grid">
+                {room.paths.map((path) => (
+                  <div
+                    key={path.id}
+                    className={`path-card${room.yourFunnyVote === path.id ? ' selected' : ''}`}
                   >
-                    {showTallies && <span className="vote-count">{c.votes}</span>}
-                    {c.text}
-                    {showTallies && (
-                      <span
-                        className="tally-bar"
-                        style={{ width: `${(100 * c.votes) / maxVotes}%` }}
-                      />
-                    )}
-                  </button>
+                    <div className="muted">
+                      {path.originName} · {ui.seedWord}: <strong>{path.seedWord}</strong>
+                      {room.funnyVotes?.[path.id] ? ` · ${room.funnyVotes[path.id]}` : ''}
+                    </div>
+                    <ol className="path-steps">
+                      {path.steps.map((s, i) => (
+                        <li key={`${path.id}-${i}`}>
+                          <span className="emoji-prompt small">{s.emojis || '❓'}</span>
+                          <span>
+                            {s.guesserName}: {s.guess}{' '}
+                            <em className={s.correct ? 'ok' : 'bad'}>
+                              ({s.correct ? ui.correct : ui.wrong}
+                              {!s.correct ? ` ← ${s.meaning}` : ''})
+                            </em>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                    {room.status === 'funny_vote' &&
+                      !room.youAreSpectator &&
+                      path.originPlayerId !== playerId && (
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          disabled={busy}
+                          onClick={() => void run(() => voteFunny(path.id))}
+                        >
+                          {ui.voteFunny}
+                        </button>
+                      )}
+                  </div>
                 ))}
               </div>
-              {isHost && !tvMode && (
+            )}
+
+          {room.status === 'funny_vote' && !room.youAreSpectator && (
+            <p className="muted hide-on-tv">{ui.voteFunnyHint}</p>
+          )}
+
+          {(room.status === 'scoreboard' || room.status === 'finished') && (
+            <>
+              <h3>{ui.scores}</h3>
+              <p className="muted">{ui.pointsHint}</p>
+              <ul className="player-list">
+                {room.scores.map((s) => (
+                  <li key={s.playerId}>
+                    <span>{s.name}</span>
+                    <strong>{s.score}</strong>
+                  </li>
+                ))}
+              </ul>
+              {isHost && room.status === 'scoreboard' && (
                 <div className="cta-row">
                   <button
                     type="button"
-                    className={dmMustAdvance ? 'btn' : 'btn btn-ghost'}
-                    disabled={busy}
-                    onClick={() => void onLock()}
+                    className="btn"
+                    disabled={busy || room.roundIndex >= room.maxRounds}
+                    onClick={() => void run(() => nextRound())}
                   >
-                    {dmMustAdvance ? ui.lockVotesDm : ui.lockVotes}
+                    {ui.nextRound}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={busy}
+                    onClick={() => void run(() => endParty())}
+                  >
+                    {ui.endParty}
                   </button>
                 </div>
               )}
-            </>
-          )}
-
-          {resolving && room.lastResolve && (
-            <div className="vote-grid">
-              {room.choices.map((c) => (
-                <div
-                  key={c.id}
-                  className={`vote-btn${c.id === room.lastResolve?.winningChoiceId ? ' winner' : ''}`}
-                >
-                  <span className="vote-count">{room.lastResolve?.tally[c.id] ?? c.votes}</span>
-                  {c.text}
+              {isHost && room.status === 'finished' && (
+                <div className="cta-row">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => void run(() => backToLobby())}
+                  >
+                    {ui.backToLobby}
+                  </button>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {finished && (
-            <>
-              {log.length > 0 && (
-                <div className="resolve-box recap">
-                  <strong>{ui.adventureRecap}</strong>
-                  <ol className="recap-list">
-                    {log.map((e, i) => (
-                      <li key={`${e.title}-${i}`}>
-                        <span className="muted">{e.title}</span>
-                        <div>
-                          {e.winningText}
-                          {e.closeRace ? ` · ${ui.closeRace}` : ''}
-                        </div>
-                        {e.heroBanner && <div className="hero-banner small">{e.heroBanner}</div>}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-              {shortEnding && !hasParty && (
-                <div className="party-box upgrade-cta">
-                  <p>{ui.upgradeShort}</p>
-                  <div className="cta-row">
-                    <button
-                      type="button"
-                      className="btn btn-small"
-                      disabled={busy || partyInfo?.enabled === false}
-                      onClick={() => void checkout('day')}
-                    >
-                      {ui.unlockParty} · {partyInfo?.amountLabel ?? '…'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-small"
-                      disabled={busy || partyInfo?.enabled === false}
-                      onClick={() => void checkout('week')}
-                    >
-                      {partyInfo?.weekAmountLabel ?? '…'} / {ui.partyWeek}
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div className="cta-row">
-                <button type="button" className="btn" disabled={busy} onClick={() => void onShare()}>
-                  {ui.shareCard}
-                </button>
-              </div>
-              {shareMsg && <p className="muted">{shareMsg}</p>}
-              {isHost && (
-                <>
-                  <p className="muted" style={{ marginTop: '1rem' }}>
-                    {ui.modes}
-                  </p>
-                  <ModeButtons onPickMode={(mode) => void onRematch(mode)} />
-                </>
               )}
               <SisterGameLinks ui={ui} compact />
             </>
@@ -1660,7 +1098,7 @@ function PlayView({
       {error && <p className="error">{error}</p>}
 
       {!hasParty && isHost && (
-        <div className="party-box">
+        <div className="party-box hide-on-tv">
           <p className="muted">{ui.partyBlurb}</p>
           <div className="cta-row">
             <button
@@ -1669,44 +1107,27 @@ function PlayView({
               disabled={busy || partyInfo?.enabled === false}
               onClick={() => void checkout('day')}
             >
-              {ui.unlockParty} · {partyInfo?.amountLabel ?? '…'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-small"
-              disabled={busy || partyInfo?.enabled === false}
-              onClick={() => void checkout('week')}
-            >
-              {partyInfo?.weekAmountLabel ?? '…'} / {ui.partyWeek}
+              {ui.unlockParty}
             </button>
           </div>
-          <label className="muted" style={{ display: 'block', marginTop: '0.5rem' }}>
-            <input
-              type="checkbox"
-              checked={firstTime}
-              onChange={(e) => setFirstTime(e.target.checked)}
-            />{' '}
-            {ui.firstTime}
-          </label>
-          <form className="row" style={{ marginTop: '0.75rem' }} onSubmit={(e) => void onRedeem(e)}>
+          <form onSubmit={(e) => void onRedeem(e)} className="row" style={{ marginTop: '0.75rem' }}>
             <input
               value={promo}
               onChange={(e) => setPromo(e.target.value)}
               placeholder={ui.redeemCode}
-              style={{
-                flex: 1,
-                minWidth: 140,
-                padding: '0.55rem 0.7rem',
-                borderRadius: 4,
-                border: '1px solid var(--line)',
-                background: 'rgba(8,14,10,0.65)',
-                color: 'var(--ink)',
-              }}
             />
             <button type="submit" className="btn btn-ghost btn-small" disabled={busy}>
               {ui.redeem}
             </button>
           </form>
+          <label className="muted row">
+            <input
+              type="checkbox"
+              checked={firstTime}
+              onChange={(e) => setFirstTime(e.target.checked)}
+            />
+            {ui.firstTime}
+          </label>
         </div>
       )}
     </div>

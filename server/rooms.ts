@@ -1,78 +1,47 @@
 import { customAlphabet } from 'nanoid'
-import { CLASSES } from './campaign/classes.js'
-import { START_NODE, getNode } from './campaign/emberwood.js'
 import {
-  availableChoices,
-  enterNode,
-  isExactTie,
-  loc,
-  resolveVote,
-  tallyVotes,
-} from './campaign/resolve.js'
+  applyCorrectPoints,
+  applyFunnyBonus,
+  authorIndexForHop,
+  createEmptyStep,
+  dealWords,
+  EMPTY_GUESS,
+  EMOJI_SECONDS,
+  GUESS_SECONDS,
+  guesserIndexForHop,
+  HOP_COUNT,
+  meaningForHop,
+  MIN_PLAYERS,
+  normalizeWord,
+  sanitizeEmojis,
+  scoreGuess,
+  tallyFunnyVotes,
+} from './game/paths.js'
 import {
   limitsFor,
   lookupPass,
   redeemPassCode,
   tierFromExpiry,
+  type PartyPass,
 } from './premium.js'
+import { freeWordPack, wordPack } from './words/index.js'
 import type {
-  AdventureMode,
+  GamePath,
   Lang,
   Player,
-  PlayerClass,
+  PublicPath,
   PublicRoom,
   Room,
-  VoteReveal,
+  RoomStatus,
 } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
 const DISCONNECT_GRACE_MS = 60_000
 const HOST_TRANSFER_AFTER_MS = 90_000
-const DEFAULT_VOTE_SEC = 60
-const RESOLVE_MS = 5_500
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
-const PARTY_HP_BASE = 40
 const NOTICE_TTL_MS = 45_000
-
-/** Allowed host choices: 0 = discuss (no timer) */
-export const VOTE_TIMER_OPTIONS = [0, 30, 60, 90, 120, 180] as const
-
-function msg(lang: Lang, sv: string, en: string) {
-  return lang === 'en' ? en : sv
-}
-
-function roomMsg(room: Room, sv: string, en: string) {
-  return msg(room.language, sv, en)
-}
-
-/** Adventurer = plays a character (votes + class). Excludes spectators and DM-only host. */
-function isAdventurer(room: Room, p: Player): boolean {
-  if (p.spectator) return false
-  if (p.id === room.hostId && !room.hostPlays) return false
-  return true
-}
-
-function eligibleVoters(room: Room) {
-  return room.players.filter((p) => p.connected && isAdventurer(room, p) && p.classId)
-}
-
-function connectedAdventurers(room: Room) {
-  return room.players.filter((p) => p.connected && isAdventurer(room, p))
-}
-
-function normalizeVoteSeconds(raw: unknown): number {
-  const n = Number(raw)
-  if (!Number.isFinite(n)) return DEFAULT_VOTE_SEC
-  const sec = Math.round(n)
-  return (VOTE_TIMER_OPTIONS as readonly number[]).includes(sec) ? sec : DEFAULT_VOTE_SEC
-}
-
-const MODE_START: Record<AdventureMode, string> = {
-  story: START_NODE,
-  orcs: 'forest_edge',
-  dragon: 'dragon_approach',
-  chaos: START_NODE,
-}
+const REVEAL_MS = 8_000
+const SCOREBOARD_MS = 0
 
 const rooms = new Map<string, Room>()
 const socketToPlayer = new Map<string, { code: string; playerId: string }>()
@@ -111,10 +80,59 @@ function roomLimits(room: Room) {
   return limitsFor(tierFromExpiry(room.premiumExpiresAt))
 }
 
+function msg(lang: Lang, sv: string, en: string) {
+  return lang === 'en' ? en : sv
+}
+
+function roomMsg(room: Room, sv: string, en: string) {
+  return msg(room.language, sv, en)
+}
+
 function uniqueCode(): string {
   let code = makeCode()
   while (rooms.has(code)) code = makeCode()
   return code
+}
+
+function isActivePlayer(p: Player): boolean {
+  return !p.spectator
+}
+
+function seatedPlayers(room: Room): Player[] {
+  return room.players.filter(isActivePlayer)
+}
+
+function connectedPlayers(room: Room): Player[] {
+  return seatedPlayers(room).filter((p) => p.connected)
+}
+
+function midGame(status: RoomStatus): boolean {
+  return status !== 'lobby' && status !== 'finished'
+}
+
+function emptyGameFields(): Pick<
+  Room,
+  | 'phaseEndsAt'
+  | 'roundIndex'
+  | 'hopIndex'
+  | 'hopCount'
+  | 'paths'
+  | 'submissions'
+  | 'scores'
+  | 'funnyVotes'
+  | 'usedWords'
+> {
+  return {
+    phaseEndsAt: 0,
+    roundIndex: 0,
+    hopIndex: 0,
+    hopCount: HOP_COUNT,
+    paths: [],
+    submissions: {},
+    scores: {},
+    funnyVotes: {},
+    usedWords: [],
+  }
 }
 
 export function allRooms() {
@@ -122,27 +140,56 @@ export function allRooms() {
 }
 
 export function restoreRooms(list: Room[]) {
-  for (const room of list) {
-    if (!room?.code) continue
-    rooms.set(room.code, {
-      ...room,
-      statusBeforePause: room.statusBeforePause ?? null,
-      adventureMode: room.adventureMode ?? 'story',
-      voteSeconds: normalizeVoteSeconds(room.voteSeconds ?? DEFAULT_VOTE_SEC),
-      voteRemainingMs: room.voteRemainingMs ?? 0,
-      dmNote: room.dmNote ?? '',
-      secretBallot: Boolean(room.secretBallot),
-      hostPlays: Boolean(room.hostPlays),
-      autoLockWhenAllVoted: room.autoLockWhenAllVoted !== false,
-      isPublic: Boolean(room.isPublic),
-      adventureLog: Array.isArray(room.adventureLog) ? room.adventureLog : [],
-      notice: room.notice ?? null,
-      players: room.players.map((p) => ({
-        ...p,
+  for (const raw of list) {
+    if (!raw?.code) continue
+    // Skip legacy DnD rooms that lack emoji-path shape
+    if (!Array.isArray((raw as Room).paths) && (raw as { nodeId?: string }).nodeId) {
+      continue
+    }
+    const room: Room = {
+      code: raw.code,
+      hostId: raw.hostId,
+      players: (raw.players ?? []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        connected: Boolean(p.connected),
         spectator: Boolean(p.spectator),
       })),
-    })
+      language: raw.language === 'en' ? 'en' : 'sv',
+      status: (raw.status as RoomStatus) || 'lobby',
+      premiumExpiresAt: raw.premiumExpiresAt ?? null,
+      isPublic: Boolean(raw.isPublic),
+      waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
+      emojiSeconds: Number(raw.emojiSeconds) || EMOJI_SECONDS,
+      guessSeconds: Number(raw.guessSeconds) || GUESS_SECONDS,
+      phaseEndsAt: Number(raw.phaseEndsAt) || 0,
+      roundIndex: Number(raw.roundIndex) || 0,
+      hopIndex: Number(raw.hopIndex) || 0,
+      hopCount: Number(raw.hopCount) || HOP_COUNT,
+      paths: Array.isArray(raw.paths) ? raw.paths : [],
+      submissions: raw.submissions && typeof raw.submissions === 'object' ? raw.submissions : {},
+      scores: raw.scores && typeof raw.scores === 'object' ? raw.scores : {},
+      funnyVotes: raw.funnyVotes && typeof raw.funnyVotes === 'object' ? raw.funnyVotes : {},
+      usedWords: Array.isArray(raw.usedWords) ? raw.usedWords : [],
+      notice: raw.notice ?? null,
+      updatedAt: raw.updatedAt ?? Date.now(),
+    }
+    // Reset mid-phase rooms to lobby on restart (timers lost)
+    if (midGame(room.status) && room.status !== 'scoreboard' && room.status !== 'reveal') {
+      room.status = 'lobby'
+      Object.assign(room, emptyGameFields())
+      room.scores = raw.scores && typeof raw.scores === 'object' ? { ...raw.scores } : {}
+    }
+    rooms.set(room.code, room)
   }
+}
+
+export function getRoom(code: string) {
+  return rooms.get(code.toUpperCase().trim()) ?? null
+}
+
+export function getBinding(socketId: string) {
+  return socketToPlayer.get(socketId) ?? null
 }
 
 export function createRoom(
@@ -155,14 +202,12 @@ export function createRoom(
   const pass = lookupPass(partyToken)
   const premiumExpiresAt = pass?.expiresAt ?? null
   const isParty = tierFromExpiry(premiumExpiresAt) === 'party'
-  const limits = limitsFor(tierFromExpiry(premiumExpiresAt))
   const code = uniqueCode()
   const playerId = crypto.randomUUID()
   const host: Player = {
     id: playerId,
     name: hostName.trim().slice(0, 20) || (language === 'en' ? 'Host' : 'Värd'),
     connected: true,
-    classId: null,
     spectator: false,
   }
 
@@ -172,30 +217,14 @@ export function createRoom(
     players: [host],
     language: language === 'en' ? 'en' : 'sv',
     status: 'lobby',
-    statusBeforePause: null,
     premiumExpiresAt,
     isPublic: Boolean(wantPublic && isParty),
     waitlist: [],
-    nodeId: START_NODE,
-    partyHp: PARTY_HP_BASE,
-    partyHpMax: PARTY_HP_BASE,
-    flags: {},
-    campaignMode: limits.campaignMode,
-    adventureMode: 'story',
-    voteSeconds: DEFAULT_VOTE_SEC,
-    secretBallot: false,
-    hostPlays: false,
-    autoLockWhenAllVoted: true,
-    votes: {},
-    voteEndsAt: 0,
-    voteRemainingMs: 0,
-    lastResolve: null,
-    adventureLog: [],
-    activeChoiceIds: [],
-    combatEnemyHp: null,
-    dmNote: '',
+    emojiSeconds: EMOJI_SECONDS,
+    guessSeconds: GUESS_SECONDS,
     notice: null,
     updatedAt: Date.now(),
+    ...emptyGameFields(),
   }
 
   rooms.set(code, room)
@@ -224,15 +253,25 @@ export function joinRoom(
     }
   }
 
-  const midGame =
-    room.status !== 'lobby' && room.status !== 'class_pick' && room.status !== 'finished'
-
   const displayName =
     name.trim().slice(0, 20) || (room.language === 'en' ? 'Player' : 'Spelare')
 
+  if (midGame(room.status)) {
+    const playerId = crypto.randomUUID()
+    room.players.push({
+      id: playerId,
+      name: displayName,
+      connected: true,
+      spectator: true,
+    })
+    socketToPlayer.set(socketId, { code: room.code, playerId })
+    touch(room)
+    return { room, playerId }
+  }
+
   const maxPlayers = roomLimits(room).maxPlayers
-  const seated = room.players.filter((p) => isAdventurer(room, p))
-  if (maxPlayers > 0 && seated.length >= maxPlayers && !midGame) {
+  const seated = seatedPlayers(room)
+  if (maxPlayers > 0 && seated.length >= maxPlayers) {
     const existing = room.waitlist.find(
       (w) => w.name.toLowerCase() === displayName.toLowerCase(),
     )
@@ -248,12 +287,8 @@ export function joinRoom(
     return {
       error: roomMsg(
         room,
-        maxPlayers <= 5
-          ? `Rummet är fullt (max ${maxPlayers} gratis). Du står i kö (${room.waitlist.length}). Lås upp Party för fler.`
-          : `Rummet är fullt (max ${maxPlayers}). Du står i kö (${room.waitlist.length}).`,
-        maxPlayers <= 5
-          ? `Room is full (max ${maxPlayers} free). You're on the waitlist (${room.waitlist.length}). Unlock Party for more.`
-          : `Room is full (max ${maxPlayers}). You're on the waitlist (${room.waitlist.length}).`,
+        'Rummet är fullt — du står på väntlistan',
+        'Room is full — you are on the waitlist',
       ),
       code: 'ROOM_FULL',
       roomCode: room.code,
@@ -266,666 +301,11 @@ export function joinRoom(
     id: playerId,
     name: displayName,
     connected: true,
-    classId: null,
-    spectator: midGame,
+    spectator: false,
   })
-  room.waitlist = room.waitlist.filter((w) => w.name.toLowerCase() !== displayName.toLowerCase())
   socketToPlayer.set(socketId, { code: room.code, playerId })
   touch(room)
   return { room, playerId }
-}
-
-export function getBinding(socketId: string) {
-  return socketToPlayer.get(socketId)
-}
-
-export function getRoom(code: string) {
-  return rooms.get(code)
-}
-
-export function previewRoom(code: string): {
-  code: string
-  language: Lang
-  status: Room['status']
-  canPickClass: boolean
-  spectateOnly: boolean
-  playerCount: number
-  classes: {
-    id: PlayerClass
-    name: string
-    blurb: string
-    might: number
-    arcana: number
-    cunning: number
-    ability: string
-  }[]
-} | null {
-  const room = rooms.get(code.toUpperCase().trim())
-  if (!room) return null
-  const lang = room.language
-  const inLobby =
-    room.status === 'lobby' || room.status === 'class_pick' || room.status === 'finished'
-  return {
-    code: room.code,
-    language: lang,
-    status: room.status,
-    canPickClass: inLobby,
-    spectateOnly: !inLobby,
-    playerCount: room.players.filter((p) => p.connected).length,
-    classes: CLASSES.map((c) => ({
-      id: c.id,
-      name: loc(c.name, lang),
-      blurb: loc(c.blurb, lang),
-      might: c.might,
-      arcana: c.arcana,
-      cunning: c.cunning,
-      ability: loc(c.ability, lang),
-    })),
-  }
-}
-
-export function setLanguage(code: string, playerId: string, language: Lang): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan ändra språk', 'Only the host can change language') }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Kan inte byta språk mid-spel', 'Cannot change language mid-game') }
-  }
-  room.language = language === 'en' ? 'en' : 'sv'
-  touch(room)
-  return room
-}
-
-export function pickClass(
-  code: string,
-  playerId: string,
-  classId: PlayerClass,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Klassval är stängt', 'Class pick is closed') }
-  }
-  if (!CLASSES.some((c) => c.id === classId)) {
-    return { error: roomMsg(room, 'Ogiltig klass', 'Invalid class') }
-  }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player) return { error: roomMsg(room, 'Spelaren hittades inte', 'Player not found') }
-  if (player.spectator) {
-    return { error: roomMsg(room, 'Åskådare kan inte välja klass', 'Spectators cannot pick a class') }
-  }
-  if (player.id === room.hostId && !room.hostPlays) {
-    return {
-      error: roomMsg(
-        room,
-        'Slå på ”Jag spelar med” för att välja klass',
-        'Turn on “I play too” to pick a class',
-      ),
-    }
-  }
-  player.classId = classId
-  if (room.status === 'lobby') room.status = 'class_pick'
-  touch(room)
-  return room
-}
-
-export function startAdventure(
-  code: string,
-  playerId: string,
-  mode: AdventureMode = 'story',
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan starta', 'Only the host can start') }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Äventyret har redan startat', 'Adventure already started') }
-  }
-
-  const connected = connectedAdventurers(room)
-  if (connected.length < 1) {
-    return {
-      error: roomMsg(
-        room,
-        'Behöver minst en äventyrare (värden kan vara DM)',
-        'Need at least one adventurer (host can stay as DM)',
-      ),
-    }
-  }
-  const missing = connected.filter((p) => !p.classId)
-  if (missing.length > 0) {
-    return {
-      error: roomMsg(
-        room,
-        'Alla äventyrare måste välja klass',
-        'All adventurers must pick a class',
-      ),
-    }
-  }
-
-  const adventureMode = normalizeMode(mode)
-  if (adventureMode === 'dragon' && roomLimits(room).campaignMode !== 'full') {
-    return {
-      error: roomMsg(room, 'Drakläget kräver Party-pass', 'Dragon mode needs Party pass'),
-    }
-  }
-
-  const limits = roomLimits(room)
-  room.campaignMode = adventureMode === 'dragon' ? 'full' : limits.campaignMode
-  room.adventureMode = adventureMode
-  room.partyHp = PARTY_HP_BASE + connected.length * 4
-  room.partyHpMax = room.partyHp
-  room.flags = adventureMode === 'chaos' ? { chaos: true } : {}
-  room.lastResolve = null
-  room.adventureLog = []
-  room.dmNote = ''
-  room.notice = null
-  room.isPublic = false
-  enterNode(room, MODE_START[adventureMode])
-  beginVoting(room)
-  touch(room)
-  return room
-}
-
-function normalizeMode(mode: unknown): AdventureMode {
-  if (mode === 'orcs' || mode === 'dragon' || mode === 'chaos') return mode
-  return 'story'
-}
-
-export function setVoteSeconds(
-  code: string,
-  playerId: string,
-  seconds: number,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan ändra tid', 'Only the host can change the timer') }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
-  }
-  room.voteSeconds = normalizeVoteSeconds(seconds)
-  // Sync sensible default: no timer → DM advances; timed → auto when all voted
-  room.autoLockWhenAllVoted = room.voteSeconds > 0
-  touch(room)
-  return room
-}
-
-export function setSecretBallot(
-  code: string,
-  playerId: string,
-  enabled: boolean,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return {
-      error: roomMsg(room, 'Bara värden kan ändra hemlig omröstning', 'Only the host can change secret ballot'),
-    }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
-  }
-  room.secretBallot = Boolean(enabled)
-  touch(room)
-  return room
-}
-
-export function setAutoLock(
-  code: string,
-  playerId: string,
-  enabled: boolean,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return {
-      error: roomMsg(
-        room,
-        'Bara värden kan ändra låsläge',
-        'Only the host can change auto-lock',
-      ),
-    }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
-  }
-  room.autoLockWhenAllVoted = Boolean(enabled)
-  touch(room)
-  return room
-}
-
-export function setHostPlays(
-  code: string,
-  playerId: string,
-  plays: boolean,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return {
-      error: roomMsg(room, 'Bara värden kan ändra DM-läge', 'Only the host can change DM mode'),
-    }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Kan bara ändras i lobby', 'Can only be changed in lobby') }
-  }
-  room.hostPlays = Boolean(plays)
-  const host = room.players.find((p) => p.id === room.hostId)
-  if (host && !room.hostPlays) {
-    host.classId = null
-  }
-  touch(room)
-  return room
-}
-
-export function setPublicLobby(
-  code: string,
-  playerId: string,
-  isPublic: boolean,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return {
-      error: roomMsg(room, 'Bara värden kan öppna lobbyn', 'Only the host can open the lobby'),
-    }
-  }
-  if (room.status !== 'lobby' && room.status !== 'class_pick') {
-    return {
-      error: roomMsg(room, 'Kan bara öppnas i lobby', 'Can only be opened in lobby'),
-    }
-  }
-  if (isPublic && tierFromExpiry(room.premiumExpiresAt) !== 'party') {
-    return {
-      error: roomMsg(
-        room,
-        'Party-pass krävs för öppna lobbyer',
-        'Party pass required for open lobbies',
-      ),
-    }
-  }
-  room.isPublic = Boolean(isPublic)
-  touch(room)
-  return room
-}
-
-export type PublicLobbyCard = {
-  code: string
-  language: Lang
-  playerCount: number
-  adventurerCount: number
-  hostName: string
-  hostPlays: boolean
-  voteSeconds: number
-  updatedAt: number
-}
-
-export function listPublicLobbies(opts?: { language?: Lang | null; limit?: number }): PublicLobbyCard[] {
-  const limit = Math.min(40, Math.max(1, opts?.limit ?? 24))
-  const langFilter = opts?.language
-  const now = Date.now()
-  const cards: PublicLobbyCard[] = []
-  for (const room of rooms.values()) {
-    if (!room.isPublic) continue
-    if (room.status !== 'lobby' && room.status !== 'class_pick') continue
-    if (tierFromExpiry(room.premiumExpiresAt) !== 'party') continue
-    // Drop stale listings (host idle > 45 min)
-    if (now - (room.updatedAt || 0) > 45 * 60 * 1000) continue
-    if (langFilter && room.language !== langFilter) continue
-    const host = room.players.find((p) => p.id === room.hostId)
-    cards.push({
-      code: room.code,
-      language: room.language,
-      playerCount: room.players.filter((p) => p.connected).length,
-      adventurerCount: connectedAdventurers(room).length,
-      hostName: host?.name ?? (room.language === 'en' ? 'Host' : 'Värd'),
-      hostPlays: Boolean(room.hostPlays),
-      voteSeconds: room.voteSeconds,
-      updatedAt: room.updatedAt,
-    })
-  }
-  cards.sort((a, b) => b.updatedAt - a.updatedAt)
-  return cards.slice(0, limit)
-}
-
-function beginVoting(room: Room) {
-  const node = getNode(room.nodeId)
-  if (!node) return
-  if (node.ending) {
-    room.status = 'finished'
-    room.voteEndsAt = 0
-    room.activeChoiceIds = []
-    return
-  }
-  const choices = availableChoices(room, node)
-  room.activeChoiceIds = choices.map((c) => c.id)
-  room.votes = {}
-  room.status = 'voting'
-  // 0 = discuss freely — no auto timeout
-  room.voteEndsAt = room.voteSeconds > 0 ? Date.now() + room.voteSeconds * 1000 : 0
-}
-
-export function castVote(
-  code: string,
-  playerId: string,
-  choiceId: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.status !== 'voting') {
-    return { error: roomMsg(room, 'Ingen omröstning pågår', 'No vote in progress') }
-  }
-  if (!room.activeChoiceIds.includes(choiceId)) {
-    return { error: roomMsg(room, 'Ogiltigt val', 'Invalid choice') }
-  }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || !player.connected) {
-    return { error: roomMsg(room, 'Du är inte med i spelet', 'You are not in the game') }
-  }
-  if (player.spectator || !player.classId || !isAdventurer(room, player)) {
-    return {
-      error: roomMsg(
-        room,
-        'Bara äventyrare kan rösta (DM leder spelet)',
-        'Only adventurers can vote (the DM runs the game)',
-      ),
-    }
-  }
-  room.votes[playerId] = choiceId
-  touch(room)
-
-  const voters = eligibleVoters(room)
-  const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id])
-  if (allVoted && room.autoLockWhenAllVoted !== false) {
-    return lockVotes(code, room.hostId)
-  }
-  return room
-}
-
-export function lockVotes(code: string, playerId: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.status !== 'voting') {
-    return { error: roomMsg(room, 'Ingen omröstning pågår', 'No vote in progress') }
-  }
-  // Manual advance: only host (DM) — unless auto-lock path called with hostId
-  if (room.hostId !== playerId) {
-    if (room.autoLockWhenAllVoted === false || room.voteSeconds <= 0) {
-      return {
-        error: roomMsg(
-          room,
-          'Bara värden/DM kan gå vidare',
-          'Only the host/DM can advance',
-        ),
-      }
-    }
-    const voters = eligibleVoters(room)
-    const allVoted = voters.length > 0 && voters.every((p) => room.votes[p.id])
-    if (!allVoted) {
-      return { error: roomMsg(room, 'Bara värden kan låsa tidigt', 'Only the host can lock early') }
-    }
-  }
-
-  const node = getNode(room.nodeId)
-  const choices = node ? availableChoices(room, node) : []
-  const choiceIds = choices.map((c) => c.id)
-  const tally = tallyVotes(room.votes)
-
-  // Exact tie with votes cast → revote same scene
-  if (Object.keys(room.votes).length > 0 && isExactTie(tally, choiceIds)) {
-    room.votes = {}
-    room.status = 'voting'
-    room.voteEndsAt = room.voteSeconds > 0 ? Date.now() + room.voteSeconds * 1000 : 0
-    room.notice = {
-      kind: 'revote',
-      hostName: '',
-      at: Date.now(),
-    }
-    room.dmNote = ''
-    touch(room)
-    return room
-  }
-
-  const choiceMap = new Map(choices.map((c) => [c.id, c]))
-  const voteReveal: VoteReveal[] = []
-  for (const [pid, choiceId] of Object.entries(room.votes)) {
-    const player = room.players.find((p) => p.id === pid)
-    const choice = choiceMap.get(choiceId)
-    if (!player || !choice) continue
-    voteReveal.push({
-      playerId: pid,
-      playerName: player.name,
-      choiceId,
-      choiceText: choice.text,
-    })
-  }
-
-  const result = resolveVote(room)
-  if ('error' in result) return result
-
-  room.lastResolve = {
-    ...result.lastResolve,
-    voteReveal,
-  }
-  room.adventureLog = [
-    ...(room.adventureLog ?? []),
-    {
-      nodeId: room.nodeId,
-      title: node?.title ?? { sv: '', en: '' },
-      winningText: result.lastResolve.winningText,
-      closeRace: result.lastResolve.closeRace,
-      heroBanner: result.lastResolve.heroBanner,
-    },
-  ].slice(-40)
-  room.status = 'resolve'
-  room.voteEndsAt = Date.now() + RESOLVE_MS
-  room.votes = {}
-  room.dmNote = ''
-  room.notice = null
-
-  room.flags.__pendingNext = result.nextNodeId
-  room.flags.__pendingFinished = result.finished ? 1 : 0
-  touch(room)
-  return room
-}
-
-export function advanceFromResolve(room: Room) {
-  if (room.status !== 'resolve') return
-  const nextId = String(room.flags.__pendingNext ?? room.nodeId)
-  const finished = Boolean(room.flags.__pendingFinished)
-  delete room.flags.__pendingNext
-  delete room.flags.__pendingFinished
-
-  if (finished) {
-    enterNode(room, nextId)
-    room.status = 'finished'
-    room.voteEndsAt = 0
-    touch(room)
-    return
-  }
-
-  enterNode(room, nextId)
-  beginVoting(room)
-  touch(room)
-}
-
-export function onVoteTimeout(room: Room) {
-  if (room.status !== 'voting') return
-  lockVotes(room.code, room.hostId)
-}
-
-export function onResolveTimeout(room: Room) {
-  if (room.status !== 'resolve') return
-  advanceFromResolve(room)
-}
-
-export function rematch(
-  code: string,
-  playerId: string,
-  mode: AdventureMode = 'story',
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan starta om', 'Only the host can rematch') }
-  }
-  if (room.status !== 'finished' && room.status !== 'lobby' && room.status !== 'class_pick') {
-    return { error: roomMsg(room, 'Kan inte starta om nu', 'Cannot rematch now') }
-  }
-
-  const adventureMode = normalizeMode(mode)
-  if (adventureMode === 'dragon' && roomLimits(room).campaignMode !== 'full') {
-    return {
-      error: roomMsg(room, 'Drakläget kräver Party-pass', 'Dragon mode needs Party pass'),
-    }
-  }
-
-  // Promote mid-game spectators so they can play the next run.
-  // Keep host as DM unless hostPlays is on.
-  for (const p of room.players) {
-    p.spectator = false
-  }
-
-  const limits = roomLimits(room)
-  room.campaignMode = adventureMode === 'dragon' ? 'full' : limits.campaignMode
-  room.adventureMode = adventureMode
-  room.flags = adventureMode === 'chaos' ? { chaos: true } : {}
-  room.lastResolve = null
-  room.adventureLog = []
-  room.votes = {}
-  room.combatEnemyHp = null
-  room.dmNote = ''
-  room.notice = null
-  room.statusBeforePause = null
-
-  const connected = connectedAdventurers(room)
-  if (connected.length < 1 || connected.some((p) => !p.classId)) {
-    room.status = connected.length < 1 ? 'lobby' : 'class_pick'
-    room.voteEndsAt = 0
-    room.activeChoiceIds = []
-    touch(room)
-    return room
-  }
-
-  room.partyHp = PARTY_HP_BASE + Math.max(1, connected.length) * 4
-  room.partyHpMax = room.partyHp
-  room.isPublic = false
-  enterNode(room, MODE_START[adventureMode])
-  beginVoting(room)
-  touch(room)
-  return room
-}
-
-export function pauseAdventure(code: string, playerId: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan pausa', 'Only the host can pause') }
-  }
-  if (room.status !== 'voting' && room.status !== 'resolve') {
-    return { error: roomMsg(room, 'Inget att pausa', 'Nothing to pause') }
-  }
-  room.statusBeforePause = room.status
-  if (room.status === 'voting' || room.status === 'resolve') {
-    room.voteRemainingMs = Math.max(0, room.voteEndsAt - Date.now())
-  }
-  room.status = 'paused'
-  room.voteEndsAt = 0
-  touch(room)
-  return room
-}
-
-export function resumeAdventure(code: string, playerId: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan återuppta', 'Only the host can resume') }
-  }
-  if (room.status !== 'paused') {
-    return { error: roomMsg(room, 'Spelet är inte pausat', 'Game is not paused') }
-  }
-  const prev = room.statusBeforePause ?? 'voting'
-  room.status = prev
-  room.statusBeforePause = null
-  if (prev === 'voting' && room.voteSeconds <= 0) {
-    room.voteEndsAt = 0
-  } else if (prev === 'voting' || prev === 'resolve') {
-    const fallback =
-      prev === 'resolve' ? RESOLVE_MS : Math.max(5_000, room.voteSeconds * 1000)
-    room.voteEndsAt = Date.now() + (room.voteRemainingMs || fallback)
-  }
-  room.voteRemainingMs = 0
-  touch(room)
-  return room
-}
-
-export function setDmNote(code: string, playerId: string, note: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan skriva DM-text', 'Only the host can set DM notes') }
-  }
-  room.dmNote = String(note ?? '').trim().slice(0, 280)
-  touch(room)
-  return room
-}
-
-export function applyPartyToken(code: string, token: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  const pass = lookupPass(token)
-  if (!pass) {
-    return { error: roomMsg(room, 'Ogiltigt eller utgånget Party-pass', 'Invalid or expired Party pass') }
-  }
-  room.premiumExpiresAt = pass.expiresAt
-  room.campaignMode = 'full'
-  touch(room)
-  return room
-}
-
-export function redeemParty(
-  code: string,
-  playerId: string,
-  passCode: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
-  if (room.hostId !== playerId) {
-    return { error: roomMsg(room, 'Bara värden kan lösa in kod', 'Only the host can redeem codes') }
-  }
-  const pass = redeemPassCode(passCode)
-  if ('error' in pass) {
-    const e = pass.error
-    if (e === 'Ange en party-kod') {
-      return { error: roomMsg(room, e, 'Enter a party code') }
-    }
-    if (e === 'Inga party-koder är konfigurerade') {
-      return { error: roomMsg(room, e, 'No party codes are configured') }
-    }
-    return { error: roomMsg(room, e, 'Invalid party code') }
-  }
-  room.premiumExpiresAt = pass.expiresAt
-  room.campaignMode = 'full'
-  touch(room)
-  return room
-}
-
-export function unlockRoomWithPass(code: string, pass: { expiresAt: number }) {
-  const room = rooms.get(code.toUpperCase())
-  if (!room) return null
-  room.premiumExpiresAt = pass.expiresAt
-  room.campaignMode = 'full'
-  touch(room)
-  return room
-}
-
-export function bindSocket(socketId: string, code: string, playerId: string) {
-  socketToPlayer.set(socketId, { code, playerId })
 }
 
 export function reconnectSocket(
@@ -933,11 +313,11 @@ export function reconnectSocket(
   playerId: string,
   socketId: string,
 ): Room | { error: string } {
-  const room = rooms.get(code.toUpperCase())
-  if (!room) return { error: msg('sv', 'Rummet finns inte', 'Room not found') }
+  const room = rooms.get(code.toUpperCase().trim())
+  if (!room) return { error: 'Rummet finns inte / Room not found' }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player) return { error: roomMsg(room, 'Spelaren hittades inte', 'Player not found') }
-  cancelDisconnectTimer(code, playerId)
+  if (!player) return { error: 'Spelaren hittades inte / Player not found' }
+  cancelDisconnectTimer(room.code, playerId)
   player.connected = true
   socketToPlayer.set(socketId, { code: room.code, playerId })
   touch(room)
@@ -965,87 +345,606 @@ export function handleDisconnect(socketId: string) {
       if (!r) return
       const p = r.players.find((x) => x.id === binding.playerId)
       if (!p || p.connected) return
-
-      if (r.hostId === binding.playerId) {
+      // Host transfer if host gone long enough
+      if (p.id === r.hostId) {
         setTimeout(() => {
           const rr = rooms.get(binding.code)
           if (!rr) return
-          const host = rr.players.find((x) => x.id === binding.playerId)
+          const host = rr.players.find((x) => x.id === rr.hostId)
           if (host?.connected) return
-          const next = rr.players.find((x) => x.connected && x.id !== binding.playerId)
-          if (next) {
-            rr.hostId = next.id
-            // Keep them as adventurer if they already have a class
-            if (next.classId) rr.hostPlays = true
-            rr.notice = {
-              kind: 'host_transfer',
-              hostName: next.name,
-              at: Date.now(),
-            }
-            touch(rr)
-            onBroadcast?.(rr.code)
-          }
+          const next = rr.players.find((x) => x.connected && !x.spectator)
+          if (!next) return
+          rr.hostId = next.id
+          rr.notice = { kind: 'host_transfer', hostName: next.name, at: Date.now() }
+          touch(rr)
+          onBroadcast?.(rr.code)
         }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
       }
+      touch(r)
+      onBroadcast?.(r.code)
     }, DISCONNECT_GRACE_MS),
+  )
+}
+
+export function previewRoom(code: string) {
+  const room = rooms.get(code.toUpperCase().trim())
+  if (!room) return null
+  return {
+    code: room.code,
+    language: room.language,
+    status: room.status,
+    playerCount: seatedPlayers(room).length,
+    hostName: room.players.find((p) => p.id === room.hostId)?.name ?? '',
+    isPublic: room.isPublic,
+  }
+}
+
+export function listPublicLobbies(opts: { language?: Lang | null; limit?: number } = {}) {
+  const limit = opts.limit ?? 24
+  const now = Date.now()
+  return [...rooms.values()]
+    .filter((r) => {
+      if (!r.isPublic || r.status !== 'lobby') return false
+      if (tierFromExpiry(r.premiumExpiresAt) !== 'party') return false
+      if (opts.language && r.language !== opts.language) return false
+      const max = roomLimits(r).maxPlayers
+      const seated = seatedPlayers(r).length
+      if (max > 0 && seated >= max) return false
+      return true
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, limit)
+    .map((r) => ({
+      code: r.code,
+      language: r.language,
+      playerCount: seatedPlayers(r).length,
+      hostName: r.players.find((p) => p.id === r.hostId)?.name ?? '',
+      updatedAt: r.updatedAt,
+      ageMs: now - r.updatedAt,
+    }))
+}
+
+export function setLanguage(code: string, playerId: string, language: Lang): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan byta språk' }
+  room.language = language === 'en' ? 'en' : 'sv'
+  touch(room)
+  return room
+}
+
+export function setPublicLobby(
+  code: string,
+  playerId: string,
+  isPublic: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan ändra' }
+  if (isPublic && tierFromExpiry(room.premiumExpiresAt) !== 'party') {
+    return {
+      error: roomMsg(room, 'Öppen lobby kräver Party-pass', 'Open lobby requires a Party pass'),
+    }
+  }
+  room.isPublic = Boolean(isPublic)
+  touch(room)
+  return room
+}
+
+export function setPhaseTimers(
+  code: string,
+  playerId: string,
+  emojiSeconds?: number,
+  guessSeconds?: number,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan ändra' }
+  if (room.status !== 'lobby') return { error: 'Kan bara ändras i lobbyn' }
+  if (emojiSeconds !== undefined) {
+    const e = Math.round(Number(emojiSeconds))
+    if ([20, 35, 50].includes(e)) room.emojiSeconds = e
+  }
+  if (guessSeconds !== undefined) {
+    const g = Math.round(Number(guessSeconds))
+    if ([15, 25, 40].includes(g)) room.guessSeconds = g
+  }
+  touch(room)
+  return room
+}
+
+function packForRoom(room: Room): string[] {
+  const limits = roomLimits(room)
+  return limits.freePack ? freeWordPack(room.language) : wordPack(room.language)
+}
+
+function beginEmojiPhase(room: Room) {
+  room.status = 'emoji'
+  room.submissions = {}
+  room.phaseEndsAt = Date.now() + room.emojiSeconds * 1000
+  // Prepare empty step shells for this hop
+  const order = seatedPlayers(room)
+  const n = order.length
+  for (let oi = 0; oi < room.paths.length; oi++) {
+    const path = room.paths[oi]
+    const author = order[authorIndexForHop(oi, room.hopIndex, n)]
+    const guesser = order[guesserIndexForHop(oi, room.hopIndex, n)]
+    const meaning = meaningForHop(path, room.hopIndex)
+    path.steps[room.hopIndex] = createEmptyStep({
+      authorId: author.id,
+      meaning,
+      guesserId: guesser.id,
+    })
+  }
+}
+
+function beginGuessPhase(room: Room) {
+  room.status = 'guess'
+  room.submissions = {}
+  room.phaseEndsAt = Date.now() + room.guessSeconds * 1000
+}
+
+function startRoundInternal(room: Room) {
+  const order = connectedPlayers(room)
+  if (order.length < MIN_PLAYERS) {
+    return {
+      error: roomMsg(
+        room,
+        `Behöver minst ${MIN_PLAYERS} spelare`,
+        `Need at least ${MIN_PLAYERS} players`,
+      ),
+    }
+  }
+
+  const limits = roomLimits(room)
+  if (room.roundIndex >= limits.maxRounds) {
+    return {
+      error: roomMsg(
+        room,
+        'Max antal rundor nått — skaffa Party för fler',
+        'Max rounds reached — unlock Party for more',
+      ),
+    }
+  }
+
+  const used = new Set(room.usedWords.map(normalizeWord))
+  const words = dealWords(packForRoom(room), order.length, used)
+  room.usedWords = [...used]
+
+  room.paths = order.map((p, i) => ({
+    id: crypto.randomUUID(),
+    originPlayerId: p.id,
+    seedWord: words[i] ?? 'pizza',
+    steps: [],
+  }))
+  room.hopIndex = 0
+  room.hopCount = HOP_COUNT
+  room.funnyVotes = {}
+  room.submissions = {}
+  room.roundIndex += 1
+  for (const p of order) {
+    if (room.scores[p.id] === undefined) room.scores[p.id] = 0
+  }
+  beginEmojiPhase(room)
+  touch(room)
+  return room
+}
+
+export function startGame(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan starta' }
+  if (room.status !== 'lobby' && room.status !== 'scoreboard' && room.status !== 'finished') {
+    return { error: roomMsg(room, 'Spelet pågår redan', 'Game already in progress') }
+  }
+  if (room.status === 'finished') {
+    room.scores = {}
+    room.roundIndex = 0
+    room.usedWords = []
+  }
+  // Promote waitlist / clear spectators when starting from lobby
+  if (room.status === 'lobby') {
+    for (const p of room.players) p.spectator = false
+    promoteWaitlist(room)
+  }
+  return startRoundInternal(room)
+}
+
+export function nextRound(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan fortsätta' }
+  if (room.status !== 'scoreboard') {
+    return { error: roomMsg(room, 'Vänta till poängtavlan', 'Wait for the scoreboard') }
+  }
+  return startRoundInternal(room)
+}
+
+export function endParty(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan avsluta' }
+  room.status = 'finished'
+  room.phaseEndsAt = 0
+  room.isPublic = false
+  touch(room)
+  return room
+}
+
+export function backToLobby(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden' }
+  room.status = 'lobby'
+  Object.assign(room, emptyGameFields())
+  room.scores = {}
+  for (const p of room.players) p.spectator = false
+  promoteWaitlist(room)
+  touch(room)
+  return room
+}
+
+function promoteWaitlist(room: Room) {
+  const max = roomLimits(room).maxPlayers
+  while (room.waitlist.length > 0) {
+    if (max > 0 && seatedPlayers(room).length >= max) break
+    const w = room.waitlist.shift()
+    if (!w) break
+    room.players.push({
+      id: w.id,
+      name: w.name,
+      connected: false,
+      spectator: false,
+    })
+  }
+}
+
+function taskPlayerIds(room: Room): string[] {
+  const order = seatedPlayers(room)
+  const n = order.length
+  const ids = new Set<string>()
+  if (room.status === 'emoji') {
+    for (let oi = 0; oi < room.paths.length; oi++) {
+      ids.add(order[authorIndexForHop(oi, room.hopIndex, n)].id)
+    }
+  } else if (room.status === 'guess') {
+    for (let oi = 0; oi < room.paths.length; oi++) {
+      ids.add(order[guesserIndexForHop(oi, room.hopIndex, n)].id)
+    }
+  } else if (room.status === 'funny_vote') {
+    for (const p of connectedPlayers(room)) ids.add(p.id)
+  }
+  return [...ids]
+}
+
+function maybeAdvance(room: Room) {
+  const needed = taskPlayerIds(room)
+  const connectedNeeded = needed.filter((id) => {
+    const p = room.players.find((x) => x.id === id)
+    return p?.connected
+  })
+  const done = connectedNeeded.every((id) => room.submissions[id] !== undefined)
+  if (done && connectedNeeded.length > 0) {
+    if (room.status === 'emoji') lockEmojis(room)
+    else if (room.status === 'guess') lockGuesses(room)
+    else if (room.status === 'funny_vote') lockFunnyVotes(room)
+  }
+}
+
+export function submitEmojis(
+  code: string,
+  playerId: string,
+  emojisRaw: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'emoji') return { error: roomMsg(room, 'Inte emoji-fas', 'Not emoji phase') }
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator) return { error: 'Kan inte delta' }
+  const emojis = sanitizeEmojis(emojisRaw)
+  if (!emojis) {
+    return { error: roomMsg(room, 'Skriv minst en emoji', 'Enter at least one emoji') }
+  }
+  room.submissions[playerId] = emojis
+  // Write onto the path step this player authors
+  const order = seatedPlayers(room)
+  const n = order.length
+  const authorIdx = order.findIndex((p) => p.id === playerId)
+  for (let oi = 0; oi < room.paths.length; oi++) {
+    if (authorIndexForHop(oi, room.hopIndex, n) === authorIdx) {
+      const step = room.paths[oi].steps[room.hopIndex]
+      if (step) step.emojis = emojis
+    }
+  }
+  touch(room)
+  maybeAdvance(room)
+  return room
+}
+
+export function submitGuess(
+  code: string,
+  playerId: string,
+  guessRaw: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'guess') return { error: roomMsg(room, 'Inte gissningsfas', 'Not guess phase') }
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator) return { error: 'Kan inte delta' }
+  const guess = normalizeWord(guessRaw).slice(0, 48) || EMPTY_GUESS
+  room.submissions[playerId] = guess
+  const order = seatedPlayers(room)
+  const n = order.length
+  const guesserIdx = order.findIndex((p) => p.id === playerId)
+  for (let oi = 0; oi < room.paths.length; oi++) {
+    if (guesserIndexForHop(oi, room.hopIndex, n) === guesserIdx) {
+      const step = room.paths[oi].steps[room.hopIndex]
+      if (step) {
+        step.guess = guess
+        step.correct = scoreGuess(step.meaning, guess)
+      }
+    }
+  }
+  touch(room)
+  maybeAdvance(room)
+  return room
+}
+
+export function voteFunny(
+  code: string,
+  playerId: string,
+  pathId: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'funny_vote') {
+    return { error: roomMsg(room, 'Inte röstningsfas', 'Not voting phase') }
+  }
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator) return { error: 'Kan inte rösta' }
+  const path = room.paths.find((p) => p.id === pathId)
+  if (!path) return { error: 'Ogiltig path' }
+  if (path.originPlayerId === playerId) {
+    return { error: roomMsg(room, 'Rösta inte på din egen path', 'Do not vote for your own path') }
+  }
+  room.submissions[playerId] = pathId
+  room.funnyVotes[playerId] = pathId
+  touch(room)
+  maybeAdvance(room)
+  return room
+}
+
+function fillMissingEmojis(room: Room) {
+  for (const path of room.paths) {
+    const step = path.steps[room.hopIndex]
+    if (!step) continue
+    if (!step.emojis) {
+      const sub = room.submissions[step.authorId]
+      step.emojis = sub || '❓'
+    }
+  }
+}
+
+function lockEmojis(room: Room) {
+  fillMissingEmojis(room)
+  beginGuessPhase(room)
+  touch(room)
+}
+
+function lockGuesses(room: Room) {
+  for (const path of room.paths) {
+    const step = path.steps[room.hopIndex]
+    if (!step) continue
+    if (!step.guess) {
+      step.guess = room.submissions[step.guesserId] || EMPTY_GUESS
+    }
+    step.correct = scoreGuess(step.meaning, step.guess)
+    const submitted = room.submissions[step.guesserId] !== undefined
+    if (submitted && step.correct) {
+      applyCorrectPoints(room.scores, step.guesserId, true)
+    }
+  }
+
+  if (room.hopIndex + 1 < room.hopCount) {
+    room.hopIndex += 1
+    beginEmojiPhase(room)
+  } else {
+    room.status = 'reveal'
+    room.submissions = {}
+    room.phaseEndsAt = Date.now() + REVEAL_MS
+  }
+  touch(room)
+}
+
+function enterFunnyVote(room: Room) {
+  room.status = 'funny_vote'
+  room.submissions = {}
+  room.funnyVotes = {}
+  room.phaseEndsAt = Date.now() + 40_000
+  touch(room)
+}
+
+function lockFunnyVotes(room: Room) {
+  const winners = tallyFunnyVotes(room.funnyVotes)
+  // Prefer paths that have at least one wrong step
+  const viable = winners.filter((id) => {
+    const p = room.paths.find((x) => x.id === id)
+    return p && p.steps.some((s) => !s.correct)
+  })
+  const applyIds = viable.length > 0 ? viable : winners.filter((id) => {
+    const p = room.paths.find((x) => x.id === id)
+    return p && p.steps.some((s) => !s.correct)
+  })
+  // If still none, try any path with wrongs that got votes; else skip bonus
+  let finalIds = applyIds
+  if (finalIds.length === 0) {
+    const withWrong = room.paths.filter((p) => p.steps.some((s) => !s.correct)).map((p) => p.id)
+    finalIds = winners.filter((id) => withWrong.includes(id))
+  }
+  applyFunnyBonus(room.scores, room.paths, finalIds)
+
+  room.status = 'scoreboard'
+  room.phaseEndsAt = SCOREBOARD_MS
+  room.submissions = {}
+  touch(room)
+}
+
+export function onPhaseTimeout(room: Room) {
+  if (room.status === 'emoji') lockEmojis(room)
+  else if (room.status === 'guess') lockGuesses(room)
+  else if (room.status === 'reveal') enterFunnyVote(room)
+  else if (room.status === 'funny_vote') lockFunnyVotes(room)
+}
+
+export function roomsNeedingTick(): Room[] {
+  const now = Date.now()
+  return [...rooms.values()].filter(
+    (r) =>
+      r.phaseEndsAt > 0 &&
+      r.phaseEndsAt <= now &&
+      (r.status === 'emoji' ||
+        r.status === 'guess' ||
+        r.status === 'reveal' ||
+        r.status === 'funny_vote'),
   )
 }
 
 export function pruneIdleRooms() {
   const now = Date.now()
   for (const [code, room] of rooms) {
-    const partyLive = Boolean(room.premiumExpiresAt && room.premiumExpiresAt > now)
-    if (partyLive) continue
     if (now - room.updatedAt > ROOM_IDLE_MS) {
       rooms.delete(code)
     }
   }
-  touch()
 }
 
-export function roomsNeedingTick(): Room[] {
-  return [...rooms.values()].filter(
-    (r) =>
-      r.status !== 'paused' &&
-      (r.status === 'voting' || r.status === 'resolve') &&
-      r.voteEndsAt > 0 &&
-      r.voteEndsAt <= Date.now(),
-  )
+export function redeemParty(
+  code: string,
+  playerId: string,
+  passCode: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden' }
+  const pass = redeemPassCode(passCode)
+  if ('error' in pass) return pass
+  room.premiumExpiresAt = pass.expiresAt
+  touch(room)
+  return room
 }
 
-export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
-  const lang = room.language
-  const node = getNode(room.nodeId)
-  const tier = tierFromExpiry(room.premiumExpiresAt)
-  const limits = limitsFor(tier)
-  const choices = node ? availableChoices(room, node) : []
-  const tally: Record<string, number> = {}
-  for (const id of room.activeChoiceIds) tally[id] = 0
-  for (const v of Object.values(room.votes)) {
-    tally[v] = (tally[v] ?? 0) + 1
+export function applyPartyToken(code: string, token: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  const pass = lookupPass(token)
+  if (!pass) return { error: 'Ogiltigt party-pass' }
+  room.premiumExpiresAt = pass.expiresAt
+  touch(room)
+  return room
+}
+
+export function unlockRoomWithPass(code: string, pass: PartyPass) {
+  const room = rooms.get(code.toUpperCase())
+  if (!room) return
+  room.premiumExpiresAt = pass.expiresAt
+  touch(room)
+}
+
+function playerName(room: Room, id: string) {
+  return room.players.find((p) => p.id === id)?.name ?? '?'
+}
+
+function publicPaths(room: Room): PublicPath[] {
+  return room.paths.map((p) => ({
+    id: p.id,
+    originPlayerId: p.originPlayerId,
+    originName: playerName(room, p.originPlayerId),
+    seedWord: p.seedWord,
+    steps: p.steps.map((s) => ({
+      authorName: playerName(room, s.authorId),
+      meaning: s.meaning,
+      emojis: s.emojis,
+      guesserName: playerName(room, s.guesserId),
+      guess: s.guess,
+      correct: s.correct,
+    })),
+  }))
+}
+
+function viewerTask(room: Room, viewerId: string) {
+  const order = seatedPlayers(room)
+  const n = order.length
+  const idx = order.findIndex((p) => p.id === viewerId)
+  if (idx < 0) return null
+
+  if (room.status === 'emoji') {
+    for (let oi = 0; oi < room.paths.length; oi++) {
+      if (authorIndexForHop(oi, room.hopIndex, n) === idx) {
+        const path = room.paths[oi]
+        return {
+          meaning: meaningForHop(path, room.hopIndex),
+          promptEmojis: null as string | null,
+          pathId: path.id,
+        }
+      }
+    }
   }
+  if (room.status === 'guess') {
+    for (let oi = 0; oi < room.paths.length; oi++) {
+      if (guesserIndexForHop(oi, room.hopIndex, n) === idx) {
+        const path = room.paths[oi]
+        const step = path.steps[room.hopIndex]
+        return {
+          meaning: null as string | null,
+          promptEmojis: step?.emojis || '❓',
+          pathId: path.id,
+        }
+      }
+    }
+  }
+  return null
+}
 
-  const hideTallies = room.secretBallot && room.status === 'voting'
-  const voters = eligibleVoters(room)
-  const last = room.lastResolve
+export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
+  const lang = room.language
+  const limits = roomLimits(room)
   const viewer = viewerId ? room.players.find((p) => p.id === viewerId) : null
+  const needed = taskPlayerIds(room)
+  const connectedNeeded = needed.filter((id) => room.players.find((p) => p.id === id)?.connected)
+  const showPaths =
+    room.status === 'reveal' ||
+    room.status === 'funny_vote' ||
+    room.status === 'scoreboard' ||
+    room.status === 'finished'
 
   let notice: string | null = null
   if (room.notice && Date.now() - room.notice.at < NOTICE_TTL_MS) {
-    if (room.notice.kind === 'host_transfer') {
-      notice = msg(
-        lang,
-        `${room.notice.hostName} är nu värd`,
-        `${room.notice.hostName} is now the host`,
-      )
-    } else if (room.notice.kind === 'revote') {
-      notice = msg(
-        lang,
-        'Oavgjort! Rösta igen — samma scen.',
-        'Tie! Vote again — same scene.',
-      )
-    }
+    notice = msg(
+      lang,
+      `${room.notice.hostName} är nu värd`,
+      `${room.notice.hostName} is now the host`,
+    )
   }
+
+  const task = viewerId && !viewer?.spectator ? viewerTask(room, viewerId) : null
+  const funnyTally: Record<string, number> | null =
+    room.status === 'funny_vote' || room.status === 'scoreboard'
+      ? Object.values(room.funnyVotes).reduce(
+          (acc, id) => {
+            acc[id] = (acc[id] ?? 0) + 1
+            return acc
+          },
+          {} as Record<string, number>,
+        )
+      : null
+
+  const scoreboard = seatedPlayers(room)
+    .map((p) => ({
+      playerId: p.id,
+      name: p.name,
+      score: room.scores[p.id] ?? 0,
+    }))
+    .sort((a, b) => b.score - a.score)
 
   return {
     code: room.code,
@@ -1053,79 +952,29 @@ export function toPublicRoom(room: Room, viewerId: string | null): PublicRoom {
     players: room.players,
     language: room.language,
     status: room.status,
-    premiumTier: tier,
+    premiumTier: tierFromExpiry(room.premiumExpiresAt),
     premiumExpiresAt: room.premiumExpiresAt,
     limits,
     isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,
-    nodeId: room.nodeId,
-    title: node ? loc(node.title, lang) : '',
-    narrative: node ? loc(node.narrative, lang) : '',
-    partyHp: room.partyHp,
-    partyHpMax: room.partyHpMax,
-    flags: room.flags,
-    campaignMode: room.campaignMode,
-    adventureMode: room.adventureMode,
-    voteSeconds: room.voteSeconds ?? DEFAULT_VOTE_SEC,
-    secretBallot: Boolean(room.secretBallot),
-    hostPlays: Boolean(room.hostPlays),
-    autoLockWhenAllVoted: room.autoLockWhenAllVoted !== false,
-    choices: choices.map((c) => ({
-      id: c.id,
-      text: loc(c.text, lang),
-      votes: hideTallies ? 0 : (tally[c.id] ?? 0),
-    })),
-    yourVote: viewerId ? room.votes[viewerId] ?? null : null,
-    voteEndsAt: room.voteEndsAt,
-    votedCount: Object.keys(room.votes).length,
-    voterCount: voters.length,
-    lastResolve: last
-      ? {
-          winningChoiceId: last.winningChoiceId,
-          winningText: loc(last.winningText, lang),
-          tally: last.tally,
-          narrativeExtra: last.narrativeExtra ? loc(last.narrativeExtra, lang) : undefined,
-          combatLog: last.combatLog ? loc(last.combatLog, lang) : undefined,
-          heroBanner: last.heroBanner ? loc(last.heroBanner, lang) : undefined,
-          closeRace: last.closeRace,
-          voteReveal: last.voteReveal?.map((v) => ({
-            playerId: v.playerId,
-            playerName: v.playerName,
-            choiceId: v.choiceId,
-            choiceText: loc(v.choiceText, lang),
-          })),
-        }
-      : null,
-    adventureLog: (room.adventureLog ?? []).map((e) => ({
-      title: loc(e.title, lang),
-      winningText: loc(e.winningText, lang),
-      closeRace: e.closeRace,
-      heroBanner: e.heroBanner ? loc(e.heroBanner, lang) : undefined,
-    })),
-    combat:
-      node?.combat && room.combatEnemyHp !== null
-        ? {
-            enemyName: loc(node.combat.enemy.name, lang),
-            enemyHp: room.combatEnemyHp,
-            enemyHpMax: node.combat.enemy.hp,
-          }
-        : null,
-    isEnding: Boolean(node?.ending),
-    dmNote: room.dmNote,
-    paused: room.status === 'paused',
+    emojiSeconds: room.emojiSeconds,
+    guessSeconds: room.guessSeconds,
+    phaseEndsAt: room.phaseEndsAt,
+    roundIndex: room.roundIndex,
+    hopIndex: room.hopIndex,
+    hopCount: room.hopCount,
+    submittedCount: Object.keys(room.submissions).length,
+    submitterCount: connectedNeeded.length || needed.length,
+    youSubmitted: Boolean(viewerId && room.submissions[viewerId] !== undefined),
+    yourMeaning: room.status === 'emoji' ? task?.meaning ?? null : null,
+    yourPromptEmojis: room.status === 'guess' ? task?.promptEmojis ?? null : null,
+    yourGuessTargetPathId: room.status === 'guess' ? task?.pathId ?? null : null,
+    scores: scoreboard,
+    paths: showPaths ? publicPaths(room) : null,
+    funnyVotes: funnyTally,
+    yourFunnyVote: viewerId ? room.funnyVotes[viewerId] ?? null : null,
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
-    youAreDm: Boolean(
-      viewer && viewer.id === room.hostId && !room.hostPlays && !viewer.spectator,
-    ),
-    classes: CLASSES.map((c) => ({
-      id: c.id,
-      name: loc(c.name, lang),
-      blurb: loc(c.blurb, lang),
-      might: c.might,
-      arcana: c.arcana,
-      cunning: c.cunning,
-      ability: loc(c.ability, lang),
-    })),
+    maxRounds: limits.maxRounds,
   }
 }

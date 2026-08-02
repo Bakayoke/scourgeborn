@@ -11,12 +11,14 @@ export type PartyPass = {
 
 export const FREE_LIMITS: PremiumLimits = {
   maxPlayers: 5,
-  campaignMode: 'short',
+  maxRounds: 3,
+  freePack: true,
 }
 
 export const PARTY_LIMITS: PremiumLimits = {
   maxPlayers: 0,
-  campaignMode: 'full',
+  maxRounds: 12,
+  freePack: false,
 }
 
 export const PARTY_PASS_MS = 24 * 60 * 60 * 1000

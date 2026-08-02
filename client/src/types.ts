@@ -1,28 +1,36 @@
 export type Lang = 'sv' | 'en'
-export type PlayerClass = 'warrior' | 'mage' | 'ranger' | 'rogue' | 'cleric'
 export type RoomStatus =
   | 'lobby'
-  | 'class_pick'
-  | 'scene'
-  | 'voting'
-  | 'resolve'
+  | 'emoji'
+  | 'guess'
+  | 'reveal'
+  | 'funny_vote'
+  | 'scoreboard'
   | 'finished'
-  | 'paused'
 export type PremiumTier = 'free' | 'party'
-export type AdventureMode = 'story' | 'orcs' | 'dragon' | 'chaos'
 
 export type Player = {
   id: string
   name: string
   connected: boolean
-  classId: PlayerClass | null
   spectator?: boolean
 }
 
-export type PublicChoice = {
+export type PublicPathStep = {
+  authorName: string
+  meaning: string
+  emojis: string
+  guesserName: string
+  guess: string
+  correct: boolean
+}
+
+export type PublicPath = {
   id: string
-  text: string
-  votes: number
+  originPlayerId: string
+  originName: string
+  seedWord: string
+  steps: PublicPathStep[]
 }
 
 export type PublicRoom = {
@@ -33,54 +41,28 @@ export type PublicRoom = {
   status: RoomStatus
   premiumTier: PremiumTier
   premiumExpiresAt: number | null
-  limits: { maxPlayers: number; campaignMode: 'short' | 'full' }
+  limits: { maxPlayers: number; maxRounds: number; freePack: boolean }
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  nodeId: string
-  title: string
-  narrative: string
-  partyHp: number
-  partyHpMax: number
-  flags: Record<string, boolean | string | number>
-  campaignMode: 'short' | 'full'
-  adventureMode: AdventureMode
-  /** 0 = discuss freely */
-  voteSeconds: number
-  secretBallot: boolean
-  hostPlays: boolean
-  autoLockWhenAllVoted: boolean
-  choices: PublicChoice[]
-  yourVote: string | null
-  voteEndsAt: number
-  votedCount: number
-  voterCount: number
-  lastResolve: {
-    winningChoiceId: string
-    winningText: string
-    tally: Record<string, number>
-    narrativeExtra?: string
-    combatLog?: string
-    heroBanner?: string
-    closeRace?: boolean
-    voteReveal?: { playerId: string; playerName: string; choiceId: string; choiceText: string }[]
-  } | null
-  adventureLog: { title: string; winningText: string; closeRace?: boolean; heroBanner?: string }[]
-  combat: { enemyName: string; enemyHp: number; enemyHpMax: number } | null
-  isEnding: boolean
-  dmNote: string
-  paused: boolean
+  emojiSeconds: number
+  guessSeconds: number
+  phaseEndsAt: number
+  roundIndex: number
+  hopIndex: number
+  hopCount: number
+  submittedCount: number
+  submitterCount: number
+  youSubmitted: boolean
+  yourMeaning: string | null
+  yourPromptEmojis: string | null
+  yourGuessTargetPathId: string | null
+  scores: { playerId: string; name: string; score: number }[]
+  paths: PublicPath[] | null
+  funnyVotes: Record<string, number> | null
+  yourFunnyVote: string | null
   notice: string | null
   youAreSpectator: boolean
-  youAreDm: boolean
-  classes: {
-    id: PlayerClass
-    name: string
-    blurb: string
-    might: number
-    arcana: number
-    cunning: number
-    ability: string
-  }[]
+  maxRounds: number
 }
 
 export type PartyInfo = {

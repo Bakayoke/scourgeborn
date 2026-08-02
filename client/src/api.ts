@@ -1,20 +1,15 @@
 import { io, type Socket } from 'socket.io-client'
-import type {
-  AdventureMode,
-  Lang,
-  PartyInfo,
-  PartyPassLocal,
-  PlayerClass,
-  PublicRoom,
-  Session,
-} from './types'
+import type { Lang, PartyInfo, PartyPassLocal, PublicRoom, Session } from './types'
 
-/** Railway API/socket base in production; empty in local Vite (proxy). */
 const API_BASE = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
 
 let socket: Socket | null = null
-let rejoinInFlight: Promise<{ ok: boolean; playerId?: string; room?: PublicRoom; error?: string } | null> | null =
-  null
+let rejoinInFlight: Promise<{
+  ok: boolean
+  playerId?: string
+  room?: PublicRoom
+  error?: string
+} | null> | null = null
 let connectionListenersAttached = false
 
 type RoomHandler = (room: PublicRoom) => void
@@ -147,8 +142,6 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
   const session = loadSession()
   const raw =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>) } : {}
-  // Always attach session identity for rebound after socket reconnect.
-  // Use roomCode (not code) so promo redeem can keep payload.code.
   const body = {
     ...raw,
     playerId: raw.playerId ?? session?.playerId,
@@ -183,66 +176,43 @@ export async function rejoinGame(code: string, playerId: string) {
   return ack<OkRoom | Err>('rejoin', { code, playerId })
 }
 
-export async function pickClass(classId: PlayerClass) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('pickClass', { classId })
+export async function startGame() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('startGame', {})
 }
 
-export async function startAdventure(mode: AdventureMode = 'story') {
-  const session = loadSession()
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('start', {
-    mode,
-    code: session?.code,
-    playerId: session?.playerId,
-  })
+export async function nextRound() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('nextRound', {})
 }
 
-export async function castVote(choiceId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castVote', { choiceId })
+export async function endParty() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('endParty', {})
 }
 
-export async function lockVotes() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('lockVotes', {})
+export async function backToLobby() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('backToLobby', {})
 }
 
-export async function rematch(mode: AdventureMode = 'story') {
-  const session = loadSession()
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('rematch', {
-    mode,
-    code: session?.code,
-    playerId: session?.playerId,
-  })
+export async function submitEmojis(emojis: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('submitEmojis', { emojis })
 }
 
-export async function pauseAdventure() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('pause', {})
+export async function submitGuess(guess: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('submitGuess', { guess })
 }
 
-export async function resumeAdventure() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('resume', {})
-}
-
-export async function setDmNote(note: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setDmNote', { note })
+export async function voteFunny(pathId: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteFunny', { pathId })
 }
 
 export async function setLanguage(language: Lang) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setLanguage', { language })
 }
 
-export async function setVoteSeconds(seconds: number) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setVoteSeconds', { seconds })
-}
-
-export async function setSecretBallot(enabled: boolean) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setSecretBallot', { enabled })
-}
-
-export async function setAutoLock(enabled: boolean) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setAutoLock', { enabled })
-}
-
-export async function setHostPlays(plays: boolean) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setHostPlays', { plays })
+export async function setPhaseTimers(emojiSeconds?: number, guessSeconds?: number) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setPhaseTimers', {
+    emojiSeconds,
+    guessSeconds,
+  })
 }
 
 export async function setPublicLobby(isPublic: boolean) {
@@ -265,18 +235,9 @@ export type RoomPreview = {
   code: string
   language: Lang
   status: string
-  canPickClass: boolean
-  spectateOnly: boolean
   playerCount: number
-  classes: {
-    id: PlayerClass
-    name: string
-    blurb: string
-    might: number
-    arcana: number
-    cunning: number
-    ability: string
-  }[]
+  hostName: string
+  isPublic: boolean
 }
 
 export async function fetchRoomPreview(code: string): Promise<RoomPreview> {
@@ -293,11 +254,9 @@ export type PublicLobbyCard = {
   code: string
   language: Lang
   playerCount: number
-  adventurerCount: number
   hostName: string
-  hostPlays: boolean
-  voteSeconds: number
   updatedAt: number
+  ageMs: number
 }
 
 export async function fetchPublicLobbies(lang?: Lang): Promise<PublicLobbyCard[]> {

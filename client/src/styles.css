@@ -962,3 +962,63 @@ a {
 .app.tv .hide-on-tv {
   display: none !important;
 }
+
+.emoji-prompt {
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  text-align: center;
+  line-height: 1.2;
+  margin: 0.75rem 0 1rem;
+  letter-spacing: 0.08em;
+}
+
+.emoji-prompt.small {
+  font-size: 1.6rem;
+  margin: 0 0.35rem 0 0;
+  display: inline-block;
+  letter-spacing: 0.04em;
+}
+
+.path-grid {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1rem 0;
+}
+
+.path-card {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  background: rgba(8, 14, 10, 0.55);
+  border-radius: 8px;
+}
+
+.path-card.selected {
+  border-color: var(--ember);
+}
+
+.path-steps {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.1rem;
+}
+
+.path-steps li {
+  margin-bottom: 0.45rem;
+  line-height: 1.35;
+}
+
+.path-steps em.ok {
+  color: var(--moss-bright);
+  font-style: normal;
+}
+
+.path-steps em.bad {
+  color: var(--ember-hot);
+  font-style: normal;
+}
+
+.app.tv .path-card {
+  padding: 1.1rem 1.25rem;
+}
+
+.app.tv .emoji-prompt {
+  font-size: clamp(3rem, 10vw, 6rem);
+}

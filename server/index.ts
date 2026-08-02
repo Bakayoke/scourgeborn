@@ -20,38 +20,33 @@ import {
 import {
   applyPartyToken,
   allRooms,
-  castVote,
+  backToLobby,
   createRoom,
+  endParty,
   getBinding,
   getRoom,
   handleDisconnect,
   joinRoom,
-  lockVotes,
-  onResolveTimeout,
-  onVoteTimeout,
-  pickClass,
+  nextRound,
+  onPhaseTimeout,
   previewRoom,
   pruneIdleRooms,
   reconnectSocket,
   redeemParty,
-  pauseAdventure,
-  rematch,
-  resumeAdventure,
   restoreRooms,
   roomsNeedingTick,
-  setDmNote,
   setLanguage,
   setBroadcastHook,
   setPersistHook,
-  setSecretBallot,
-  setAutoLock,
-  setHostPlays,
+  setPhaseTimers,
   setPublicLobby,
-  setVoteSeconds,
   listPublicLobbies,
-  startAdventure,
+  startGame,
+  submitEmojis,
+  submitGuess,
   toPublicRoom,
   unlockRoomWithPass,
+  voteFunny,
 } from './rooms.js'
 import {
   claimPartyCheckoutSession,
@@ -60,7 +55,7 @@ import {
   partyCheckoutPublicInfo,
   stripeEnvDiagnostics,
 } from './stripe.js'
-import type { AdventureMode, Lang, PlayerClass } from './types.js'
+import type { Lang } from './types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 3001
@@ -83,7 +78,6 @@ function resolveCorsOrigin():
     ...extras,
   ])
 
-  // Reflect matching Origin — empty/misconfigured CORS_ORIGIN must not block the site.
   return (origin, cb) => {
     if (!origin) {
       cb(null, true)
@@ -291,37 +285,15 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('setVoteSeconds', (payload, ack) => {
+  socket.on('setPhaseTimers', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = setVoteSeconds(binding.code, binding.playerId, Number(payload?.seconds))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('setSecretBallot', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = setSecretBallot(binding.code, binding.playerId, Boolean(payload?.enabled))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('setAutoLock', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = setAutoLock(binding.code, binding.playerId, Boolean(payload?.enabled))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('setHostPlays', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = setHostPlays(binding.code, binding.playerId, Boolean(payload?.plays))
+    const result = setPhaseTimers(
+      binding.code,
+      binding.playerId,
+      payload?.emojiSeconds !== undefined ? Number(payload.emojiSeconds) : undefined,
+      payload?.guessSeconds !== undefined ? Number(payload.guessSeconds) : undefined,
+    )
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
@@ -336,75 +308,64 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('pickClass', (payload, ack) => {
+  socket.on('startGame', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = pickClass(binding.code, binding.playerId, payload?.classId as PlayerClass)
+    const result = startGame(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
   })
 
-  socket.on('start', (payload, ack) => {
+  socket.on('nextRound', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const mode = payload?.mode as AdventureMode | undefined
-    const result = startAdventure(binding.code, binding.playerId, mode)
+    const result = nextRound(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
   })
 
-  socket.on('castVote', (payload, ack) => {
+  socket.on('endParty', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = castVote(binding.code, binding.playerId, String(payload?.choiceId ?? ''))
+    const result = endParty(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
   })
 
-  socket.on('lockVotes', (payload, ack) => {
+  socket.on('backToLobby', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = lockVotes(binding.code, binding.playerId)
+    const result = backToLobby(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
   })
 
-  socket.on('rematch', (payload, ack) => {
+  socket.on('submitEmojis', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const mode = payload?.mode as AdventureMode | undefined
-    const result = rematch(binding.code, binding.playerId, mode)
+    const result = submitEmojis(binding.code, binding.playerId, String(payload?.emojis ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
   })
 
-  socket.on('pause', (payload, ack) => {
+  socket.on('submitGuess', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = pauseAdventure(binding.code, binding.playerId)
+    const result = submitGuess(binding.code, binding.playerId, String(payload?.guess ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
   })
 
-  socket.on('resume', (payload, ack) => {
+  socket.on('voteFunny', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = resumeAdventure(binding.code, binding.playerId)
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('setDmNote', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = setDmNote(binding.code, binding.playerId, String(payload?.note ?? ''))
+    const result = voteFunny(binding.code, binding.playerId, String(payload?.pathId ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
@@ -437,8 +398,7 @@ io.on('connection', (socket) => {
 
 setInterval(() => {
   for (const room of roomsNeedingTick()) {
-    if (room.status === 'voting') onVoteTimeout(room)
-    else if (room.status === 'resolve') onResolveTimeout(room)
+    onPhaseTimeout(room)
     broadcastRoom(room.code)
   }
 }, 250)
@@ -460,7 +420,7 @@ async function main() {
   const snap = await loadSnapshot()
   if (snap) {
     restorePasses(snap.passes)
-    restoreRooms(snap.rooms)
+    restoreRooms(snap.rooms as never)
     console.log(`Restored ${snap.passes.length} passes, ${snap.rooms.length} rooms`)
   }
   console.log(`Persist backend: ${backend ?? 'memory'}`)
