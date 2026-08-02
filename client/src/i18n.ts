@@ -4,7 +4,7 @@ const sv = {
   brand: 'Party Paths',
   tagline: 'Emoji-viskleken — följ pathen tillsammans.',
   heroSupport:
-    'Alla får ett ord, förklarar med emojis, och gissar vad nästa path betyder. Se hur meningen böjs genom partyt.',
+    '🔥🍕🚀 Alla får ett ord, förklarar med emojis, och gissar vad nästa path betyder. Se hur meningen böjs genom partyt.',
   create: 'Skapa spel',
   join: 'Gå med',
   findGame: 'Hitta Party',
@@ -108,7 +108,7 @@ const en: typeof sv = {
   brand: 'Party Paths',
   tagline: 'Emoji telephone — follow the path together.',
   heroSupport:
-    'Everyone gets a word, explains it with emojis, and guesses the next path. Watch meaning twist through your party.',
+    '🔥🍕🚀 Everyone gets a word, explains it with emojis, and guesses the next path. Watch meaning twist through your party.',
   create: 'Create game',
   join: 'Join',
   findGame: 'Find Party',

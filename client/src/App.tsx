@@ -345,6 +345,11 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="blobs" aria-hidden="true">
+        <div className="blob blob-a" />
+        <div className="blob blob-b" />
+        <div className="blob blob-c" />
+      </div>
       <ConnBadge conn={conn} ui={ui} />
       <header className="topbar">
         <button type="button" className="brand" onClick={() => (room ? null : setScreen('home'))}>
@@ -379,6 +384,13 @@ export default function App() {
 
       {screen === 'home' && (
         <div className="panel hero">
+          <div className="emoji-trail" aria-hidden="true">
+            <span>🔥</span>
+            <span>🍕</span>
+            <span>🚀</span>
+            <span>👻</span>
+            <span>🎉</span>
+          </div>
           <h1 className="logo">{ui.brand}</h1>
           <p className="tagline">{ui.tagline}</p>
           <p className="support">{ui.heroSupport}</p>
@@ -389,7 +401,7 @@ export default function App() {
             <button type="button" className="btn btn-ghost" onClick={() => openJoin()}>
               {ui.join}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setScreen('find')}>
+            <button type="button" className="btn btn-ghost btn-accent" onClick={() => setScreen('find')}>
               {ui.findGame}
             </button>
           </div>
