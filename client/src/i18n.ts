@@ -68,7 +68,10 @@ const sv = {
   howTo: 'Så funkar det',
   howToBody:
     '1) Förklara ditt ord med emojis\n2) Gissa vad andras emojis betyder\n3) Följ pathen när den förvrängs\n4) Rösta på roligaste felet',
-  needPlayers: 'Minst 3 spelare för att starta',
+  needPlayers: 'Minst 3 spelare (+ värd) för att starta',
+  hostHint: 'Du är värd — du kör TV/faserna och skickar inte in svar.',
+  waitingAll: 'Väntar tills alla skickat in…',
+  continueFunny: 'Gå till roligaste-fel-röstning',
   roundOf: 'Runda',
   hopOf: 'Hop',
   phaseEmoji: 'Emoji-tid!',
@@ -172,7 +175,10 @@ const en: typeof sv = {
   howTo: 'How it works',
   howToBody:
     '1) Explain your word with emojis\n2) Guess what others meant\n3) Follow the path as it twists\n4) Vote for the funniest fail',
-  needPlayers: 'Need at least 3 players to start',
+  needPlayers: 'Need at least 3 players (+ host) to start',
+  hostHint: 'You are the host — you run TV/phases and do not submit answers.',
+  waitingAll: 'Waiting until everyone has submitted…',
+  continueFunny: 'Continue to funniest-fail vote',
   roundOf: 'Round',
   hopOf: 'Hop',
   phaseEmoji: 'Emoji time!',

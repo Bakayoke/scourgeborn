@@ -5,6 +5,7 @@ import {
   authorIndexForHop,
   dealWords,
   guesserIndexForHop,
+  hopCountForPlayers,
   normalizeWord,
   sanitizeEmojis,
   scoreGuess,
@@ -52,6 +53,14 @@ describe('ring hop indices', () => {
     assert.equal(guesserIndexForHop(0, 0, 4), 1)
     assert.equal(authorIndexForHop(0, 1, 4), 1)
     assert.equal(guesserIndexForHop(0, 1, 4), 2)
+  })
+})
+
+describe('hopCountForPlayers', () => {
+  it('caps hops so guesser never wraps to own path', () => {
+    assert.equal(hopCountForPlayers(3), 2)
+    assert.equal(hopCountForPlayers(4), 3)
+    assert.equal(hopCountForPlayers(8), 3)
   })
 })
 

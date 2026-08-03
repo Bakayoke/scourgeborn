@@ -10,6 +10,7 @@ import {
   GUESS_SECONDS,
   guesserIndexForHop,
   HOP_COUNT,
+  hopCountForPlayers,
   meaningForHop,
   MIN_PLAYERS,
   normalizeWord,
@@ -40,7 +41,6 @@ const DISCONNECT_GRACE_MS = 60_000
 const HOST_TRANSFER_AFTER_MS = 90_000
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
 const NOTICE_TTL_MS = 45_000
-const REVEAL_MS = 8_000
 const SCOREBOARD_MS = 0
 
 const rooms = new Map<string, Room>()
@@ -94,12 +94,14 @@ function uniqueCode(): string {
   return code
 }
 
-function isActivePlayer(p: Player): boolean {
-  return !p.spectator
+function isActivePlayer(room: Room, p: Player): boolean {
+  if (p.spectator) return false
+  if (p.id === room.hostId) return false
+  return true
 }
 
 function seatedPlayers(room: Room): Player[] {
-  return room.players.filter(isActivePlayer)
+  return room.players.filter((p) => isActivePlayer(room, p))
 }
 
 function connectedPlayers(room: Room): Player[] {
@@ -461,7 +463,7 @@ function packForRoom(room: Room): string[] {
 function beginEmojiPhase(room: Room) {
   room.status = 'emoji'
   room.submissions = {}
-  room.phaseEndsAt = Date.now() + room.emojiSeconds * 1000
+  room.phaseEndsAt = 0
   // Prepare empty step shells for this hop
   const order = seatedPlayers(room)
   const n = order.length
@@ -481,7 +483,7 @@ function beginEmojiPhase(room: Room) {
 function beginGuessPhase(room: Room) {
   room.status = 'guess'
   room.submissions = {}
-  room.phaseEndsAt = Date.now() + room.guessSeconds * 1000
+  room.phaseEndsAt = 0
 }
 
 function startRoundInternal(room: Room) {
@@ -518,7 +520,7 @@ function startRoundInternal(room: Room) {
     steps: [],
   }))
   room.hopIndex = 0
-  room.hopCount = HOP_COUNT
+  room.hopCount = hopCountForPlayers(order.length)
   room.funnyVotes = {}
   room.submissions = {}
   room.roundIndex += 1
@@ -640,7 +642,9 @@ export function submitEmojis(
   if (!room) return { error: 'Rum saknas' }
   if (room.status !== 'emoji') return { error: roomMsg(room, 'Inte emoji-fas', 'Not emoji phase') }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) return { error: 'Kan inte delta' }
+  if (!player || player.spectator || player.id === room.hostId) {
+    return { error: roomMsg(room, 'Värden deltar inte', 'Host does not play') }
+  }
   const emojis = sanitizeEmojis(emojisRaw)
   if (!emojis) {
     return { error: roomMsg(room, 'Skriv minst en emoji', 'Enter at least one emoji') }
@@ -670,7 +674,9 @@ export function submitGuess(
   if (!room) return { error: 'Rum saknas' }
   if (room.status !== 'guess') return { error: roomMsg(room, 'Inte gissningsfas', 'Not guess phase') }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) return { error: 'Kan inte delta' }
+  if (!player || player.spectator || player.id === room.hostId) {
+    return { error: roomMsg(room, 'Värden deltar inte', 'Host does not play') }
+  }
   const guess = normalizeWord(guessRaw).slice(0, 48) || EMPTY_GUESS
   room.submissions[playerId] = guess
   const order = seatedPlayers(room)
@@ -701,7 +707,9 @@ export function voteFunny(
     return { error: roomMsg(room, 'Inte röstningsfas', 'Not voting phase') }
   }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) return { error: 'Kan inte rösta' }
+  if (!player || player.spectator || player.id === room.hostId) {
+    return { error: roomMsg(room, 'Värden deltar inte', 'Host does not play') }
+  }
   const path = room.paths.find((p) => p.id === pathId)
   if (!path) return { error: 'Ogiltig path' }
   if (path.originPlayerId === playerId) {
@@ -751,7 +759,7 @@ function lockGuesses(room: Room) {
   } else {
     room.status = 'reveal'
     room.submissions = {}
-    room.phaseEndsAt = Date.now() + REVEAL_MS
+    room.phaseEndsAt = 0
   }
   touch(room)
 }
@@ -760,8 +768,19 @@ function enterFunnyVote(room: Room) {
   room.status = 'funny_vote'
   room.submissions = {}
   room.funnyVotes = {}
-  room.phaseEndsAt = Date.now() + 40_000
+  room.phaseEndsAt = 0
   touch(room)
+}
+
+export function advanceReveal(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden kan gå vidare' }
+  if (room.status !== 'reveal') {
+    return { error: roomMsg(room, 'Inte reveal-fas', 'Not reveal phase') }
+  }
+  enterFunnyVote(room)
+  return room
 }
 
 function lockFunnyVotes(room: Room) {
@@ -789,24 +808,12 @@ function lockFunnyVotes(room: Room) {
   touch(room)
 }
 
-export function onPhaseTimeout(room: Room) {
-  if (room.status === 'emoji') lockEmojis(room)
-  else if (room.status === 'guess') lockGuesses(room)
-  else if (room.status === 'reveal') enterFunnyVote(room)
-  else if (room.status === 'funny_vote') lockFunnyVotes(room)
+export function onPhaseTimeout(_room: Room) {
+  // Phases advance only when all active players have submitted (no timers).
 }
 
 export function roomsNeedingTick(): Room[] {
-  const now = Date.now()
-  return [...rooms.values()].filter(
-    (r) =>
-      r.phaseEndsAt > 0 &&
-      r.phaseEndsAt <= now &&
-      (r.status === 'emoji' ||
-        r.status === 'guess' ||
-        r.status === 'reveal' ||
-        r.status === 'funny_vote'),
-  )
+  return []
 }
 
 export function pruneIdleRooms() {
@@ -975,6 +982,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     yourFunnyVote: viewerId ? room.funnyVotes[viewerId] ?? null : null,
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
+    youAreHost: Boolean(viewer && viewer.id === room.hostId),
     maxRounds: limits.maxRounds,
   }
 }

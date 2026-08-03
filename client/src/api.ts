@@ -204,6 +204,10 @@ export async function voteFunny(pathId: string) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteFunny', { pathId })
 }
 
+export async function advanceReveal() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('advanceReveal', {})
+}
+
 export async function setLanguage(language: Lang) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setLanguage', { language })
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   applyPartyToken,
+  advanceReveal,
   backToLobby,
   claimPartySession,
   clearSession,
@@ -18,7 +19,6 @@ import {
   savePartyPass,
   saveSession,
   setLanguage as setRoomLanguage,
-  setPhaseTimers,
   setPublicLobby,
   setRoomHandler,
   startCheckout,
@@ -84,17 +84,6 @@ function SisterGameLinks({ ui, compact }: { ui: ReturnType<typeof t>; compact?: 
       />
     </div>
   )
-}
-
-function useCountdown(endsAt: number) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    if (!endsAt) return
-    const id = setInterval(() => setNow(Date.now()), 200)
-    return () => clearInterval(id)
-  }, [endsAt])
-  if (!endsAt) return 0
-  return Math.max(0, Math.ceil((endsAt - now) / 1000))
 }
 
 function ConnBadge({ conn, ui }: { conn: ConnState; ui: ReturnType<typeof t> }) {
@@ -629,14 +618,17 @@ function PlayView({
 }) {
   const ui = t(room.language || uiLang)
   const isHost = room.hostId === playerId
-  const seconds = useCountdown(room.phaseEndsAt)
   const [showQr, setShowQr] = useState(false)
   const [tvMode, setTvMode] = useState(false)
   const [emojiDraft, setEmojiDraft] = useState('')
   const [guessDraft, setGuessDraft] = useState('')
   const joinUrl = `https://partypaths.com/?join=${room.code}`
   const inLobby = room.status === 'lobby'
-  const connectedCount = room.players.filter((p) => p.connected && !p.spectator).length
+  const activeCount = room.players.filter(
+    (p) => p.connected && !p.spectator && p.id !== room.hostId,
+  ).length
+  const isHostOnly = isHost
+  const canPlay = !room.youAreSpectator && !isHostOnly
 
   useEffect(() => {
     const app = document.querySelector('.app')
@@ -755,6 +747,7 @@ function PlayView({
       <p className="muted hide-on-tv">{ui.shareHint}</p>
       <p className="muted hide-on-tv">{hasParty ? ui.partyTier : ui.freeTier}</p>
       {room.youAreSpectator && <div className="player-hint">{ui.spectatorHint}</div>}
+      {isHost && <div className="player-hint ok hide-on-tv">{ui.hostHint}</div>}
 
       {inLobby && tvMode && (
         <div className="tv-only tv-lobby-qr">
@@ -852,36 +845,6 @@ function PlayView({
               ) : (
                 <p className="muted">{ui.openLobbyNeedParty}</p>
               )}
-              <p className="muted">{ui.emojiTime}</p>
-              <div className="mode-grid" style={{ marginBottom: '0.75rem' }}>
-                {([20, 35, 50] as const).map((sec) => (
-                  <button
-                    key={sec}
-                    type="button"
-                    className={`btn btn-ghost${room.emojiSeconds === sec ? ' selected-mode' : ''}`}
-                    disabled={busy}
-                    onClick={() => void run(() => setPhaseTimers(sec, undefined))}
-                  >
-                    {sec}
-                    {ui.seconds}
-                  </button>
-                ))}
-              </div>
-              <p className="muted">{ui.guessTime}</p>
-              <div className="mode-grid" style={{ marginBottom: '1rem' }}>
-                {([15, 25, 40] as const).map((sec) => (
-                  <button
-                    key={sec}
-                    type="button"
-                    className={`btn btn-ghost${room.guessSeconds === sec ? ' selected-mode' : ''}`}
-                    disabled={busy}
-                    onClick={() => void run(() => setPhaseTimers(undefined, sec))}
-                  >
-                    {sec}
-                    {ui.seconds}
-                  </button>
-                ))}
-              </div>
               <div className="row" style={{ marginBottom: '0.75rem' }}>
                 <button
                   type="button"
@@ -906,11 +869,11 @@ function PlayView({
                   EN
                 </button>
               </div>
-              {connectedCount < 3 && <p className="muted">{ui.needPlayers}</p>}
+              {activeCount < 3 && <p className="muted">{ui.needPlayers}</p>}
               <button
                 type="button"
                 className="btn"
-                disabled={busy || connectedCount < 3}
+                disabled={busy || activeCount < 3}
                 onClick={() => void run(() => startGame())}
               >
                 {ui.startGame}
@@ -933,19 +896,15 @@ function PlayView({
             )}
           </p>
           <h2 className="scene-title">{phaseTitle()}</h2>
-          {(room.status === 'emoji' || room.status === 'guess' || room.status === 'funny_vote') &&
-            room.phaseEndsAt > 0 && (
-              <p className="muted">
-                <span className="timer">
-                  {seconds}
-                  {ui.seconds}
-                </span>
-                {' · '}
-                {room.submittedCount}/{room.submitterCount} {ui.submitted}
-              </p>
-            )}
+          {(room.status === 'emoji' || room.status === 'guess' || room.status === 'funny_vote') && (
+            <p className="muted">
+              {room.submittedCount}/{room.submitterCount} {ui.submitted}
+              {' · '}
+              {ui.waitingAll}
+            </p>
+          )}
 
-          {room.status === 'emoji' && !room.youAreSpectator && room.yourMeaning && (
+          {room.status === 'emoji' && canPlay && room.yourMeaning && (
             <div className="hide-on-tv">
               <p className="muted">{ui.yourWord}</p>
               <h3 className="scene-title" style={{ fontSize: '2rem' }}>
@@ -974,7 +933,7 @@ function PlayView({
             </div>
           )}
 
-          {room.status === 'guess' && !room.youAreSpectator && room.yourPromptEmojis && (
+          {room.status === 'guess' && canPlay && room.yourPromptEmojis && (
             <div className="hide-on-tv">
               <p className="muted">{ui.guessTheWord}</p>
               <div className="emoji-prompt">{room.yourPromptEmojis}</div>
@@ -1037,7 +996,7 @@ function PlayView({
                       ))}
                     </ol>
                     {room.status === 'funny_vote' &&
-                      !room.youAreSpectator &&
+                      canPlay &&
                       path.originPlayerId !== playerId && (
                         <button
                           type="button"
@@ -1053,7 +1012,20 @@ function PlayView({
               </div>
             )}
 
-          {room.status === 'funny_vote' && !room.youAreSpectator && (
+          {room.status === 'reveal' && isHost && (
+            <div className="cta-row">
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => void run(() => advanceReveal())}
+              >
+                {ui.continueFunny}
+              </button>
+            </div>
+          )}
+
+          {room.status === 'funny_vote' && canPlay && (
             <p className="muted hide-on-tv">{ui.voteFunnyHint}</p>
           )}
 

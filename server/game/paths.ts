@@ -9,6 +9,12 @@ export const CORRECT_POINTS = 2
 export const FUNNY_BONUS = 3
 export const EMPTY_GUESS = '?'
 
+/** Never run a hop where guesser would face their own origin path (h === n-1). */
+export function hopCountForPlayers(playerCount: number): number {
+  if (playerCount < 2) return 1
+  return Math.min(HOP_COUNT, playerCount - 1)
+}
+
 export function normalizeWord(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, ' ')
 }
