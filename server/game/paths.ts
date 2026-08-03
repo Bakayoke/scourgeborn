@@ -6,8 +6,9 @@ export const MIN_PLAYERS = 2
 export const MAX_EMOJIS = 8
 export const EMOJI_SECONDS = 35
 export const GUESS_SECONDS = 25
-export const CORRECT_POINTS = 2
-export const FUNNY_BONUS = 3
+export const CORRECT_POINTS = 20
+/** Points awarded to the last wrong guesser on a path, per funny vote. */
+export const FUNNY_VOTE_POINTS = 10
 export const EMPTY_GUESS = '?'
 
 /** Never run a hop where guesser would face their own origin path (h === n-1). */
@@ -108,10 +109,17 @@ export function wrongStepContributors(path: GamePath): string[] {
   const ids = new Set<string>()
   for (const step of path.steps) {
     if (!step.correct && step.guesserId) ids.add(step.guesserId)
-    // Also reward the emoji author when their meaning was misread? Plan: wrong step contributors
-    // = players who made a wrong guess on that path
   }
   return [...ids]
+}
+
+/** The player who made the final wrong guess on this path (funniest fail recipient). */
+export function lastWrongGuesser(path: GamePath): string | null {
+  for (let i = path.steps.length - 1; i >= 0; i--) {
+    const step = path.steps[i]
+    if (!step.correct && step.guesserId) return step.guesserId
+  }
+  return null
 }
 
 export function tallyFunnyVotes(votes: Record<string, string>): string[] {
@@ -126,20 +134,23 @@ export function tallyFunnyVotes(votes: Record<string, string>): string[] {
   return [...counts.entries()].filter(([, c]) => c === best).map(([id]) => id)
 }
 
-export function applyFunnyBonus(
+/**
+ * Each vote awards points to the last wrong guesser on that path
+ * (not the seed/origin author — the person who wrote the fail that stuck).
+ */
+export function applyFunnyVotePoints(
   scores: Record<string, number>,
   paths: GamePath[],
-  winningPathIds: string[],
-  bonus = FUNNY_BONUS,
+  votes: Record<string, string>,
+  pointsPerVote = FUNNY_VOTE_POINTS,
 ): void {
-  for (const pathId of winningPathIds) {
+  for (const pathId of Object.values(votes)) {
+    if (!pathId) continue
     const path = paths.find((p) => p.id === pathId)
     if (!path) continue
-    const wrong = wrongStepContributors(path)
-    if (wrong.length === 0) continue
-    for (const id of wrong) {
-      scores[id] = (scores[id] ?? 0) + bonus
-    }
+    const recipient = lastWrongGuesser(path)
+    if (!recipient) continue
+    scores[recipient] = (scores[recipient] ?? 0) + pointsPerVote
   }
 }
 

@@ -1,7 +1,7 @@
 import { customAlphabet } from 'nanoid'
 import {
   applyCorrectPoints,
-  applyFunnyBonus,
+  applyFunnyVotePoints,
   authorIndexForHop,
   createEmptyStep,
   dealWords,
@@ -16,7 +16,6 @@ import {
   normalizeWord,
   sanitizeEmojis,
   scoreGuess,
-  tallyFunnyVotes,
 } from './game/paths.js'
 import {
   limitsFor,
@@ -823,9 +822,6 @@ export function voteFunny(
   }
   const path = room.paths.find((p) => p.id === pathId)
   if (!path) return { error: 'Ogiltig path' }
-  if (path.originPlayerId === playerId) {
-    return { error: roomMsg(room, 'Rösta inte på din egen path', 'Do not vote for your own path') }
-  }
   room.submissions[playerId] = pathId
   room.funnyVotes[playerId] = pathId
   touch(room)
@@ -895,23 +891,8 @@ export function advanceReveal(code: string, playerId: string): Room | { error: s
 }
 
 function lockFunnyVotes(room: Room) {
-  const winners = tallyFunnyVotes(room.funnyVotes)
-  // Prefer paths that have at least one wrong step
-  const viable = winners.filter((id) => {
-    const p = room.paths.find((x) => x.id === id)
-    return p && p.steps.some((s) => !s.correct)
-  })
-  const applyIds = viable.length > 0 ? viable : winners.filter((id) => {
-    const p = room.paths.find((x) => x.id === id)
-    return p && p.steps.some((s) => !s.correct)
-  })
-  // If still none, try any path with wrongs that got votes; else skip bonus
-  let finalIds = applyIds
-  if (finalIds.length === 0) {
-    const withWrong = room.paths.filter((p) => p.steps.some((s) => !s.correct)).map((p) => p.id)
-    finalIds = winners.filter((id) => withWrong.includes(id))
-  }
-  applyFunnyBonus(room.scores, room.paths, finalIds)
+  // Each vote → +10 to the last wrong guesser on that path.
+  applyFunnyVotePoints(room.scores, room.paths, room.funnyVotes)
 
   room.status = 'scoreboard'
   room.phaseEndsAt = SCOREBOARD_MS

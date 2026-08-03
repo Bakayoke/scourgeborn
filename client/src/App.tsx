@@ -1139,9 +1139,7 @@ function PlayView({
                         </li>
                       ))}
                     </ol>
-                    {room.status === 'funny_vote' &&
-                      canPlay &&
-                      path.originPlayerId !== playerId && (
+                    {room.status === 'funny_vote' && canPlay && (
                         <button
                           type="button"
                           className="btn btn-small"
