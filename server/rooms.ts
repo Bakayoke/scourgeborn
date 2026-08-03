@@ -221,10 +221,16 @@ export async function hydrateRoom(code: string): Promise<Room | null> {
 export async function reloadRoomFromStore(code: string): Promise<Room | null> {
   const c = code.toUpperCase().trim()
   if (!c) return null
+  const local = rooms.get(c)
   const raw = await loadRoomRecord(c)
   if (!raw) {
-    rooms.delete(c)
-    return null
+    // A missed Redis read must NOT wipe a live local room (transient blips /
+    // publish-before-write races were deleting lobbies mid-session).
+    return local ?? null
+  }
+  // Prefer the newer copy when both exist.
+  if (local && (local.updatedAt || 0) > (raw.updatedAt || 0)) {
+    return local
   }
   const localConnected = new Set<string>()
   for (const binding of socketToPlayer.values()) {

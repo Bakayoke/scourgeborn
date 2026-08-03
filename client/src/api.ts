@@ -240,6 +240,21 @@ export async function fetchPartyInfo(): Promise<PartyInfo> {
   return apiJson<PartyInfo>('/api/party/info')
 }
 
+export type HealthInfo = {
+  ok: boolean
+  rooms?: number
+  persist?: {
+    configured: boolean
+    backend: string | null
+    redis?: boolean
+    hint?: string | null
+  }
+}
+
+export async function fetchHealth(): Promise<HealthInfo> {
+  return apiJson<HealthInfo>('/api/health')
+}
+
 export type RoomPreview = {
   code: string
   language: Lang

@@ -9,6 +9,7 @@ import {
   endParty,
   ensureSessionBound,
   fetchPartyInfo,
+  fetchHealth,
   fetchPublicLobbies,
   fetchRoomPreview,
   joinGame,
@@ -131,7 +132,18 @@ export default function App() {
       .catch((e) => {
         setError(e instanceof Error ? e.message : ui.stripeMissing)
       })
-  }, [ui.stripeMissing])
+    void fetchHealth()
+      .then((h) => {
+        if (h.persist && !h.persist.configured) {
+          setBanner(
+            uiLang === 'en'
+              ? 'Server has no Redis — rooms vanish on restart. Add REDIS_URL on Railway.'
+              : 'Servern saknar Redis — rum försvinner vid omstart. Lägg till REDIS_URL på Railway.',
+          )
+        }
+      })
+      .catch(() => null)
+  }, [ui.stripeMissing, uiLang])
 
   useEffect(() => {
     setRoomHandler((r) => setRoom(r))
@@ -140,36 +152,19 @@ export default function App() {
 
   useEffect(() => subscribeConnection(setConn), [])
 
-  // If the server lost our room (deploy/restart without Redis), kick out of the ghost lobby.
+  // Re-bind session after reconnect, but never hard-kick to home on a single
+  // failed rejoin (that falsely ended live lobbies when the socket flicked).
   useEffect(() => {
     if (conn !== 'connected' || screen !== 'play' || !room) return
     const session = loadSession()
     if (!session || session.code !== room.code) return
     let cancelled = false
     void (async () => {
-      const res = await ensureSessionBound(2)
+      const res = await ensureSessionBound(4)
       if (cancelled || !res) return
       if (res.ok && res.room) {
         setRoom(res.room)
         if (res.playerId) setPlayerId(res.playerId)
-        return
-      }
-      const err = res.error ?? ''
-      if (
-        err.includes('finns inte') ||
-        err.includes('hittades inte') ||
-        err.includes('not found') ||
-        err.includes('saknas')
-      ) {
-        clearSession()
-        setRoom(null)
-        setPlayerId(null)
-        setScreen('home')
-        setError(
-          uiLang === 'en'
-            ? 'The room disappeared (server restarted). Create a new game.'
-            : 'Rummet försvann (servern startade om). Skapa ett nytt spel.',
-        )
       }
     })()
     return () => {
