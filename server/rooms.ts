@@ -229,10 +229,30 @@ export function createRoom(
     ...emptyGameFields(),
   }
 
+  releaseSocket(socketId)
   rooms.set(code, room)
   socketToPlayer.set(socketId, { code, playerId })
   touch(room)
   return { room, playerId }
+}
+
+function releaseSocket(socketId: string) {
+  const prev = socketToPlayer.get(socketId)
+  if (!prev) return
+  socketToPlayer.delete(socketId)
+  const room = rooms.get(prev.code)
+  if (!room) return
+  const player = room.players.find((p) => p.id === prev.playerId)
+  if (!player || !player.connected) return
+  player.connected = false
+  touch(room)
+  if (room.status === 'lobby' || room.status === 'finished') {
+    // Drop immediately when switching rooms from the lobby so the seat frees up.
+    if (player.id !== room.hostId) {
+      room.players = room.players.filter((p) => p.id !== player.id)
+      touch(room)
+    }
+  }
 }
 
 export function joinRoom(
@@ -258,6 +278,24 @@ export function joinRoom(
   const displayName =
     name.trim().slice(0, 20) || (room.language === 'en' ? 'Player' : 'Spelare')
 
+  // Same socket already in this room — reconnect that seat instead of adding a twin.
+  const existing = socketToPlayer.get(socketId)
+  if (existing?.code === room.code) {
+    const mine = room.players.find((p) => p.id === existing.playerId)
+    if (mine) {
+      cancelDisconnectTimer(room.code, mine.id)
+      mine.connected = true
+      if (!mine.spectator && mine.id !== room.hostId) mine.name = displayName
+      touch(room)
+      return { room, playerId: mine.id }
+    }
+  }
+
+  // Leaving another room on this socket frees the old lobby seat.
+  if (existing && existing.code !== room.code) {
+    releaseSocket(socketId)
+  }
+
   if (midGame(room.status)) {
     const playerId = crypto.randomUUID()
     room.players.push({
@@ -271,13 +309,26 @@ export function joinRoom(
     return { room, playerId }
   }
 
+  // Reclaim a disconnected seat with the same name (avoids ghost slots when rejoining).
+  const reclaim = seatedPlayers(room).find(
+    (p) => !p.connected && p.name.toLowerCase() === displayName.toLowerCase(),
+  )
+  if (reclaim) {
+    cancelDisconnectTimer(room.code, reclaim.id)
+    reclaim.connected = true
+    socketToPlayer.set(socketId, { code: room.code, playerId: reclaim.id })
+    touch(room)
+    return { room, playerId: reclaim.id }
+  }
+
   const maxPlayers = roomLimits(room).maxPlayers
-  const seated = seatedPlayers(room)
-  if (maxPlayers > 0 && seated.length >= maxPlayers) {
-    const existing = room.waitlist.find(
+  // Only connected players hold a seat — disconnected lobby ghosts must not block joins.
+  const connectedSeated = seatedPlayers(room).filter((p) => p.connected)
+  if (maxPlayers > 0 && connectedSeated.length >= maxPlayers) {
+    const existingWait = room.waitlist.find(
       (w) => w.name.toLowerCase() === displayName.toLowerCase(),
     )
-    if (!existing) {
+    if (!existingWait) {
       room.waitlist.push({
         id: crypto.randomUUID(),
         name: displayName,
@@ -361,6 +412,10 @@ export function handleDisconnect(socketId: string) {
           touch(rr)
           onBroadcast?.(rr.code)
         }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
+      } else if (r.status === 'lobby' || r.status === 'finished') {
+        // Drop lobby ghosts so they don't clutter the roster (capacity already
+        // ignores disconnected players).
+        r.players = r.players.filter((x) => x.id !== binding.playerId)
       }
       touch(r)
       onBroadcast?.(r.code)
@@ -375,7 +430,7 @@ export function previewRoom(code: string) {
     code: room.code,
     language: room.language,
     status: room.status,
-    playerCount: seatedPlayers(room).length,
+    playerCount: seatedPlayers(room).filter((p) => p.connected).length,
     hostName: room.players.find((p) => p.id === room.hostId)?.name ?? '',
     isPublic: room.isPublic,
   }
@@ -390,7 +445,7 @@ export function listPublicLobbies(opts: { language?: Lang | null; limit?: number
       if (tierFromExpiry(r.premiumExpiresAt) !== 'party') return false
       if (opts.language && r.language !== opts.language) return false
       const max = roomLimits(r).maxPlayers
-      const seated = seatedPlayers(r).length
+      const seated = seatedPlayers(r).filter((p) => p.connected).length
       if (max > 0 && seated >= max) return false
       return true
     })
@@ -399,7 +454,7 @@ export function listPublicLobbies(opts: { language?: Lang | null; limit?: number
     .map((r) => ({
       code: r.code,
       language: r.language,
-      playerCount: seatedPlayers(r).length,
+      playerCount: seatedPlayers(r).filter((p) => p.connected).length,
       hostName: r.players.find((p) => p.id === r.hostId)?.name ?? '',
       updatedAt: r.updatedAt,
       ageMs: now - r.updatedAt,
@@ -589,7 +644,8 @@ export function backToLobby(code: string, playerId: string): Room | { error: str
 function promoteWaitlist(room: Room) {
   const max = roomLimits(room).maxPlayers
   while (room.waitlist.length > 0) {
-    if (max > 0 && seatedPlayers(room).length >= max) break
+    const seated = seatedPlayers(room).filter((p) => p.connected).length
+    if (max > 0 && seated >= max) break
     const w = room.waitlist.shift()
     if (!w) break
     room.players.push({

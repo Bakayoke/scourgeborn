@@ -145,45 +145,52 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const join = params.get('join')
-    if (join && /^[A-Z]{4}$/i.test(join)) {
-      setJoinCode(join.toUpperCase())
+    const joinParam = params.get('join')
+    const joinCodeFromUrl =
+      joinParam && /^[A-Z]{4}$/i.test(joinParam) ? joinParam.toUpperCase() : null
+
+    if (joinCodeFromUrl) {
+      setJoinCode(joinCodeFromUrl)
       setJoinStep('code')
       setJoinPreview(null)
       setScreen('join')
       window.history.replaceState({}, '', '/')
     }
-  }, [])
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
     const sessionId = params.get('party_session')
     const cancelled = params.get('party_cancel')
     if (cancelled) {
       setBanner(ui.partyCancel)
-      window.history.replaceState({}, '', '/')
+      if (!joinCodeFromUrl) window.history.replaceState({}, '', '/')
     }
-    if (!sessionId) return
-    void (async () => {
-      const res = await claimPartySession(sessionId)
-      if (res.token && res.expiresAt) {
-        const pass = { token: res.token, expiresAt: res.expiresAt }
-        savePartyPass(pass)
-        setPartyPass(pass)
-        setBanner(ui.partyThanks)
-        if (res.roomCode) {
-          await applyPartyToken(res.token).catch(() => null)
+    if (sessionId) {
+      void (async () => {
+        const res = await claimPartySession(sessionId)
+        if (res.token && res.expiresAt) {
+          const pass = { token: res.token, expiresAt: res.expiresAt }
+          savePartyPass(pass)
+          setPartyPass(pass)
+          setBanner(ui.partyThanks)
+          if (res.roomCode) {
+            await applyPartyToken(res.token).catch(() => null)
+          }
+        } else if (res.error) {
+          setError(res.error)
         }
-      } else if (res.error) {
-        setError(res.error)
-      }
-      window.history.replaceState({}, '', '/')
-    })()
-  }, [ui.partyCancel, ui.partyThanks])
+        if (!joinCodeFromUrl) window.history.replaceState({}, '', '/')
+      })()
+    }
 
-  useEffect(() => {
+    // Joining via QR/link: never auto-rejoin a stored seat — that blocked "new"
+    // players on a phone that still had an old session for this (or another) code.
+    if (joinCodeFromUrl) {
+      clearSession()
+      return
+    }
+
     const session = loadSession()
     if (!session) return
+
     void (async () => {
       try {
         const res = await rejoinGame(session.code, session.playerId)
@@ -199,7 +206,7 @@ export default function App() {
           clearSession()
         }
       } catch {
-        /* stay on home */
+        /* stay on home / join */
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -287,7 +294,11 @@ export default function App() {
     setBusy(true)
     setError(null)
     try {
-      const res = await joinGame(joinCode, name)
+      const code = joinCode.trim().toUpperCase()
+      const session = loadSession()
+      // Always join as a new seat when switching rooms (or rejoining under a new name).
+      if (session && session.code !== code) clearSession()
+      const res = await joinGame(code, name)
       if (!res.ok) {
         setError(res.error)
         return
@@ -326,7 +337,10 @@ export default function App() {
   }
 
   function openJoin(code?: string) {
-    setJoinCode(code ?? '')
+    const next = (code ?? '').toUpperCase()
+    const session = loadSession()
+    if (next && session && session.code !== next) clearSession()
+    setJoinCode(next)
     setJoinStep('code')
     setJoinPreview(null)
     setScreen('join')

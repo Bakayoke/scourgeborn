@@ -198,7 +198,6 @@ export function buildSnapshot(passes: Iterable<PartyPass>, rooms: Iterable<Room>
       .map((room) => ({
         ...room,
         players: room.players.map((p) => ({ ...p, connected: false })),
-        votes: {},
       }))
       .filter((room) => {
         const partyLive = Boolean(room.premiumExpiresAt && room.premiumExpiresAt > now)

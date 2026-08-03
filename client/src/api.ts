@@ -142,11 +142,16 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
   const session = loadSession()
   const raw =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>) } : {}
-  const body = {
-    ...raw,
-    playerId: raw.playerId ?? session?.playerId,
-    roomCode: raw.roomCode ?? session?.code,
-  }
+  // create/join/rejoin carry their own identity — never smear an old session onto them
+  // (that used to force a second tab/QR join back into the previous player seat).
+  const isIdentityEvent = event === 'create' || event === 'join' || event === 'rejoin'
+  const body = isIdentityEvent
+    ? raw
+    : {
+        ...raw,
+        playerId: raw.playerId ?? session?.playerId,
+        roomCode: raw.roomCode ?? session?.code,
+      }
 
   return new Promise((resolve, reject) => {
     s.timeout(12000).emit(event, body, (err: Error | null, res: T) => {
