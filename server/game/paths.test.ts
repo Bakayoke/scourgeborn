@@ -58,6 +58,7 @@ describe('ring hop indices', () => {
 
 describe('hopCountForPlayers', () => {
   it('caps hops so guesser never wraps to own path', () => {
+    assert.equal(hopCountForPlayers(2), 1)
     assert.equal(hopCountForPlayers(3), 2)
     assert.equal(hopCountForPlayers(4), 3)
     assert.equal(hopCountForPlayers(8), 3)

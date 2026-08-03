@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { createRoom, joinRoom, startGame, toPublicRoom } from './rooms.js'
 
 describe('lobby joins', () => {
-  it('lets host + three players join (start needs 3 non-host)', () => {
+  it('lets host + three players join (start needs 2 non-host)', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-host', 'sv')
     const code = room.code
 
@@ -23,6 +23,15 @@ describe('lobby joins', () => {
 
     const started = startGame(code, hostId)
     assert.ok(!('error' in started), `start should work with 3 players`)
+  })
+
+  it('starts with host + two players (same party size as when host played)', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-host-2', 'sv')
+    const code = room.code
+    assert.ok(!('error' in joinRoom(code, 'Ada', 'sock-a')))
+    assert.ok(!('error' in joinRoom(code, 'Bo', 'sock-b')))
+    const started = startGame(code, hostId)
+    assert.ok(!('error' in started), `start should work with 2 non-host players: ${'error' in started ? started.error : ''}`)
   })
 
   it('does not let disconnected ghosts block the third seat', () => {

@@ -1012,11 +1012,11 @@ function PlayView({
                   EN
                 </button>
               </div>
-              {activeCount < 3 && <p className="muted">{ui.needPlayers}</p>}
+              {activeCount < 2 && <p className="muted">{ui.needPlayers}</p>}
               <button
                 type="button"
                 className="btn"
-                disabled={busy || activeCount < 3}
+                disabled={busy || activeCount < 2}
                 onClick={() => void run(() => startGame())}
               >
                 {ui.startGame}
