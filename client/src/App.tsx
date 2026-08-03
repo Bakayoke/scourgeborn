@@ -7,6 +7,7 @@ import {
   clearSession,
   createGame,
   endParty,
+  ensureSessionBound,
   fetchPartyInfo,
   fetchPublicLobbies,
   fetchRoomPreview,
@@ -138,6 +139,44 @@ export default function App() {
   }, [])
 
   useEffect(() => subscribeConnection(setConn), [])
+
+  // If the server lost our room (deploy/restart without Redis), kick out of the ghost lobby.
+  useEffect(() => {
+    if (conn !== 'connected' || screen !== 'play' || !room) return
+    const session = loadSession()
+    if (!session || session.code !== room.code) return
+    let cancelled = false
+    void (async () => {
+      const res = await ensureSessionBound(2)
+      if (cancelled || !res) return
+      if (res.ok && res.room) {
+        setRoom(res.room)
+        if (res.playerId) setPlayerId(res.playerId)
+        return
+      }
+      const err = res.error ?? ''
+      if (
+        err.includes('finns inte') ||
+        err.includes('hittades inte') ||
+        err.includes('not found') ||
+        err.includes('saknas')
+      ) {
+        clearSession()
+        setRoom(null)
+        setPlayerId(null)
+        setScreen('home')
+        setError(
+          uiLang === 'en'
+            ? 'The room disappeared (server restarted). Create a new game.'
+            : 'Rummet försvann (servern startade om). Skapa ett nytt spel.',
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conn])
 
   useEffect(() => {
     if (room?.notice) setBanner(room.notice)

@@ -11,11 +11,13 @@ import {
 } from './premium.js'
 import {
   buildSnapshot,
+  createRedisAdapterClients,
   flushPersist,
   initPersist,
   loadSnapshot,
   persistDiagnostics,
   scheduleSave,
+  subscribeRoomUpdates,
 } from './persist.js'
 import {
   applyPartyToken,
@@ -27,6 +29,7 @@ import {
   getBinding,
   getRoom,
   handleDisconnect,
+  hydrateRoom,
   joinRoom,
   nextRound,
   onPhaseTimeout,
@@ -34,6 +37,7 @@ import {
   pruneIdleRooms,
   reconnectSocket,
   redeemParty,
+  reloadRoomFromStore,
   restoreRooms,
   roomsNeedingTick,
   setLanguage,
@@ -144,6 +148,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'partypaths',
+    rooms: allRooms().size,
     persist: persistDiagnostics(),
     stripe: stripeEnvDiagnostics(),
   })
@@ -153,8 +158,10 @@ app.get('/api/party/info', (_req, res) => {
   res.json(partyCheckoutPublicInfo())
 })
 
-app.get('/api/room/:code/preview', (req, res) => {
-  const preview = previewRoom(String(req.params.code ?? ''))
+app.get('/api/room/:code/preview', async (req, res) => {
+  const code = String(req.params.code ?? '')
+  await hydrateRoom(code)
+  const preview = previewRoom(code)
   if (!preview) {
     res.status(404).json({
       error: 'Hittade inget spel med den koden / No game found with that code',
@@ -215,13 +222,16 @@ io.on('connection', (socket) => {
     return binding
   }
 
-  socket.on('create', (payload, ack) => {
+  socket.on('create', async (payload, ack) => {
     try {
       const name = String(payload?.name ?? '')
       const language = (payload?.language === 'en' ? 'en' : 'sv') as Lang
       const partyToken = payload?.partyToken ? String(payload.partyToken) : null
       const wantPublic = Boolean(payload?.isPublic)
       const { room, playerId } = createRoom(name, socket.id, language, partyToken, wantPublic)
+      // Force snapshot flush so a restart right after create can still restore.
+      persistNow()
+      await flushPersist()
       ack?.({ ok: true, playerId, room: toPublicRoom(room, playerId) })
       broadcastRoom(room.code)
     } catch (e) {
@@ -230,9 +240,11 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('join', (payload, ack) => {
+  socket.on('join', async (payload, ack) => {
     try {
-      const result = joinRoom(String(payload?.code ?? ''), String(payload?.name ?? ''), socket.id)
+      const code = String(payload?.code ?? '')
+      await hydrateRoom(code)
+      const result = joinRoom(code, String(payload?.name ?? ''), socket.id)
       if ('error' in result) {
         ack?.({ ok: false, ...result })
         return
@@ -249,13 +261,11 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('rejoin', (payload, ack) => {
+  socket.on('rejoin', async (payload, ack) => {
     try {
-      const result = reconnectSocket(
-        String(payload?.code ?? ''),
-        String(payload?.playerId ?? ''),
-        socket.id,
-      )
+      const code = String(payload?.code ?? '')
+      await hydrateRoom(code)
+      const result = reconnectSocket(code, String(payload?.playerId ?? ''), socket.id)
       if ('error' in result) {
         ack?.({ ok: false, error: result.error })
         return
@@ -434,6 +444,24 @@ async function main() {
     console.log(`Restored ${snap.passes.length} passes, ${snap.rooms.length} rooms`)
   }
   console.log(`Persist backend: ${backend ?? 'memory'}`)
+  if (!backend) {
+    console.warn(
+      'WARNING: No REDIS_URL / data dir — rooms live only in memory and disappear on deploy/restart.',
+    )
+  }
+
+  const adapterClients = await createRedisAdapterClients()
+  if (adapterClients) {
+    const { createAdapter } = await import('@socket.io/redis-adapter')
+    io.adapter(createAdapter(adapterClients.pubClient, adapterClients.subClient))
+    console.log('Socket.io Redis adapter enabled')
+  }
+
+  await subscribeRoomUpdates((code) => {
+    void reloadRoomFromStore(code).then((room) => {
+      if (room) broadcastRoom(code)
+    })
+  })
 
   httpServer.listen(PORT, () => {
     console.log(`Party Paths API on :${PORT}`)

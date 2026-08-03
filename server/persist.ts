@@ -16,12 +16,23 @@ type Backend = {
   save(snapshot: PersistedSnapshot): Promise<void>
 }
 
+// Minimal surface we use from node-redis — kept loose to avoid version coupling.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RedisClient = any
+
 let backend: Backend | null = null
+let redis: RedisClient | null = null
+let redisUrl: string | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let pending: PersistedSnapshot | null = null
 let ready = false
 let lastSaveAt = 0
 let lastError: string | null = null
+
+const ROOM_KEY = (code: string) => `partypaths:room:${code}`
+const ROOM_INDEX = 'partypaths:rooms'
+export const ROOM_UPDATE_CHANNEL = 'partypaths:room-update'
+const ROOM_TTL_SEC = 60 * 60 * 24
 
 function emptySnapshot(): PersistedSnapshot {
   return { version: 1, savedAt: Date.now(), passes: [], rooms: [] }
@@ -59,17 +70,17 @@ async function redisBackend(url: string): Promise<Backend> {
     console.error('Redis error', err)
   })
   await client.connect()
+  redis = client
+  redisUrl = url
   const key = 'partypaths:state'
   return {
     name: 'redis',
     async load() {
       const raw = await client.get(key)
       if (!raw) return null
-      return JSON.parse(raw) as PersistedSnapshot
+      return JSON.parse(typeof raw === 'string' ? raw : raw.toString()) as PersistedSnapshot
     },
     async save(snapshot) {
-      // Keep state at least as long as the longest Party pass / room premium (+1h buffer).
-      // Floor at 48h so idle free rooms still survive short outages.
       const now = Date.now()
       const maxPassMs = Math.max(0, ...snapshot.passes.map((p) => p.expiresAt - now))
       const maxRoomMs = Math.max(
@@ -81,6 +92,10 @@ async function redisBackend(url: string): Promise<Backend> {
         Math.ceil(Math.max(maxPassMs, maxRoomMs) / 1000) + 60 * 60,
       )
       await client.set(key, JSON.stringify(snapshot), { EX: ttlSec })
+      for (const room of snapshot.rooms) {
+        await client.set(ROOM_KEY(room.code), JSON.stringify(room), { EX: ROOM_TTL_SEC })
+        await client.sAdd(ROOM_INDEX, room.code)
+      }
     },
   }
 }
@@ -94,18 +109,24 @@ async function dirExists(dir: string) {
   }
 }
 
-export async function initPersist(): Promise<{ backend: string | null }> {
-  const redisUrl =
+export function getRedisUrl(): string | null {
+  return (
     process.env.REDIS_URL?.trim() ||
     process.env.REDIS_PRIVATE_URL?.trim() ||
-    process.env.REDIS_PUBLIC_URL?.trim()
+    process.env.REDIS_PUBLIC_URL?.trim() ||
+    null
+  )
+}
+
+export async function initPersist(): Promise<{ backend: string | null }> {
+  const url = getRedisUrl()
   const dataDir =
     process.env.PARTYPATHS_DATA_DIR?.trim() ||
     ((await dirExists('/data')) ? '/data' : '')
 
   try {
-    if (redisUrl) {
-      backend = await redisBackend(redisUrl)
+    if (url) {
+      backend = await redisBackend(url)
       lastError = null
     } else if (dataDir) {
       backend = fileBackend(dataDir)
@@ -117,6 +138,7 @@ export async function initPersist(): Promise<{ backend: string | null }> {
     lastError = e instanceof Error ? e.message : 'persist init failed'
     console.error('Persist init failed — falling back to memory only', e)
     backend = null
+    redis = null
   }
 
   ready = true
@@ -127,15 +149,20 @@ export function persistConfigured(): boolean {
   return Boolean(backend)
 }
 
+export function hasRedis(): boolean {
+  return Boolean(redis)
+}
+
 export function persistDiagnostics() {
   return {
     configured: Boolean(backend),
     backend: backend?.name ?? null,
+    redis: Boolean(redis),
     lastSaveAt: lastSaveAt || null,
     lastError,
     hint: backend
       ? null
-      : 'Sätt REDIS_URL (Railway Redis-plugin) eller PARTYPATHS_DATA_DIR=/data med volume — annars försvinner Party/rum vid restart.',
+      : 'Sätt REDIS_URL (Railway Redis-plugin) eller PARTYPATHS_DATA_DIR=/data med volume — annars försvinner rum vid restart/deploy och kan saknas mellan instanser.',
   }
 }
 
@@ -205,6 +232,91 @@ export function buildSnapshot(passes: Iterable<PartyPass>, rooms: Iterable<Room>
         return partyLive || fresh
       }),
   }
+}
+
+/** Live per-room write so other Railway instances can join immediately. */
+export async function saveRoomRecord(room: Room): Promise<void> {
+  if (!redis) return
+  try {
+    const payload = JSON.stringify({
+      ...room,
+      players: room.players.map((p) => ({ ...p, connected: false })),
+    })
+    await redis.set(ROOM_KEY(room.code), payload, { EX: ROOM_TTL_SEC })
+    await redis.sAdd(ROOM_INDEX, room.code)
+    await redis.publish(ROOM_UPDATE_CHANNEL, room.code)
+    lastSaveAt = Date.now()
+    lastError = null
+  } catch (e) {
+    lastError = e instanceof Error ? e.message : 'room save failed'
+    console.error('saveRoomRecord failed', e)
+  }
+}
+
+export async function loadRoomRecord(code: string): Promise<Room | null> {
+  if (!redis) return null
+  const c = code.toUpperCase().trim()
+  if (!c) return null
+  try {
+    const raw = await redis.get(ROOM_KEY(c))
+    if (!raw) return null
+    return JSON.parse(typeof raw === 'string' ? raw : raw.toString()) as Room
+  } catch (e) {
+    lastError = e instanceof Error ? e.message : 'room load failed'
+    console.error('loadRoomRecord failed', e)
+    return null
+  }
+}
+
+export async function deleteRoomRecord(code: string): Promise<void> {
+  if (!redis) return
+  const c = code.toUpperCase().trim()
+  try {
+    await redis.del(ROOM_KEY(c))
+    await redis.sRem(ROOM_INDEX, c)
+    await redis.publish(ROOM_UPDATE_CHANNEL, c)
+  } catch (e) {
+    lastError = e instanceof Error ? e.message : 'room delete failed'
+    console.error('deleteRoomRecord failed', e)
+  }
+}
+
+export async function subscribeRoomUpdates(
+  onCode: (code: string) => void,
+): Promise<(() => void) | null> {
+  if (!redis || !redisUrl) return null
+  try {
+    const sub = redis.duplicate()
+    await sub.connect()
+    await sub.subscribe(ROOM_UPDATE_CHANNEL, (message: string) => {
+      if (typeof message === 'string' && message) onCode(message)
+    })
+    return () => {
+      void sub.quit?.()
+    }
+  } catch (e) {
+    console.error('Room update subscribe failed', e)
+    return null
+  }
+}
+
+/** Duplicate Redis clients for socket.io adapter (pub/sub). */
+export async function createRedisAdapterClients(): Promise<{
+  pubClient: RedisClient
+  subClient: RedisClient
+} | null> {
+  const url = getRedisUrl()
+  if (!url) return null
+  const { createClient } = await import('redis')
+  const pubClient = createClient({
+    url,
+    socket: { reconnectStrategy: (retries) => Math.min(retries * 200, 3000) },
+  })
+  const subClient = pubClient.duplicate()
+  pubClient.on('error', (err: unknown) => console.error('Redis adapter pub', err))
+  subClient.on('error', (err: unknown) => console.error('Redis adapter sub', err))
+  await Promise.all([pubClient.connect(), subClient.connect()])
+  return { pubClient, subClient }
 }
 
 export { emptySnapshot }

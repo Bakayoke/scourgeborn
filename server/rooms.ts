@@ -25,6 +25,7 @@ import {
   tierFromExpiry,
   type PartyPass,
 } from './premium.js'
+import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
 import { freeWordPack, wordPack } from './words/index.js'
 import type {
   GamePath,
@@ -59,7 +60,11 @@ export function setBroadcastHook(fn: ((code: string) => void) | null) {
 }
 
 function touch(room?: Room) {
-  if (room) room.updatedAt = Date.now()
+  if (room) {
+    room.updatedAt = Date.now()
+    // Live Redis write so join on another instance finds the room.
+    void saveRoomRecord(room)
+  }
   onPersist?.()
 }
 
@@ -188,6 +193,50 @@ export function restoreRooms(list: Room[]) {
 
 export function getRoom(code: string) {
   return rooms.get(code.toUpperCase().trim()) ?? null
+}
+
+/** Pull a room from Redis into memory when this instance does not have it yet. */
+export async function hydrateRoom(code: string): Promise<Room | null> {
+  const c = code.toUpperCase().trim()
+  if (!c) return null
+  const existing = rooms.get(c)
+  if (existing) return existing
+  const raw = await loadRoomRecord(c)
+  if (!raw) return null
+  restoreRooms([raw])
+  const room = rooms.get(c)
+  if (!room) return null
+  // Rebuild connected flags from sockets bound on THIS instance only.
+  const localConnected = new Set<string>()
+  for (const binding of socketToPlayer.values()) {
+    if (binding.code === c) localConnected.add(binding.playerId)
+  }
+  for (const p of room.players) {
+    p.connected = localConnected.has(p.id)
+  }
+  return room
+}
+
+/** Reload room from Redis (after another instance mutated it). */
+export async function reloadRoomFromStore(code: string): Promise<Room | null> {
+  const c = code.toUpperCase().trim()
+  if (!c) return null
+  const raw = await loadRoomRecord(c)
+  if (!raw) {
+    rooms.delete(c)
+    return null
+  }
+  const localConnected = new Set<string>()
+  for (const binding of socketToPlayer.values()) {
+    if (binding.code === c) localConnected.add(binding.playerId)
+  }
+  restoreRooms([raw])
+  const room = rooms.get(c)
+  if (!room) return null
+  for (const p of room.players) {
+    p.connected = localConnected.has(p.id)
+  }
+  return room
 }
 
 export function getBinding(socketId: string) {
@@ -877,6 +926,7 @@ export function pruneIdleRooms() {
   for (const [code, room] of rooms) {
     if (now - room.updatedAt > ROOM_IDLE_MS) {
       rooms.delete(code)
+      void deleteRoomRecord(code)
     }
   }
 }
