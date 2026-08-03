@@ -151,10 +151,14 @@ export default function App() {
 
     if (joinCodeFromUrl) {
       setJoinCode(joinCodeFromUrl)
-      setJoinStep('code')
+      setJoinStep('name')
       setJoinPreview(null)
       setScreen('join')
       window.history.replaceState({}, '', '/')
+      // Best-effort preview — never blocks the name step.
+      void fetchRoomPreview(joinCodeFromUrl)
+        .then(setJoinPreview)
+        .catch(() => setJoinPreview(null))
     }
 
     const sessionId = params.get('party_session')
@@ -276,17 +280,19 @@ export default function App() {
 
   async function onPreviewJoin(e: React.FormEvent) {
     e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      const preview = await fetchRoomPreview(joinCode)
-      setJoinPreview(preview)
-      setJoinStep('name')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : ui.error)
-    } finally {
-      setBusy(false)
+    const code = joinCode.trim().toUpperCase()
+    if (!/^[A-Z]{4}$/.test(code)) {
+      setError(uiLang === 'en' ? 'Enter the 4-letter code' : 'Ange den fyrabokstavs koden')
+      return
     }
+    setJoinCode(code)
+    setError(null)
+    setJoinPreview(null)
+    // Advance immediately — do not block on HTTP preview (that hung "Fortsätt" for some players).
+    setJoinStep('name')
+    void fetchRoomPreview(code)
+      .then(setJoinPreview)
+      .catch(() => setJoinPreview(null))
   }
 
   async function onJoin(e: React.FormEvent) {
@@ -341,8 +347,16 @@ export default function App() {
     const session = loadSession()
     if (next && session && session.code !== next) clearSession()
     setJoinCode(next)
-    setJoinStep('code')
     setJoinPreview(null)
+    setError(null)
+    if (next.length === 4) {
+      setJoinStep('name')
+      void fetchRoomPreview(next)
+        .then(setJoinPreview)
+        .catch(() => setJoinPreview(null))
+    } else {
+      setJoinStep('code')
+    }
     setScreen('join')
   }
 
@@ -489,11 +503,15 @@ export default function App() {
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
               maxLength={4}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </label>
+          {error && <p className="error">{error}</p>}
           <div className="cta-row">
-            <button type="submit" className="btn" disabled={busy || joinCode.length < 4}>
+            <button type="submit" className="btn" disabled={joinCode.trim().length < 4}>
               {ui.continueJoin}
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => setScreen('home')}>
@@ -512,13 +530,26 @@ export default function App() {
               {joinPreview.hostName}
             </p>
           )}
+          {!joinPreview && (
+            <p className="muted">
+              {joinCode} · {uiLang === 'en' ? 'Enter your name to join' : 'Skriv ditt namn för att gå med'}
+            </p>
+          )}
           <label>
             {ui.yourName}
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={20} required />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={20}
+              autoComplete="nickname"
+              required
+              autoFocus
+            />
           </label>
+          {error && <p className="error">{error}</p>}
           <div className="cta-row">
-            <button type="submit" className="btn" disabled={busy}>
-              {ui.join}
+            <button type="submit" className="btn" disabled={busy || name.trim().length < 1}>
+              {busy ? (uiLang === 'en' ? 'Joining…' : 'Ansluter…') : ui.join}
             </button>
             <button
               type="button"
@@ -526,6 +557,7 @@ export default function App() {
               onClick={() => {
                 setJoinStep('code')
                 setJoinPreview(null)
+                setError(null)
               }}
             >
               {ui.back}

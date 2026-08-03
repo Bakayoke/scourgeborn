@@ -251,7 +251,7 @@ export type RoomPreview = {
 
 export async function fetchRoomPreview(code: string): Promise<RoomPreview> {
   const path = `/api/room/${encodeURIComponent(code.trim().toUpperCase())}/preview`
-  const res = await fetch(apiUrl(path))
+  const res = await fetch(apiUrl(path), { signal: AbortSignal.timeout(8_000) })
   const data = (await res.json().catch(() => ({}))) as RoomPreview & { error?: string }
   if (!res.ok) {
     throw new Error(data.error || `API error ${res.status}`)
