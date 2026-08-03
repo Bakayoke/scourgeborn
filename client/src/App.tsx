@@ -750,15 +750,28 @@ function PlayView({
       {isHost && <div className="player-hint ok hide-on-tv">{ui.hostHint}</div>}
 
       {inLobby && tvMode && (
-        <div className="tv-only tv-lobby-qr">
-          <JoinQr url={joinUrl} size={280} alt={`QR ${room.code}`} />
-          <div>
-            <p className="scene-title" style={{ margin: 0 }}>
-              {ui.joinOnPhone}
-            </p>
-            <p className="muted" style={{ fontSize: '1.25rem' }}>
-              partypaths.com · {room.code}
-            </p>
+        <div className="tv-only tv-lobby-stage">
+          <div className="tv-lobby-qr">
+            <JoinQr url={joinUrl} size={280} alt={`QR ${room.code}`} />
+            <div>
+              <p className="scene-title" style={{ margin: 0 }}>
+                {ui.joinOnPhone}
+              </p>
+              <p className="muted" style={{ fontSize: '1.25rem' }}>
+                partypaths.com · {room.code}
+              </p>
+            </div>
+          </div>
+          <div className="tv-howto">
+            <h3>{ui.howTo}</h3>
+            <ol className="tv-howto-steps">
+              {ui.howToSteps.map((step, i) => (
+                <li key={step}>
+                  <span className="tv-step-num">{i + 1}</span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       )}
@@ -791,16 +804,61 @@ function PlayView({
           </ul>
         </div>
       )}
-      <div className="chip-row tv-only">
-        {room.players.map((p) => (
-          <span
-            key={p.id}
-            className={`chip${p.connected ? '' : ' offline'}${p.id === playerId ? ' me' : ''}`}
-          >
-            {p.name}
-            {p.spectator ? ` · ${ui.spectator}` : ''}
-          </span>
-        ))}
+
+      <div className="tv-only tv-roster-wrap">
+        <div className="tv-roster-head">
+          <h3>{ui.tvRoster}</h3>
+          {!inLobby && (
+            <p className="muted">
+              {room.submittedCount}/{room.submitterCount} {ui.submitted}
+              {(room.status === 'emoji' || room.status === 'guess' || room.status === 'funny_vote') &&
+                ` · ${ui.waitingAll}`}
+            </p>
+          )}
+        </div>
+        <table className="tv-roster">
+          <thead>
+            <tr>
+              <th>{ui.tableName}</th>
+              <th>{ui.tableRole}</th>
+              <th>{ui.tableStatus}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {room.players.map((p) => {
+              const isHostRow = p.id === room.hostId
+              const submitted = (room.submittedIds ?? []).includes(p.id)
+              const needsSubmit =
+                !isHostRow &&
+                !p.spectator &&
+                (room.status === 'emoji' ||
+                  room.status === 'guess' ||
+                  room.status === 'funny_vote')
+              let status = p.connected ? ui.statusOnline : ui.statusOffline
+              if (needsSubmit && p.connected) {
+                status = submitted ? ui.statusReady : ui.statusWaiting
+              }
+              const role = isHostRow
+                ? ui.roleHost
+                : p.spectator
+                  ? ui.roleSpectator
+                  : ui.rolePlayer
+              return (
+                <tr
+                  key={p.id}
+                  className={`${p.connected ? '' : 'offline'}${submitted && needsSubmit ? ' ready' : ''}${needsSubmit && !submitted && p.connected ? ' waiting' : ''}`}
+                >
+                  <td>{p.name}</td>
+                  <td>{role}</td>
+                  <td>{status}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {!inLobby && (
+          <p className="muted tv-phase-hint">{ui.tvPhaseHint}</p>
+        )}
       </div>
 
       {isHost && (
@@ -959,10 +1017,16 @@ function PlayView({
           )}
 
           {(room.status === 'emoji' || room.status === 'guess') && tvMode && (
-            <div className="tv-only">
-              <p className="scene-body">
-                {room.submittedCount}/{room.submitterCount} {ui.submitted}
-              </p>
+            <div className="tv-only tv-howto tv-howto-compact">
+              <h3>{phaseTitle()}</h3>
+              <ol className="tv-howto-steps">
+                {ui.howToSteps.map((step, i) => (
+                  <li key={step} className={i === (room.status === 'emoji' ? 0 : 1) ? 'active' : ''}>
+                    <span className="tv-step-num">{i + 1}</span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
 

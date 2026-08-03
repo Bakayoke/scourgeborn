@@ -763,7 +763,7 @@ textarea:focus {
 
 /* —— TV / fullscreen —— */
 .app.tv {
-  max-width: none;
+  max-width: min(1100px, 100%);
   min-height: 100vh;
   padding: 1.25rem clamp(1rem, 3vw, 2.5rem) 2rem;
 }
@@ -774,24 +774,25 @@ textarea:focus {
 
 .app.tv .panel {
   margin-top: 0.5rem;
-  padding: clamp(1rem, 2.5vw, 2rem);
-  border: none;
-  background: transparent;
-  backdrop-filter: none;
-  box-shadow: none;
+  padding: clamp(1.1rem, 2.5vw, 1.75rem);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
 }
 
 .app.tv .code-big {
-  font-size: clamp(3rem, 10vw, 6rem);
+  font-size: clamp(2.6rem, 8vw, 4.5rem);
 }
 
 .app.tv .scene-title {
-  font-size: clamp(2.4rem, 6vw, 4.2rem);
+  font-size: clamp(2rem, 5vw, 3.2rem);
   line-height: 1.05;
 }
 
 .app.tv .scene-body {
-  font-size: clamp(1.35rem, 2.8vw, 2rem);
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
   line-height: 1.45;
   max-width: 48ch;
 }
@@ -801,7 +802,7 @@ textarea:focus {
 }
 
 .app.tv .player-hint {
-  font-size: clamp(1.3rem, 2.5vw, 1.8rem);
+  font-size: clamp(1.15rem, 2.2vw, 1.55rem);
   padding: 1rem 1.25rem;
 }
 
@@ -822,23 +823,153 @@ textarea:focus {
   gap: 0.6rem;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.tv-lobby-stage {
+  display: grid;
+  gap: 1.25rem;
+  margin: 0.5rem 0 1.25rem;
+}
+
+@media (min-width: 840px) {
+  .tv-lobby-stage {
+    grid-template-columns: 1.1fr 1fr;
+    align-items: stretch;
+  }
 }
 
 .tv-lobby-qr {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem;
+  gap: 1.25rem;
   align-items: center;
-  margin: 1rem 0 1.5rem;
+  padding: 1.1rem 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: rgba(12, 18, 36, 0.45);
 }
 
 .tv-lobby-qr img {
-  width: min(40vw, 280px);
-  height: min(40vw, 280px);
+  width: min(36vw, 240px);
+  height: min(36vw, 240px);
   background: #fff;
   padding: 0.75rem;
   border-radius: 1rem;
+}
+
+.tv-howto {
+  padding: 1.15rem 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  background: linear-gradient(135deg, rgba(255, 209, 102, 0.12), rgba(46, 196, 182, 0.1));
+}
+
+.tv-howto h3 {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+}
+
+.tv-howto-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tv-howto-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+.tv-howto-steps li.active {
+  opacity: 1;
+}
+
+.tv-howto-compact {
+  margin: 0.75rem 0 1rem;
+}
+
+.tv-step-num {
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(120deg, var(--brand), var(--sun));
+  color: #1a1420;
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.tv-roster-wrap {
+  margin: 0.75rem 0 1.25rem;
+  padding: 1rem 1.15rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: rgba(12, 18, 36, 0.45);
+}
+
+.tv-roster-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.tv-roster-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 2.8vw, 1.8rem);
+}
+
+.tv-roster {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+}
+
+.tv-roster th,
+.tv-roster td {
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tv-roster th {
+  color: var(--muted);
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tv-roster tr.offline td {
+  opacity: 0.45;
+}
+
+.tv-roster tr.ready td:last-child {
+  color: var(--ok);
+  font-weight: 800;
+}
+
+.tv-roster tr.waiting td:last-child {
+  color: var(--sun);
+  font-weight: 800;
+}
+
+.tv-phase-hint {
+  margin: 0.75rem 0 0;
+  font-size: clamp(1rem, 1.8vw, 1.2rem);
 }
 
 .tv-only {
@@ -849,12 +980,20 @@ textarea:focus {
   display: block;
 }
 
+.app.tv .tv-lobby-stage {
+  display: grid;
+}
+
 .app.tv .hide-on-tv {
   display: none !important;
 }
 
 .app.tv .path-card {
   padding: 1.15rem 1.35rem;
+}
+
+.app.tv .path-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .app.tv .emoji-prompt {

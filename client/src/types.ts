@@ -52,6 +52,7 @@ export type PublicRoom = {
   hopCount: number
   submittedCount: number
   submitterCount: number
+  submittedIds: string[]
   youSubmitted: boolean
   yourMeaning: string | null
   yourPromptEmojis: string | null

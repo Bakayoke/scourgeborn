@@ -972,6 +972,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     hopCount: room.hopCount,
     submittedCount: Object.keys(room.submissions).length,
     submitterCount: connectedNeeded.length || needed.length,
+    submittedIds: Object.keys(room.submissions),
     youSubmitted: Boolean(viewerId && room.submissions[viewerId] !== undefined),
     yourMeaning: room.status === 'emoji' ? task?.meaning ?? null : null,
     yourPromptEmojis: room.status === 'guess' ? task?.promptEmojis ?? null : null,

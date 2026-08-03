@@ -113,6 +113,7 @@ export type PublicRoom = {
   hopCount: number
   submittedCount: number
   submitterCount: number
+  submittedIds: string[]
   youSubmitted: boolean
   /** Secret word / current meaning for emoji phase */
   yourMeaning: string | null
