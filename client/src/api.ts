@@ -229,7 +229,13 @@ export async function setPublicLobby(isPublic: boolean) {
 }
 
 export async function redeemParty(code: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('redeemParty', { code })
+  return ack<{
+    ok: boolean
+    error?: string
+    room?: PublicRoom
+    token?: string
+    expiresAt?: number
+  }>('redeemParty', { code })
 }
 
 export async function applyPartyToken(token: string) {

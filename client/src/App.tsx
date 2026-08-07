@@ -360,10 +360,20 @@ export default function App() {
     setError(null)
     try {
       const res = await redeemParty(promo)
-      if (!res.ok) setError(res.error || ui.error)
-      else if (res.room) setRoom(res.room)
-    } catch {
-      setError(ui.error)
+      if (!res.ok) {
+        setError(res.error || ui.error)
+        return
+      }
+      if (res.token && res.expiresAt) {
+        const pass = { token: res.token, expiresAt: res.expiresAt }
+        savePartyPass(pass)
+        setPartyPass(pass)
+      }
+      if (res.room) setRoom(res.room)
+      setPromo('')
+      setBanner(ui.partyThanks)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : ui.error)
     } finally {
       setBusy(false)
     }
@@ -698,6 +708,9 @@ function PlayView({
 }) {
   const ui = t(room.language || uiLang)
   const isHost = room.hostId === playerId
+  const roomHasParty =
+    room.premiumTier === 'party' && (room.premiumExpiresAt ?? 0) > Date.now()
+  const effectiveParty = hasParty || roomHasParty
   const [showQr, setShowQr] = useState(false)
   const [tvMode, setTvMode] = useState(false)
   const [emojiDraft, setEmojiDraft] = useState('')
@@ -825,7 +838,7 @@ function PlayView({
       </div>
 
       <p className="muted hide-on-tv">{ui.shareHint}</p>
-      <p className="muted hide-on-tv">{hasParty ? ui.partyTier : ui.freeTier}</p>
+      <p className="muted hide-on-tv">{effectiveParty ? ui.partyTier : ui.freeTier}</p>
       {room.youAreSpectator && <div className="player-hint">{ui.spectatorHint}</div>}
       {isHost && <div className="player-hint ok hide-on-tv">{ui.hostHint}</div>}
 
@@ -1223,7 +1236,7 @@ function PlayView({
 
       {error && <p className="error">{error}</p>}
 
-      {!hasParty && isHost && (
+      {!effectiveParty && isHost && (
         <div className="party-box hide-on-tv">
           <p className="muted">{ui.partyBlurb}</p>
           <div className="cta-row">
@@ -1241,11 +1254,15 @@ function PlayView({
               value={promo}
               onChange={(e) => setPromo(e.target.value)}
               placeholder={ui.redeemCode}
+              disabled={busy}
+              autoCapitalize="characters"
+              autoCorrect="off"
             />
-            <button type="submit" className="btn btn-ghost btn-small" disabled={busy}>
-              {ui.redeem}
+            <button type="submit" className="btn btn-ghost btn-small" disabled={busy || !promo.trim()}>
+              {busy ? (uiLang === 'en' ? '…' : '…') : ui.redeem}
             </button>
           </form>
+          {error && <p className="error">{error}</p>}
           <label className="muted row">
             <input
               type="checkbox"
@@ -1255,6 +1272,12 @@ function PlayView({
             {ui.firstTime}
           </label>
         </div>
+      )}
+      {effectiveParty && isHost && room.premiumExpiresAt && (
+        <p className="muted hide-on-tv">
+          {ui.partyActive} {ui.partyUntil}{' '}
+          {new Date(room.premiumExpiresAt).toLocaleString(uiLang === 'en' ? 'en' : 'sv')}
+        </p>
       )}
     </div>
   )

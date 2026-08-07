@@ -396,8 +396,13 @@ io.on('connection', (socket) => {
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = redeemParty(binding.code, binding.playerId, String(payload?.code ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
+    ack?.({
+      ok: true,
+      room: toPublicRoom(result.room, binding.playerId),
+      token: result.pass.token,
+      expiresAt: result.pass.expiresAt,
+    })
+    broadcastRoom(result.room.code)
   })
 
   socket.on('applyPartyToken', (payload, ack) => {

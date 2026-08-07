@@ -922,7 +922,7 @@ export function redeemParty(
   code: string,
   playerId: string,
   passCode: string,
-): Room | { error: string } {
+): { room: Room; pass: PartyPass } | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden' }
@@ -930,7 +930,7 @@ export function redeemParty(
   if ('error' in pass) return pass
   room.premiumExpiresAt = pass.expiresAt
   touch(room)
-  return room
+  return { room, pass }
 }
 
 export function applyPartyToken(code: string, token: string): Room | { error: string } {
