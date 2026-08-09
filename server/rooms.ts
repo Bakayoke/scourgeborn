@@ -196,10 +196,9 @@ export function restoreRooms(list: Room[]) {
       updatedAt: raw.updatedAt ?? Date.now(),
     }
 
-    if (midGame(room.status) && room.status !== 'resolve') {
-      room.status = 'lobby'
-      Object.assign(room, emptyGameFields())
-    }
+    // Keep mid-game status when hydrating from Redis. Resetting council→lobby here
+    // broke solo start: saveRoomRecord published an update, this instance reloaded
+    // the room, and wipe-to-lobby bounced the host straight back.
     rooms.set(room.code, room)
   }
 }
@@ -221,11 +220,30 @@ export async function hydrateRoom(code: string): Promise<Room | null> {
 
 export async function reloadRoomFromStore(code: string): Promise<Room | null> {
   const c = code.toUpperCase().trim()
+  const existing = rooms.get(c)
   const loaded = await loadRoomRecord(c)
   if (!loaded) return null
+
+  // Ignore Redis echo of our own save — otherwise we clobber live sockets
+  // (saveRoomRecord persists connected:false) and used to wipe mid-game status.
+  if (existing && (existing.updatedAt ?? 0) >= (loaded.updatedAt ?? 0)) {
+    return existing
+  }
+
   rooms.delete(c)
   restoreRooms([loaded as Room])
-  return rooms.get(c) ?? null
+  const room = rooms.get(c)
+  if (!room) return null
+
+  // Re-apply who is actually connected on this instance.
+  const connectedIds = new Set<string>()
+  for (const binding of socketToPlayer.values()) {
+    if (binding.code === c) connectedIds.add(binding.playerId)
+  }
+  for (const p of room.players) {
+    p.connected = connectedIds.has(p.id)
+  }
+  return room
 }
 
 export function getBinding(socketId: string) {
