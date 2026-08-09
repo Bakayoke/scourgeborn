@@ -58,7 +58,7 @@ function getStripe(): Stripe {
 }
 
 function appBaseUrl(): string {
-  return (process.env.PUBLIC_APP_URL ?? 'https://partypaths.com').replace(/\/$/, '')
+  return (process.env.PUBLIC_APP_URL ?? 'https://scourgeborn.com').replace(/\/$/, '')
 }
 
 function partyAmountOre(): number {
@@ -76,7 +76,7 @@ function normalizePlan(raw: unknown): PartyPlan {
 }
 
 async function firstPartyCouponId(stripe: Stripe): Promise<string | null> {
-  const id = (process.env.STRIPE_FIRST_PARTY_COUPON ?? 'partypaths_first30').trim()
+  const id = (process.env.STRIPE_FIRST_PARTY_COUPON ?? 'scourgeborn_first30').trim()
   if (!id) return null
   try {
     await stripe.coupons.retrieve(id)
@@ -159,11 +159,11 @@ export async function createPartyCheckoutSession(opts: {
                 unit_amount: amount,
                 tax_behavior: 'inclusive',
                 product_data: {
-                  name: plan === 'week' ? 'Party Paths Party — 7 dagar' : 'Party Paths Party — 24 h',
+                  name: plan === 'week' ? 'Scourgeborn Party — 7 dagar' : 'Scourgeborn Party — 24 h',
                   description:
                     plan === 'week'
-                      ? 'Obegränsat antal spelare och hela Emberwood-kampanjen i en vecka.'
-                      : 'Fler spelare + hela kampanjen med trollkarl och drake — 24 timmar.',
+                      ? 'Fler spelare och längre kampanjer i en vecka.'
+                      : 'Fler spelare och längre kampanjer — 24 timmar.',
                   tax_code: 'txcd_10000000',
                 },
               },

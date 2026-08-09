@@ -142,8 +142,6 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
   const session = loadSession()
   const raw =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>) } : {}
-  // create/join/rejoin carry their own identity — never smear an old session onto them
-  // (that used to force a second tab/QR join back into the previous player seat).
   const isIdentityEvent = event === 'create' || event === 'join' || event === 'rejoin'
   const body = isIdentityEvent
     ? raw
@@ -185,8 +183,8 @@ export async function startGame() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('startGame', {})
 }
 
-export async function nextRound() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('nextRound', {})
+export async function continueTurn() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('continueTurn', {})
 }
 
 export async function endParty() {
@@ -197,31 +195,12 @@ export async function backToLobby() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('backToLobby', {})
 }
 
-export async function submitEmojis(emojis: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('submitEmojis', { emojis })
-}
-
-export async function submitGuess(guess: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('submitGuess', { guess })
-}
-
-export async function voteFunny(pathId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteFunny', { pathId })
-}
-
-export async function advanceReveal() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('advanceReveal', {})
+export async function castVote(optionId: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castVote', { optionId })
 }
 
 export async function setLanguage(language: Lang) {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setLanguage', { language })
-}
-
-export async function setPhaseTimers(emojiSeconds?: number, guessSeconds?: number) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setPhaseTimers', {
-    emojiSeconds,
-    guessSeconds,
-  })
 }
 
 export async function setPublicLobby(isPublic: boolean) {
@@ -321,8 +300,8 @@ export async function claimPartySession(sessionId: string) {
   })
 }
 
-const SESSION_KEY = 'partypaths-session'
-const PASS_KEY = 'partypaths-party-pass'
+const SESSION_KEY = 'scourgeborn-session'
+const PASS_KEY = 'scourgeborn-party-pass'
 
 export function loadSession(): Session | null {
   try {

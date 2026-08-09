@@ -1,22 +1,18 @@
 import { customAlphabet } from 'nanoid'
 import {
-  applyCorrectPoints,
-  applyFunnyVotePoints,
-  authorIndexForHop,
-  createEmptyStep,
-  dealWords,
-  EMPTY_GUESS,
-  EMOJI_SECONDS,
-  GUESS_SECONDS,
-  guesserIndexForHop,
-  HOP_COUNT,
-  hopCountForPlayers,
-  meaningForHop,
+  STARTING_CORRUPTION_POINTS,
+  STARTING_CURE,
+  STARTING_HEART_HP,
+  applyAiTurn,
+  applyPlayerChoice,
+  createInitialRegions,
+  evaluateOutcome,
+  generateVoteOptions,
+  incomeFor,
   MIN_PLAYERS,
-  normalizeWord,
-  sanitizeEmojis,
-  scoreGuess,
-} from './game/paths.js'
+  pickWinningOption,
+  worldCorruption,
+} from './game/scourge.js'
 import {
   limitsFor,
   lookupPass,
@@ -25,15 +21,17 @@ import {
   type PartyPass,
 } from './premium.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
-import { freeWordPack, wordPack } from './words/index.js'
 import type {
-  GamePath,
+  GameOutcome,
   Lang,
+  MapRegion,
   Player,
-  PublicPath,
   PublicRoom,
   Room,
   RoomStatus,
+  SkillId,
+  TurnResolution,
+  VoteOption,
 } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
@@ -41,7 +39,6 @@ const DISCONNECT_GRACE_MS = 60_000
 const HOST_TRANSFER_AFTER_MS = 90_000
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
 const NOTICE_TTL_MS = 45_000
-const SCOREBOARD_MS = 0
 
 const rooms = new Map<string, Room>()
 const socketToPlayer = new Map<string, { code: string; playerId: string }>()
@@ -61,7 +58,6 @@ export function setBroadcastHook(fn: ((code: string) => void) | null) {
 function touch(room?: Room) {
   if (room) {
     room.updatedAt = Date.now()
-    // Live Redis write so join on another instance finds the room.
     void saveRoomRecord(room)
   }
   onPersist?.()
@@ -119,25 +115,29 @@ function midGame(status: RoomStatus): boolean {
 function emptyGameFields(): Pick<
   Room,
   | 'phaseEndsAt'
-  | 'roundIndex'
-  | 'hopIndex'
-  | 'hopCount'
-  | 'paths'
-  | 'submissions'
-  | 'scores'
-  | 'funnyVotes'
-  | 'usedWords'
+  | 'turnIndex'
+  | 'corruptionPoints'
+  | 'regions'
+  | 'skills'
+  | 'cureProgress'
+  | 'heartHp'
+  | 'voteOptions'
+  | 'votes'
+  | 'lastResolution'
+  | 'outcome'
 > {
   return {
     phaseEndsAt: 0,
-    roundIndex: 0,
-    hopIndex: 0,
-    hopCount: HOP_COUNT,
-    paths: [],
-    submissions: {},
-    scores: {},
-    funnyVotes: {},
-    usedWords: [],
+    turnIndex: 0,
+    corruptionPoints: STARTING_CORRUPTION_POINTS,
+    regions: createInitialRegions(),
+    skills: ['contagion'],
+    cureProgress: STARTING_CURE,
+    heartHp: STARTING_HEART_HP,
+    voteOptions: [],
+    votes: {},
+    lastResolution: null,
+    outcome: 'ongoing',
   }
 }
 
@@ -145,13 +145,28 @@ export function allRooms() {
   return rooms
 }
 
+function normalizeRegions(raw: unknown): MapRegion[] {
+  if (!Array.isArray(raw) || raw.length === 0) return createInitialRegions()
+  return createInitialRegions().map((base) => {
+    const found = raw.find((r) => r && typeof r === 'object' && (r as MapRegion).id === base.id) as
+      | MapRegion
+      | undefined
+    if (!found) return base
+    return {
+      id: base.id,
+      corruption: Math.max(0, Math.min(100, Number(found.corruption) || 0)),
+      quarantined: Boolean(found.quarantined),
+    }
+  })
+}
+
 export function restoreRooms(list: Room[]) {
   for (const raw of list) {
     if (!raw?.code) continue
-    // Skip legacy DnD rooms that lack emoji-path shape
-    if (!Array.isArray((raw as Room).paths) && (raw as { nodeId?: string }).nodeId) {
-      continue
-    }
+    // Skip legacy Party Paths emoji rooms
+    if (Array.isArray((raw as { paths?: unknown }).paths)) continue
+    if (!('regions' in raw) && !('corruptionPoints' in raw)) continue
+
     const room: Room = {
       code: raw.code,
       hostId: raw.hostId,
@@ -166,25 +181,24 @@ export function restoreRooms(list: Room[]) {
       premiumExpiresAt: raw.premiumExpiresAt ?? null,
       isPublic: Boolean(raw.isPublic),
       waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
-      emojiSeconds: Number(raw.emojiSeconds) || EMOJI_SECONDS,
-      guessSeconds: Number(raw.guessSeconds) || GUESS_SECONDS,
       phaseEndsAt: Number(raw.phaseEndsAt) || 0,
-      roundIndex: Number(raw.roundIndex) || 0,
-      hopIndex: Number(raw.hopIndex) || 0,
-      hopCount: Number(raw.hopCount) || HOP_COUNT,
-      paths: Array.isArray(raw.paths) ? raw.paths : [],
-      submissions: raw.submissions && typeof raw.submissions === 'object' ? raw.submissions : {},
-      scores: raw.scores && typeof raw.scores === 'object' ? raw.scores : {},
-      funnyVotes: raw.funnyVotes && typeof raw.funnyVotes === 'object' ? raw.funnyVotes : {},
-      usedWords: Array.isArray(raw.usedWords) ? raw.usedWords : [],
+      turnIndex: Number(raw.turnIndex) || 0,
+      corruptionPoints: Number(raw.corruptionPoints) || STARTING_CORRUPTION_POINTS,
+      regions: normalizeRegions(raw.regions),
+      skills: Array.isArray(raw.skills) ? (raw.skills as SkillId[]) : ['contagion'],
+      cureProgress: Number(raw.cureProgress) || STARTING_CURE,
+      heartHp: Number(raw.heartHp) || STARTING_HEART_HP,
+      voteOptions: Array.isArray(raw.voteOptions) ? (raw.voteOptions as VoteOption[]) : [],
+      votes: raw.votes && typeof raw.votes === 'object' ? raw.votes : {},
+      lastResolution: raw.lastResolution ?? null,
+      outcome: (raw.outcome as GameOutcome) || 'ongoing',
       notice: raw.notice ?? null,
       updatedAt: raw.updatedAt ?? Date.now(),
     }
-    // Reset mid-phase rooms to lobby on restart (timers lost)
-    if (midGame(room.status) && room.status !== 'scoreboard' && room.status !== 'reveal') {
+
+    if (midGame(room.status) && room.status !== 'resolve') {
       room.status = 'lobby'
       Object.assign(room, emptyGameFields())
-      room.scores = raw.scores && typeof raw.scores === 'object' ? { ...raw.scores } : {}
     }
     rooms.set(room.code, room)
   }
@@ -194,54 +208,24 @@ export function getRoom(code: string) {
   return rooms.get(code.toUpperCase().trim()) ?? null
 }
 
-/** Pull a room from Redis into memory when this instance does not have it yet. */
 export async function hydrateRoom(code: string): Promise<Room | null> {
   const c = code.toUpperCase().trim()
   if (!c) return null
   const existing = rooms.get(c)
   if (existing) return existing
-  const raw = await loadRoomRecord(c)
-  if (!raw) return null
-  restoreRooms([raw])
-  const room = rooms.get(c)
-  if (!room) return null
-  // Rebuild connected flags from sockets bound on THIS instance only.
-  const localConnected = new Set<string>()
-  for (const binding of socketToPlayer.values()) {
-    if (binding.code === c) localConnected.add(binding.playerId)
-  }
-  for (const p of room.players) {
-    p.connected = localConnected.has(p.id)
-  }
-  return room
+  const loaded = await loadRoomRecord(c)
+  if (!loaded) return null
+  restoreRooms([loaded as Room])
+  return rooms.get(c) ?? null
 }
 
-/** Reload room from Redis (after another instance mutated it). */
 export async function reloadRoomFromStore(code: string): Promise<Room | null> {
   const c = code.toUpperCase().trim()
-  if (!c) return null
-  const local = rooms.get(c)
-  const raw = await loadRoomRecord(c)
-  if (!raw) {
-    // A missed Redis read must NOT wipe a live local room (transient blips /
-    // publish-before-write races were deleting lobbies mid-session).
-    return local ?? null
-  }
-  // Prefer the newer copy when both exist.
-  if (local && (local.updatedAt || 0) > (raw.updatedAt || 0)) {
-    return local
-  }
-  const localConnected = new Set<string>()
-  for (const binding of socketToPlayer.values()) {
-    if (binding.code === c) localConnected.add(binding.playerId)
-  }
-  restoreRooms([raw])
-  const room = rooms.get(c)
-  if (!room) return null
-  for (const p of room.players) {
-    p.connected = localConnected.has(p.id)
-  }
-  return room
+  const loaded = await loadRoomRecord(c)
+  if (!loaded) return null
+  rooms.delete(c)
+  restoreRooms([loaded as Room])
+  return rooms.get(c) ?? null
 }
 
 export function getBinding(socketId: string) {
@@ -276,8 +260,6 @@ export function createRoom(
     premiumExpiresAt,
     isPublic: Boolean(wantPublic && isParty),
     waitlist: [],
-    emojiSeconds: EMOJI_SECONDS,
-    guessSeconds: GUESS_SECONDS,
     notice: null,
     updatedAt: Date.now(),
     ...emptyGameFields(),
@@ -301,7 +283,6 @@ function releaseSocket(socketId: string) {
   player.connected = false
   touch(room)
   if (room.status === 'lobby' || room.status === 'finished') {
-    // Drop immediately when switching rooms from the lobby so the seat frees up.
     if (player.id !== room.hostId) {
       room.players = room.players.filter((p) => p.id !== player.id)
       touch(room)
@@ -332,7 +313,6 @@ export function joinRoom(
   const displayName =
     name.trim().slice(0, 20) || (room.language === 'en' ? 'Player' : 'Spelare')
 
-  // Same socket already in this room — reconnect that seat instead of adding a twin.
   const existing = socketToPlayer.get(socketId)
   if (existing?.code === room.code) {
     const mine = room.players.find((p) => p.id === existing.playerId)
@@ -345,7 +325,6 @@ export function joinRoom(
     }
   }
 
-  // Leaving another room on this socket frees the old lobby seat.
   if (existing && existing.code !== room.code) {
     releaseSocket(socketId)
   }
@@ -363,7 +342,6 @@ export function joinRoom(
     return { room, playerId }
   }
 
-  // Reclaim a disconnected seat with the same name (avoids ghost slots when rejoining).
   const reclaim = seatedPlayers(room).find(
     (p) => !p.connected && p.name.toLowerCase() === displayName.toLowerCase(),
   )
@@ -376,7 +354,6 @@ export function joinRoom(
   }
 
   const maxPlayers = roomLimits(room).maxPlayers
-  // Only connected players hold a seat — disconnected lobby ghosts must not block joins.
   const connectedSeated = seatedPlayers(room).filter((p) => p.connected)
   if (maxPlayers > 0 && connectedSeated.length >= maxPlayers) {
     const existingWait = room.waitlist.find(
@@ -452,7 +429,6 @@ export function handleDisconnect(socketId: string) {
       if (!r) return
       const p = r.players.find((x) => x.id === binding.playerId)
       if (!p || p.connected) return
-      // Host transfer if host gone long enough
       if (p.id === r.hostId) {
         setTimeout(() => {
           const rr = rooms.get(binding.code)
@@ -467,8 +443,6 @@ export function handleDisconnect(socketId: string) {
           onBroadcast?.(rr.code)
         }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
       } else if (r.status === 'lobby' || r.status === 'finished') {
-        // Drop lobby ghosts so they don't clutter the roster (capacity already
-        // ignores disconnected players).
         r.players = r.players.filter((x) => x.id !== binding.playerId)
       }
       touch(r)
@@ -542,101 +516,49 @@ export function setPublicLobby(
   return room
 }
 
-export function setPhaseTimers(
-  code: string,
-  playerId: string,
-  emojiSeconds?: number,
-  guessSeconds?: number,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan ändra' }
-  if (room.status !== 'lobby') return { error: 'Kan bara ändras i lobbyn' }
-  if (emojiSeconds !== undefined) {
-    const e = Math.round(Number(emojiSeconds))
-    if ([20, 35, 50].includes(e)) room.emojiSeconds = e
+function beginCouncil(room: Room, grantIncome: boolean) {
+  let income = 0
+  if (grantIncome) {
+    income = incomeFor(room.skills, room.regions)
+    room.corruptionPoints += income
   }
-  if (guessSeconds !== undefined) {
-    const g = Math.round(Number(guessSeconds))
-    if ([15, 25, 40].includes(g)) room.guessSeconds = g
-  }
-  touch(room)
-  return room
-}
 
-function packForRoom(room: Room): string[] {
-  const limits = roomLimits(room)
-  return limits.freePack ? freeWordPack(room.language) : wordPack(room.language)
-}
-
-function beginEmojiPhase(room: Room) {
-  room.status = 'emoji'
-  room.submissions = {}
+  room.turnIndex += 1
+  room.status = 'council'
+  room.votes = {}
+  room.voteOptions = generateVoteOptions({
+    lang: room.language,
+    points: room.corruptionPoints,
+    skills: room.skills,
+    regions: room.regions,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
+    turn: room.turnIndex,
+  })
   room.phaseEndsAt = 0
-  // Prepare empty step shells for this hop
-  const order = seatedPlayers(room)
-  const n = order.length
-  for (let oi = 0; oi < room.paths.length; oi++) {
-    const path = room.paths[oi]
-    const author = order[authorIndexForHop(oi, room.hopIndex, n)]
-    const guesser = order[guesserIndexForHop(oi, room.hopIndex, n)]
-    const meaning = meaningForHop(path, room.hopIndex)
-    path.steps[room.hopIndex] = createEmptyStep({
-      authorId: author.id,
-      meaning,
-      guesserId: guesser.id,
-    })
+
+  if (grantIncome && income > 0) {
+    room.lastResolution = room.lastResolution
+      ? { ...room.lastResolution, incomeGained: income }
+      : null
   }
 }
 
-function beginGuessPhase(room: Room) {
-  room.status = 'guess'
-  room.submissions = {}
-  room.phaseEndsAt = 0
-}
-
-function startRoundInternal(room: Room) {
+function startCampaign(room: Room): Room | { error: string } {
   const order = connectedPlayers(room)
   if (order.length < MIN_PLAYERS) {
     return {
       error: roomMsg(
         room,
-        `Behöver minst ${MIN_PLAYERS} spelare`,
-        `Need at least ${MIN_PLAYERS} players`,
+        `Behöver minst ${MIN_PLAYERS} spelare (+ värd)`,
+        `Need at least ${MIN_PLAYERS} players (+ host)`,
       ),
     }
   }
 
-  const limits = roomLimits(room)
-  if (room.roundIndex >= limits.maxRounds) {
-    return {
-      error: roomMsg(
-        room,
-        'Max antal rundor nått — skaffa Party för fler',
-        'Max rounds reached — unlock Party for more',
-      ),
-    }
-  }
-
-  const used = new Set(room.usedWords.map(normalizeWord))
-  const words = dealWords(packForRoom(room), order.length, used)
-  room.usedWords = [...used]
-
-  room.paths = order.map((p, i) => ({
-    id: crypto.randomUUID(),
-    originPlayerId: p.id,
-    seedWord: words[i] ?? 'pizza',
-    steps: [],
-  }))
-  room.hopIndex = 0
-  room.hopCount = hopCountForPlayers(order.length)
-  room.funnyVotes = {}
-  room.submissions = {}
-  room.roundIndex += 1
-  for (const p of order) {
-    if (room.scores[p.id] === undefined) room.scores[p.id] = 0
-  }
-  beginEmojiPhase(room)
+  Object.assign(room, emptyGameFields())
+  room.outcome = 'ongoing'
+  beginCouncil(room, false)
   touch(room)
   return room
 }
@@ -645,30 +567,40 @@ export function startGame(code: string, playerId: string): Room | { error: strin
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden kan starta' }
-  if (room.status !== 'lobby' && room.status !== 'scoreboard' && room.status !== 'finished') {
+  if (room.status !== 'lobby' && room.status !== 'finished') {
     return { error: roomMsg(room, 'Spelet pågår redan', 'Game already in progress') }
   }
-  if (room.status === 'finished') {
-    room.scores = {}
-    room.roundIndex = 0
-    room.usedWords = []
-  }
-  // Promote waitlist / clear spectators when starting from lobby
   if (room.status === 'lobby') {
     for (const p of room.players) p.spectator = false
     promoteWaitlist(room)
   }
-  return startRoundInternal(room)
+  return startCampaign(room)
 }
 
-export function nextRound(code: string, playerId: string): Room | { error: string } {
+export function continueTurn(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden kan fortsätta' }
-  if (room.status !== 'scoreboard') {
-    return { error: roomMsg(room, 'Vänta till poängtavlan', 'Wait for the scoreboard') }
+  if (room.status !== 'resolve') {
+    return { error: roomMsg(room, 'Vänta till resolven', 'Wait for the resolve phase') }
   }
-  return startRoundInternal(room)
+  if (room.outcome !== 'ongoing') {
+    room.status = 'finished'
+    touch(room)
+    return room
+  }
+
+  const limits = roomLimits(room)
+  if (limits.maxRounds > 0 && room.turnIndex >= limits.maxRounds) {
+    room.status = 'finished'
+    room.outcome = worldCorruption(room.regions) >= 50 ? 'victory' : 'defeat_cure'
+    touch(room)
+    return room
+  }
+
+  beginCouncil(room, true)
+  touch(room)
+  return room
 }
 
 export function endParty(code: string, playerId: string): Room | { error: string } {
@@ -678,6 +610,9 @@ export function endParty(code: string, playerId: string): Room | { error: string
   room.status = 'finished'
   room.phaseEndsAt = 0
   room.isPublic = false
+  if (room.outcome === 'ongoing') {
+    room.outcome = 'defeat_cure'
+  }
   touch(room)
   return room
 }
@@ -688,7 +623,6 @@ export function backToLobby(code: string, playerId: string): Room | { error: str
   if (room.hostId !== playerId) return { error: 'Bara värden' }
   room.status = 'lobby'
   Object.assign(room, emptyGameFields())
-  room.scores = {}
   for (const p of room.players) p.spectator = false
   promoteWaitlist(room)
   touch(room)
@@ -711,197 +645,132 @@ function promoteWaitlist(room: Room) {
   }
 }
 
-function taskPlayerIds(room: Room): string[] {
-  const order = seatedPlayers(room)
-  const n = order.length
-  const ids = new Set<string>()
-  if (room.status === 'emoji') {
-    for (let oi = 0; oi < room.paths.length; oi++) {
-      ids.add(order[authorIndexForHop(oi, room.hopIndex, n)].id)
-    }
-  } else if (room.status === 'guess') {
-    for (let oi = 0; oi < room.paths.length; oi++) {
-      ids.add(order[guesserIndexForHop(oi, room.hopIndex, n)].id)
-    }
-  } else if (room.status === 'funny_vote') {
-    for (const p of connectedPlayers(room)) ids.add(p.id)
-  }
-  return [...ids]
+function voterIds(room: Room): string[] {
+  return connectedPlayers(room).map((p) => p.id)
 }
 
-function maybeAdvance(room: Room) {
-  const needed = taskPlayerIds(room)
-  const connectedNeeded = needed.filter((id) => {
-    const p = room.players.find((x) => x.id === id)
-    return p?.connected
+function maybeResolveVotes(room: Room) {
+  const needed = voterIds(room)
+  if (needed.length === 0) return
+  const done = needed.every((id) => room.votes[id] !== undefined)
+  if (!done) return
+  lockVotes(room)
+}
+
+function lockVotes(room: Room) {
+  const hostVote = room.votes[room.hostId] ?? null
+  const winning = pickWinningOption(room.votes, room.voteOptions, hostVote)
+  if (!winning) {
+    room.status = 'resolve'
+    room.lastResolution = {
+      turn: room.turnIndex,
+      winningOptionId: '',
+      playerLog: roomMsg(room, 'Ingen giltig plan.', 'No valid plan.'),
+      aiLog: '',
+      incomeGained: 0,
+      voteCounts: {},
+    }
+    touch(room)
+    return
+  }
+
+  const applied = applyPlayerChoice(winning, {
+    points: room.corruptionPoints,
+    skills: room.skills,
+    regions: room.regions,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
+    lang: room.language,
   })
-  const done = connectedNeeded.every((id) => room.submissions[id] !== undefined)
-  if (done && connectedNeeded.length > 0) {
-    if (room.status === 'emoji') lockEmojis(room)
-    else if (room.status === 'guess') lockGuesses(room)
-    else if (room.status === 'funny_vote') lockFunnyVotes(room)
-  }
-}
 
-export function submitEmojis(
-  code: string,
-  playerId: string,
-  emojisRaw: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'emoji') return { error: roomMsg(room, 'Inte emoji-fas', 'Not emoji phase') }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator || player.id === room.hostId) {
-    return { error: roomMsg(room, 'Värden deltar inte', 'Host does not play') }
-  }
-  const emojis = sanitizeEmojis(emojisRaw)
-  if (!emojis) {
-    return { error: roomMsg(room, 'Skriv minst en emoji', 'Enter at least one emoji') }
-  }
-  room.submissions[playerId] = emojis
-  // Write onto the path step this player authors
-  const order = seatedPlayers(room)
-  const n = order.length
-  const authorIdx = order.findIndex((p) => p.id === playerId)
-  for (let oi = 0; oi < room.paths.length; oi++) {
-    if (authorIndexForHop(oi, room.hopIndex, n) === authorIdx) {
-      const step = room.paths[oi].steps[room.hopIndex]
-      if (step) step.emojis = emojis
+  if ('error' in applied) {
+    // Fall back: skip effect but still let AI act
+    room.lastResolution = {
+      turn: room.turnIndex,
+      winningOptionId: winning.id,
+      playerLog: applied.error,
+      aiLog: '',
+      incomeGained: 0,
+      voteCounts: tally(room.votes),
     }
-  }
-  touch(room)
-  maybeAdvance(room)
-  return room
-}
-
-export function submitGuess(
-  code: string,
-  playerId: string,
-  guessRaw: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'guess') return { error: roomMsg(room, 'Inte gissningsfas', 'Not guess phase') }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator || player.id === room.hostId) {
-    return { error: roomMsg(room, 'Värden deltar inte', 'Host does not play') }
-  }
-  const guess = normalizeWord(guessRaw).slice(0, 48) || EMPTY_GUESS
-  room.submissions[playerId] = guess
-  const order = seatedPlayers(room)
-  const n = order.length
-  const guesserIdx = order.findIndex((p) => p.id === playerId)
-  for (let oi = 0; oi < room.paths.length; oi++) {
-    if (guesserIndexForHop(oi, room.hopIndex, n) === guesserIdx) {
-      const step = room.paths[oi].steps[room.hopIndex]
-      if (step) {
-        step.guess = guess
-        step.correct = scoreGuess(step.meaning, guess)
-      }
-    }
-  }
-  touch(room)
-  maybeAdvance(room)
-  return room
-}
-
-export function voteFunny(
-  code: string,
-  playerId: string,
-  pathId: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'funny_vote') {
-    return { error: roomMsg(room, 'Inte röstningsfas', 'Not voting phase') }
-  }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator || player.id === room.hostId) {
-    return { error: roomMsg(room, 'Värden deltar inte', 'Host does not play') }
-  }
-  const path = room.paths.find((p) => p.id === pathId)
-  if (!path) return { error: 'Ogiltig path' }
-  room.submissions[playerId] = pathId
-  room.funnyVotes[playerId] = pathId
-  touch(room)
-  maybeAdvance(room)
-  return room
-}
-
-function fillMissingEmojis(room: Room) {
-  for (const path of room.paths) {
-    const step = path.steps[room.hopIndex]
-    if (!step) continue
-    if (!step.emojis) {
-      const sub = room.submissions[step.authorId]
-      step.emojis = sub || '❓'
-    }
-  }
-}
-
-function lockEmojis(room: Room) {
-  fillMissingEmojis(room)
-  beginGuessPhase(room)
-  touch(room)
-}
-
-function lockGuesses(room: Room) {
-  for (const path of room.paths) {
-    const step = path.steps[room.hopIndex]
-    if (!step) continue
-    if (!step.guess) {
-      step.guess = room.submissions[step.guesserId] || EMPTY_GUESS
-    }
-    step.correct = scoreGuess(step.meaning, step.guess)
-    const submitted = room.submissions[step.guesserId] !== undefined
-    if (submitted && step.correct) {
-      applyCorrectPoints(room.scores, step.guesserId, true)
-    }
-  }
-
-  if (room.hopIndex + 1 < room.hopCount) {
-    room.hopIndex += 1
-    beginEmojiPhase(room)
   } else {
-    room.status = 'reveal'
-    room.submissions = {}
-    room.phaseEndsAt = 0
-  }
-  touch(room)
-}
+    room.corruptionPoints = applied.points
+    room.skills = applied.skills
+    room.regions = applied.regions
+    room.cureProgress = applied.cureProgress
+    room.heartHp = applied.heartHp
 
-function enterFunnyVote(room: Room) {
-  room.status = 'funny_vote'
-  room.submissions = {}
-  room.funnyVotes = {}
+    const ai = applyAiTurn({
+      regions: room.regions,
+      cureProgress: room.cureProgress,
+      heartHp: room.heartHp,
+      skills: room.skills,
+      distracted: applied.distracted,
+      turn: room.turnIndex,
+    })
+    room.regions = ai.regions
+    room.cureProgress = ai.cureProgress
+    room.heartHp = ai.heartHp
+
+    const resolution: TurnResolution = {
+      turn: room.turnIndex,
+      winningOptionId: winning.id,
+      playerLog: room.language === 'en' ? applied.logEn : applied.logSv,
+      aiLog: room.language === 'en' ? ai.logEn : ai.logSv,
+      incomeGained: 0,
+      voteCounts: tally(room.votes),
+    }
+    room.lastResolution = resolution
+  }
+
+  room.outcome = evaluateOutcome({
+    regions: room.regions,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
+  })
+  room.status = room.outcome === 'ongoing' ? 'resolve' : 'finished'
+  room.votes = {}
   room.phaseEndsAt = 0
   touch(room)
 }
 
-export function advanceReveal(code: string, playerId: string): Room | { error: string } {
+function tally(votes: Record<string, string>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const id of Object.values(votes)) {
+    out[id] = (out[id] ?? 0) + 1
+  }
+  return out
+}
+
+export function castVote(
+  code: string,
+  playerId: string,
+  optionId: string,
+): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan gå vidare' }
-  if (room.status !== 'reveal') {
-    return { error: roomMsg(room, 'Inte reveal-fas', 'Not reveal phase') }
+  if (room.status !== 'council') {
+    return { error: roomMsg(room, 'Inte rådets fas', 'Not council phase') }
   }
-  enterFunnyVote(room)
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator || player.id === room.hostId) {
+    return { error: roomMsg(room, 'Värden röstar inte', 'Host does not vote') }
+  }
+  const option = room.voteOptions.find((o) => o.id === optionId)
+  if (!option) return { error: roomMsg(room, 'Ogiltigt val', 'Invalid option') }
+  if (!option.affordable) {
+    return {
+      error: roomMsg(room, 'För dyrt just nu', 'Too expensive right now'),
+    }
+  }
+  room.votes[playerId] = optionId
+  touch(room)
+  maybeResolveVotes(room)
   return room
 }
 
-function lockFunnyVotes(room: Room) {
-  // Each vote → +10 to the last wrong guesser on that path.
-  applyFunnyVotePoints(room.scores, room.paths, room.funnyVotes)
-
-  room.status = 'scoreboard'
-  room.phaseEndsAt = SCOREBOARD_MS
-  room.submissions = {}
-  touch(room)
-}
-
 export function onPhaseTimeout(_room: Room) {
-  // Phases advance only when all active players have submitted (no timers).
+  // Turns advance when all voters have cast (no timers).
 }
 
 export function roomsNeedingTick(): Room[] {
@@ -950,72 +819,11 @@ export function unlockRoomWithPass(code: string, pass: PartyPass) {
   touch(room)
 }
 
-function playerName(room: Room, id: string) {
-  return room.players.find((p) => p.id === id)?.name ?? '?'
-}
-
-function publicPaths(room: Room): PublicPath[] {
-  return room.paths.map((p) => ({
-    id: p.id,
-    originPlayerId: p.originPlayerId,
-    originName: playerName(room, p.originPlayerId),
-    seedWord: p.seedWord,
-    steps: p.steps.map((s) => ({
-      authorName: playerName(room, s.authorId),
-      meaning: s.meaning,
-      emojis: s.emojis,
-      guesserName: playerName(room, s.guesserId),
-      guess: s.guess,
-      correct: s.correct,
-    })),
-  }))
-}
-
-function viewerTask(room: Room, viewerId: string) {
-  const order = seatedPlayers(room)
-  const n = order.length
-  const idx = order.findIndex((p) => p.id === viewerId)
-  if (idx < 0) return null
-
-  if (room.status === 'emoji') {
-    for (let oi = 0; oi < room.paths.length; oi++) {
-      if (authorIndexForHop(oi, room.hopIndex, n) === idx) {
-        const path = room.paths[oi]
-        return {
-          meaning: meaningForHop(path, room.hopIndex),
-          promptEmojis: null as string | null,
-          pathId: path.id,
-        }
-      }
-    }
-  }
-  if (room.status === 'guess') {
-    for (let oi = 0; oi < room.paths.length; oi++) {
-      if (guesserIndexForHop(oi, room.hopIndex, n) === idx) {
-        const path = room.paths[oi]
-        const step = path.steps[room.hopIndex]
-        return {
-          meaning: null as string | null,
-          promptEmojis: step?.emojis || '❓',
-          pathId: path.id,
-        }
-      }
-    }
-  }
-  return null
-}
-
 export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const lang = room.language
   const limits = roomLimits(room)
   const viewer = viewerId ? room.players.find((p) => p.id === viewerId) : null
-  const needed = taskPlayerIds(room)
-  const connectedNeeded = needed.filter((id) => room.players.find((p) => p.id === id)?.connected)
-  const showPaths =
-    room.status === 'reveal' ||
-    room.status === 'funny_vote' ||
-    room.status === 'scoreboard' ||
-    room.status === 'finished'
+  const needed = voterIds(room)
 
   let notice: string | null = null
   if (room.notice && Date.now() - room.notice.at < NOTICE_TTL_MS) {
@@ -1026,25 +834,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     )
   }
 
-  const task = viewerId && !viewer?.spectator ? viewerTask(room, viewerId) : null
-  const funnyTally: Record<string, number> | null =
-    room.status === 'funny_vote' || room.status === 'scoreboard'
-      ? Object.values(room.funnyVotes).reduce(
-          (acc, id) => {
-            acc[id] = (acc[id] ?? 0) + 1
-            return acc
-          },
-          {} as Record<string, number>,
-        )
-      : null
-
-  const scoreboard = seatedPlayers(room)
-    .map((p) => ({
-      playerId: p.id,
-      name: p.name,
-      score: room.scores[p.id] ?? 0,
-    }))
-    .sort((a, b) => b.score - a.score)
+  const showCounts = room.status === 'resolve' || room.status === 'finished'
 
   return {
     code: room.code,
@@ -1057,23 +847,23 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     limits,
     isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,
-    emojiSeconds: room.emojiSeconds,
-    guessSeconds: room.guessSeconds,
     phaseEndsAt: room.phaseEndsAt,
-    roundIndex: room.roundIndex,
-    hopIndex: room.hopIndex,
-    hopCount: room.hopCount,
-    submittedCount: Object.keys(room.submissions).length,
-    submitterCount: connectedNeeded.length || needed.length,
-    submittedIds: Object.keys(room.submissions),
-    youSubmitted: Boolean(viewerId && room.submissions[viewerId] !== undefined),
-    yourMeaning: room.status === 'emoji' ? task?.meaning ?? null : null,
-    yourPromptEmojis: room.status === 'guess' ? task?.promptEmojis ?? null : null,
-    yourGuessTargetPathId: room.status === 'guess' ? task?.pathId ?? null : null,
-    scores: scoreboard,
-    paths: showPaths ? publicPaths(room) : null,
-    funnyVotes: funnyTally,
-    yourFunnyVote: viewerId ? room.funnyVotes[viewerId] ?? null : null,
+    turnIndex: room.turnIndex,
+    corruptionPoints: room.corruptionPoints,
+    worldCorruption: worldCorruption(room.regions),
+    regions: room.regions,
+    skills: room.skills,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
+    voteOptions: room.voteOptions,
+    submittedCount: Object.keys(room.votes).length,
+    submitterCount: needed.length,
+    submittedIds: Object.keys(room.votes),
+    youSubmitted: Boolean(viewerId && room.votes[viewerId] !== undefined),
+    yourVote: viewerId ? room.votes[viewerId] ?? null : null,
+    voteCounts: showCounts ? room.lastResolution?.voteCounts ?? null : null,
+    lastResolution: room.lastResolution,
+    outcome: room.outcome,
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
     youAreHost: Boolean(viewer && viewer.id === room.hostId),

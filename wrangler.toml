@@ -1,11 +1,11 @@
-name = "partypaths"
+name = "scourgeborn"
 compatibility_date = "2026-07-26"
 workers_dev = true
 preview_urls = true
 
 routes = [
-  { pattern = "partypaths.com", custom_domain = true },
-  { pattern = "www.partypaths.com", custom_domain = true },
+  { pattern = "scourgeborn.com", custom_domain = true },
+  { pattern = "www.scourgeborn.com", custom_domain = true },
 ]
 
 # Statisk frontend (Vite-bygge). Socket.io-servern hostas separat på Railway.

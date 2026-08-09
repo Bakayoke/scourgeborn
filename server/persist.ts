@@ -29,9 +29,9 @@ let ready = false
 let lastSaveAt = 0
 let lastError: string | null = null
 
-const ROOM_KEY = (code: string) => `partypaths:room:${code}`
-const ROOM_INDEX = 'partypaths:rooms'
-export const ROOM_UPDATE_CHANNEL = 'partypaths:room-update'
+const ROOM_KEY = (code: string) => `scourgeborn:room:${code}`
+const ROOM_INDEX = 'scourgeborn:rooms'
+export const ROOM_UPDATE_CHANNEL = 'scourgeborn:room-update'
 const ROOM_TTL_SEC = 60 * 60 * 24
 
 function emptySnapshot(): PersistedSnapshot {
@@ -39,7 +39,7 @@ function emptySnapshot(): PersistedSnapshot {
 }
 
 function fileBackend(dir: string): Backend {
-  const file = path.join(dir, 'partypaths-state.json')
+  const file = path.join(dir, 'scourgeborn-state.json')
   return {
     name: `file:${file}`,
     async load() {
@@ -72,7 +72,7 @@ async function redisBackend(url: string): Promise<Backend> {
   await client.connect()
   redis = client
   redisUrl = url
-  const key = 'partypaths:state'
+  const key = 'scourgeborn:state'
   return {
     name: 'redis',
     async load() {
@@ -121,6 +121,7 @@ export function getRedisUrl(): string | null {
 export async function initPersist(): Promise<{ backend: string | null }> {
   const url = getRedisUrl()
   const dataDir =
+    process.env.SCOURGEBORN_DATA_DIR?.trim() ||
     process.env.PARTYPATHS_DATA_DIR?.trim() ||
     ((await dirExists('/data')) ? '/data' : '')
 
@@ -162,7 +163,7 @@ export function persistDiagnostics() {
     lastError,
     hint: backend
       ? null
-      : 'Sätt REDIS_URL (Railway Redis-plugin) eller PARTYPATHS_DATA_DIR=/data med volume — annars försvinner rum vid restart/deploy och kan saknas mellan instanser.',
+      : 'Sätt REDIS_URL (Railway Redis-plugin) eller SCOURGEBORN_DATA_DIR=/data med volume — annars försvinner rum vid restart/deploy och kan saknas mellan instanser.',
   }
 }
 

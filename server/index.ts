@@ -22,8 +22,9 @@ import {
 import {
   applyPartyToken,
   allRooms,
-  advanceReveal,
   backToLobby,
+  castVote,
+  continueTurn,
   createRoom,
   endParty,
   getBinding,
@@ -31,7 +32,6 @@ import {
   handleDisconnect,
   hydrateRoom,
   joinRoom,
-  nextRound,
   onPhaseTimeout,
   previewRoom,
   pruneIdleRooms,
@@ -43,15 +43,11 @@ import {
   setLanguage,
   setBroadcastHook,
   setPersistHook,
-  setPhaseTimers,
   setPublicLobby,
   listPublicLobbies,
   startGame,
-  submitEmojis,
-  submitGuess,
   toPublicRoom,
   unlockRoomWithPass,
-  voteFunny,
 } from './rooms.js'
 import {
   claimPartyCheckoutSession,
@@ -78,6 +74,8 @@ function resolveCorsOrigin():
       .map((s) => s.trim())
       .filter(Boolean) ?? []
   const allowed = new Set([
+    'https://scourgeborn.com',
+    'https://www.scourgeborn.com',
     'https://partypaths.com',
     'https://www.partypaths.com',
     ...extras,
@@ -100,7 +98,13 @@ const corsOrigin = resolveCorsOrigin()
 
 const io = new Server(httpServer, {
   cors: {
-    origin: ['https://partypaths.com', 'https://www.partypaths.com', 'http://localhost:5173'],
+    origin: [
+      'https://scourgeborn.com',
+      'https://www.scourgeborn.com',
+      'https://partypaths.com',
+      'https://www.partypaths.com',
+      'http://localhost:5173',
+    ],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -147,7 +151,7 @@ app.use(express.json())
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'partypaths',
+    service: 'scourgeborn',
     rooms: allRooms().size,
     persist: persistDiagnostics(),
     stripe: stripeEnvDiagnostics(),
@@ -296,20 +300,6 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('setPhaseTimers', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = setPhaseTimers(
-      binding.code,
-      binding.playerId,
-      payload?.emojiSeconds !== undefined ? Number(payload.emojiSeconds) : undefined,
-      payload?.guessSeconds !== undefined ? Number(payload.guessSeconds) : undefined,
-    )
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
   socket.on('setPublicLobby', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
@@ -328,10 +318,10 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('nextRound', (payload, ack) => {
+  socket.on('continueTurn', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = nextRound(binding.code, binding.playerId)
+    const result = continueTurn(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
@@ -355,37 +345,10 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('advanceReveal', (payload, ack) => {
+  socket.on('castVote', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = advanceReveal(binding.code, binding.playerId)
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('submitEmojis', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = submitEmojis(binding.code, binding.playerId, String(payload?.emojis ?? ''))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('submitGuess', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = submitGuess(binding.code, binding.playerId, String(payload?.guess ?? ''))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('voteFunny', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = voteFunny(binding.code, binding.playerId, String(payload?.pathId ?? ''))
+    const result = castVote(binding.code, binding.playerId, String(payload?.optionId ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
@@ -469,7 +432,7 @@ async function main() {
   })
 
   httpServer.listen(PORT, () => {
-    console.log(`Party Paths API on :${PORT}`)
+    console.log(`Scourgeborn API on :${PORT}`)
   })
 }
 

@@ -1,17 +1,18 @@
-# Party Paths
+# Scourgeborn
 
-Demokratiskt party-DnD — starta ett äventyr, dela sessionskoden, välj klass och rösta fram varje val tillsammans.
+Kollektiv mörk fantasy-pest — spelarna är svärmen, AI:n styr De Goda. Rösta fram utbrott och mutationer innan botemedlet är klart.
 
-**Domän:** [partypaths.com](https://partypaths.com)
+**Domän:** [scourgeborn.com](https://scourgeborn.com)
 
-## Funktioner
+## Funktioner (MVP)
 
-- Starta nytt spel → få en fyrabokstavs **sessionskod**
-- Andra går med via koden (gratis max 5, Party = obegränsat)
-- Välj klass: Krigare, Magiker, Ranger, Tjuv, Klerk
-- Kampanj **Shadows of Emberwood** — by, skog, orcher, trollkarl, drake
-- Alla berättelse- och stridsval **röstas** (mest röster vinner; oavgjort → värdens röst)
-- **Party-pass** via Stripe: hela kampanjen + fler spelare (24 h / 7 dagar)
+- Starta nytt spel → fyrabokstavs **sessionskod**
+- Värd på TV, spelare röstar på mobilen
+- Gemensam pool av **korruptionspoäng**
+- Karta med regioner som korruptas över tid
+- Omröstning: utbrott, mutationer, sabotage, distraktioner
+- AI-svar: karantän, forskning, attack mot Smittans hjärta
+- Party-pass via Stripe (fler spelare / fler råd)
 
 ## Kom igång
 
@@ -28,46 +29,21 @@ npm run dev
 ### Railway (API + sockets) — Redis rekommenderas
 
 1. Skapa tjänst från GitHub-repot (start: `npm start`).
-2. **Lägg till Redis-plugin** i samma projekt.
-3. Koppla `REDIS_URL` till API-tjänsten.
+2. Lägg till Redis-plugin.
+3. Koppla `REDIS_URL`.
 4. Sätt även:
-   - `PUBLIC_APP_URL=https://partypaths.com`
-   - `CORS_ORIGIN=https://partypaths.com,https://www.partypaths.com`
-   - `STRIPE_SECRET_KEY=sk_live_…`
-   - `STRIPE_WEBHOOK_SECRET=whsec_…` (webhook → `/api/stripe/webhook`)
+   - `PUBLIC_APP_URL=https://scourgeborn.com`
+   - `CORS_ORIGIN=https://scourgeborn.com,https://www.scourgeborn.com`
+   - Stripe-nycklar om Party-pass ska användas
 5. Verifiera: `GET /api/health` → `persist.configured: true`.
-
-Utan Redis försvinner Party-pass och rum vid restart. Alternativ: volume + `PARTYPATHS_DATA_DIR=/data`.
 
 ### Cloudflare (frontend)
 
-1. Koppla custom domain `partypaths.com` / `www` (DNS redan hos Cloudflare).
-2. Build command:
+1. Koppla custom domain `scourgeborn.com` / `www`.
+2. Build: `npm install && npm run build`
+3. Deploy: `npx wrangler deploy` (eller `npm run deploy:cf`)
 
-```bash
-npm install && npm run build
-```
-
-3. Deploy:
-
-```bash
-npx wrangler deploy
-```
-
-Eller lokalt: `npm run deploy:cf`.
-
-Sätt `VITE_SOCKET_URL` till din Railway-URL **före** client-build så Socket.io pekar rätt i produktion.
-
-Socket.io-servern måste hostas separat (Railway) — Cloudflare serverar bara den statiska SPA:n.
-
-### Node-server (API + sessioner)
-
-```bash
-npm run build
-npm start
-```
-
-I produktion kan servern också servera `client/dist` om du kör allt på Railway utan Cloudflare.
+Sätt `VITE_SOCKET_URL` till Railway-URL **före** client-build.
 
 ## Stack
 

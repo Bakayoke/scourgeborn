@@ -5,9 +5,9 @@ export type PremiumTier = 'free' | 'party'
 export type PremiumLimits = {
   /** 0 = unlimited */
   maxPlayers: number
-  /** Max rounds per party session */
+  /** Max council turns per session */
   maxRounds: number
-  /** Use smaller word pack when true */
+  /** Unused for Scourgeborn; kept for party-pass shape */
   freePack: boolean
 }
 
@@ -25,29 +25,53 @@ export type RoomNotice = {
   at: number
 }
 
-export type RoomStatus =
-  | 'lobby'
-  | 'emoji'
-  | 'guess'
-  | 'reveal'
-  | 'funny_vote'
-  | 'scoreboard'
-  | 'finished'
+export type RoomStatus = 'lobby' | 'council' | 'resolve' | 'finished'
 
-export type PathStep = {
-  authorId: string
-  meaning: string
-  emojis: string
-  guesserId: string
-  guess: string
-  correct: boolean
+export type RegionId =
+  | 'north_kingdom'
+  | 'elf_woods'
+  | 'eastern_wastes'
+  | 'southern_ports'
+  | 'heartlands'
+  | 'plague_heart'
+
+export type SkillId =
+  | 'contagion'
+  | 'waterborne'
+  | 'necromancy'
+  | 'shadow_veil'
+  | 'blight_bloom'
+  | 'drake_summon'
+
+export type MapRegion = {
+  id: RegionId
+  corruption: number
+  quarantined: boolean
 }
 
-export type GamePath = {
+export type VoteOptionKind = 'outbreak' | 'mutate' | 'sabotage' | 'fortify' | 'distract'
+
+export type VoteOption = {
   id: string
-  originPlayerId: string
-  seedWord: string
-  steps: PathStep[]
+  kind: VoteOptionKind
+  title: string
+  description: string
+  cost: number
+  regionId?: RegionId
+  skillId?: SkillId
+  amount?: number
+  affordable: boolean
+}
+
+export type GameOutcome = 'ongoing' | 'victory' | 'defeat_cure' | 'defeat_heart'
+
+export type TurnResolution = {
+  turn: number
+  winningOptionId: string
+  playerLog: string
+  aiLog: string
+  incomeGained: number
+  voteCounts: Record<string, number>
 }
 
 export type Room = {
@@ -59,39 +83,20 @@ export type Room = {
   premiumExpiresAt: number | null
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  /** Emoji phase seconds */
-  emojiSeconds: number
-  /** Guess phase seconds */
-  guessSeconds: number
   phaseEndsAt: number
-  roundIndex: number
-  hopIndex: number
-  hopCount: number
-  paths: GamePath[]
-  /** playerId -> emojis or guess for current phase */
-  submissions: Record<string, string>
-  scores: Record<string, number>
-  funnyVotes: Record<string, string>
-  usedWords: string[]
+  turnIndex: number
+  corruptionPoints: number
+  regions: MapRegion[]
+  skills: SkillId[]
+  cureProgress: number
+  heartHp: number
+  voteOptions: VoteOption[]
+  /** playerId -> optionId */
+  votes: Record<string, string>
+  lastResolution: TurnResolution | null
+  outcome: GameOutcome
   notice: RoomNotice | null
   updatedAt: number
-}
-
-export type PublicPathStep = {
-  authorName: string
-  meaning: string
-  emojis: string
-  guesserName: string
-  guess: string
-  correct: boolean
-}
-
-export type PublicPath = {
-  id: string
-  originPlayerId: string
-  originName: string
-  seedWord: string
-  steps: PublicPathStep[]
 }
 
 export type PublicRoom = {
@@ -105,25 +110,23 @@ export type PublicRoom = {
   limits: PremiumLimits
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  emojiSeconds: number
-  guessSeconds: number
   phaseEndsAt: number
-  roundIndex: number
-  hopIndex: number
-  hopCount: number
+  turnIndex: number
+  corruptionPoints: number
+  worldCorruption: number
+  regions: MapRegion[]
+  skills: SkillId[]
+  cureProgress: number
+  heartHp: number
+  voteOptions: VoteOption[]
   submittedCount: number
   submitterCount: number
   submittedIds: string[]
   youSubmitted: boolean
-  /** Secret word / current meaning for emoji phase */
-  yourMeaning: string | null
-  /** Emojis to interpret in guess phase */
-  yourPromptEmojis: string | null
-  yourGuessTargetPathId: string | null
-  scores: { playerId: string; name: string; score: number }[]
-  paths: PublicPath[] | null
-  funnyVotes: Record<string, number> | null
-  yourFunnyVote: string | null
+  yourVote: string | null
+  voteCounts: Record<string, number> | null
+  lastResolution: TurnResolution | null
+  outcome: GameOutcome
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean

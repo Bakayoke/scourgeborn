@@ -11,13 +11,13 @@ export type PartyPass = {
 
 export const FREE_LIMITS: PremiumLimits = {
   maxPlayers: 5,
-  maxRounds: 3,
+  maxRounds: 8,
   freePack: true,
 }
 
 export const PARTY_LIMITS: PremiumLimits = {
   maxPlayers: 0,
-  maxRounds: 12,
+  maxRounds: 24,
   freePack: false,
 }
 

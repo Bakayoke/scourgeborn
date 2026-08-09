@@ -1,12 +1,5 @@
 export type Lang = 'sv' | 'en'
-export type RoomStatus =
-  | 'lobby'
-  | 'emoji'
-  | 'guess'
-  | 'reveal'
-  | 'funny_vote'
-  | 'scoreboard'
-  | 'finished'
+export type RoomStatus = 'lobby' | 'council' | 'resolve' | 'finished'
 export type PremiumTier = 'free' | 'party'
 
 export type Player = {
@@ -16,21 +9,49 @@ export type Player = {
   spectator?: boolean
 }
 
-export type PublicPathStep = {
-  authorName: string
-  meaning: string
-  emojis: string
-  guesserName: string
-  guess: string
-  correct: boolean
+export type RegionId =
+  | 'north_kingdom'
+  | 'elf_woods'
+  | 'eastern_wastes'
+  | 'southern_ports'
+  | 'heartlands'
+  | 'plague_heart'
+
+export type SkillId =
+  | 'contagion'
+  | 'waterborne'
+  | 'necromancy'
+  | 'shadow_veil'
+  | 'blight_bloom'
+  | 'drake_summon'
+
+export type MapRegion = {
+  id: RegionId
+  corruption: number
+  quarantined: boolean
 }
 
-export type PublicPath = {
+export type VoteOption = {
   id: string
-  originPlayerId: string
-  originName: string
-  seedWord: string
-  steps: PublicPathStep[]
+  kind: 'outbreak' | 'mutate' | 'sabotage' | 'fortify' | 'distract'
+  title: string
+  description: string
+  cost: number
+  regionId?: RegionId
+  skillId?: SkillId
+  amount?: number
+  affordable: boolean
+}
+
+export type GameOutcome = 'ongoing' | 'victory' | 'defeat_cure' | 'defeat_heart'
+
+export type TurnResolution = {
+  turn: number
+  winningOptionId: string
+  playerLog: string
+  aiLog: string
+  incomeGained: number
+  voteCounts: Record<string, number>
 }
 
 export type PublicRoom = {
@@ -44,23 +65,23 @@ export type PublicRoom = {
   limits: { maxPlayers: number; maxRounds: number; freePack: boolean }
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  emojiSeconds: number
-  guessSeconds: number
   phaseEndsAt: number
-  roundIndex: number
-  hopIndex: number
-  hopCount: number
+  turnIndex: number
+  corruptionPoints: number
+  worldCorruption: number
+  regions: MapRegion[]
+  skills: SkillId[]
+  cureProgress: number
+  heartHp: number
+  voteOptions: VoteOption[]
   submittedCount: number
   submitterCount: number
   submittedIds: string[]
   youSubmitted: boolean
-  yourMeaning: string | null
-  yourPromptEmojis: string | null
-  yourGuessTargetPathId: string | null
-  scores: { playerId: string; name: string; score: number }[]
-  paths: PublicPath[] | null
-  funnyVotes: Record<string, number> | null
-  yourFunnyVote: string | null
+  yourVote: string | null
+  voteCounts: Record<string, number> | null
+  lastResolution: TurnResolution | null
+  outcome: GameOutcome
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
