@@ -80,7 +80,7 @@ export function generateActionOptions(opts: {
   cureProgress: number
   turn: number
 }): ActionOption[] {
-  const { lang, points, focusRegionId, regions, cureProgress, turn } = opts
+  const { lang, points, focusRegionId, regions, turn } = opts
   const region = regionById(regions, focusRegionId)
   const name = labelRegion(focusRegionId, lang)
   const options: ActionOption[] = []
@@ -115,19 +115,23 @@ export function generateActionOptions(opts: {
     })
   }
 
-  const researchOk =
-    focusRegionId === 'heartlands' || focusRegionId === 'elf_woods' || cureProgress >= 15
-  if (researchOk) {
-    const rAmt = focusRegionId === 'heartlands' ? 14 : 10
-    const rCost = 180
+  // Cure research is always available — spend resources anywhere; labs are strongest in key lands.
+  {
+    const hub = focusRegionId === 'heartlands' || focusRegionId === 'elf_woods'
+    const rAmt = focusRegionId === 'heartlands' ? 14 : hub ? 12 : 8
+    const rCost = hub ? 180 : 200
     options.push({
       id: `research:${focusRegionId}:${turn}`,
       kind: 'research',
-      title: lang === 'en' ? 'Push the cure' : 'Forcera botemedlet',
+      title: lang === 'en' ? 'Develop the cure' : 'Utveckla botemedlet',
       description:
         lang === 'en'
-          ? `Royal labs advance the cure (+${rAmt}–${rAmt + 5}).`
-          : `Kungliga labb driver botemedlet (+${rAmt}–${rAmt + 5}).`,
+          ? hub
+            ? `Fund the royal labs (+${rAmt}–${rAmt + 5} cure).`
+            : `Ship supplies to the labs from here (+${rAmt}–${rAmt + 4} cure).`
+          : hub
+            ? `Finansiera kungliga labb (+${rAmt}–${rAmt + 5} botemedel).`
+            : `Skicka resurser till labben härifrån (+${rAmt}–${rAmt + 4} botemedel).`,
       cost: rCost,
       amount: rAmt,
       affordable: points >= rCost,

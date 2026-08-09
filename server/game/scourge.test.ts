@@ -31,6 +31,21 @@ describe('scourge defenders', () => {
     assert.ok(options.some((o) => o.kind === 'research'))
   })
 
+  it('offers cure research from any land', () => {
+    const options = generateActionOptions({
+      lang: 'sv',
+      points: 500,
+      focusRegionId: 'north_kingdom',
+      regions: createInitialRegions(),
+      cureProgress: 0,
+      turn: 1,
+    })
+    const research = options.find((o) => o.kind === 'research')
+    assert.ok(research)
+    assert.equal(research!.affordable, true)
+    assert.ok((research!.cost ?? 0) >= 180)
+  })
+
   it('cleanses infection', () => {
     const regions = createInitialRegions()
     const before = regions.find((r) => r.id === 'heartlands')!.infection
