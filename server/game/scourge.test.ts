@@ -1,53 +1,50 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
-  applyPlayerChoice,
+  applyDefenderAction,
   createInitialRegions,
   evaluateOutcome,
-  generateVoteOptions,
-  pickWinningOption,
-  worldCorruption,
+  generateActionOptions,
+  pickWinningId,
+  worldInfection,
 } from './scourge.js'
 
-describe('scourge core', () => {
-  it('creates a lush starting map with a stronger plague heart', () => {
+describe('scourge defenders', () => {
+  it('creates a map with a dangerous plague heart', () => {
     const regions = createInitialRegions()
     assert.equal(regions.length, 6)
     const heart = regions.find((r) => r.id === 'plague_heart')
-    assert.ok(heart && heart.corruption >= 50)
-    assert.ok(worldCorruption(regions) < 40)
+    assert.ok(heart && heart.infection >= 50)
+    assert.ok(worldInfection(regions) < 50)
   })
 
-  it('generates affordable outbreak options', () => {
-    const options = generateVoteOptions({
+  it('generates actions for a focus land', () => {
+    const options = generateActionOptions({
       lang: 'sv',
       points: 500,
-      skills: ['contagion'],
+      focusRegionId: 'heartlands',
       regions: createInitialRegions(),
       cureProgress: 10,
-      heartHp: 100,
       turn: 1,
     })
     assert.ok(options.length >= 2)
-    assert.ok(options.some((o) => o.kind === 'outbreak'))
+    assert.ok(options.some((o) => o.kind === 'research'))
   })
 
-  it('applies outbreak corruption', () => {
+  it('cleanses infection', () => {
     const regions = createInitialRegions()
-    const before = regions.find((r) => r.id === 'heartlands')!.corruption
+    const before = regions.find((r) => r.id === 'heartlands')!.infection
     const option = {
       id: 't',
-      kind: 'outbreak' as const,
+      kind: 'cleanse' as const,
       title: 'x',
       description: 'y',
       cost: 100,
-      regionId: 'heartlands' as const,
       amount: 20,
       affordable: true,
     }
-    const result = applyPlayerChoice(option, {
+    const result = applyDefenderAction(option, 'heartlands', {
       points: 400,
-      skills: ['contagion'],
       regions,
       cureProgress: 10,
       heartHp: 100,
@@ -56,46 +53,28 @@ describe('scourge core', () => {
     assert.ok(!('error' in result))
     if ('error' in result) return
     assert.equal(result.points, 300)
-    assert.equal(result.regions.find((r) => r.id === 'heartlands')!.corruption, before + 20)
+    assert.equal(result.regions.find((r) => r.id === 'heartlands')!.infection, 0)
   })
 
-  it('picks the majority vote and breaks ties with host', () => {
-    const options = [
-      {
-        id: 'a',
-        kind: 'outbreak' as const,
-        title: 'A',
-        description: '',
-        cost: 1,
-        affordable: true,
-      },
-      {
-        id: 'b',
-        kind: 'outbreak' as const,
-        title: 'B',
-        description: '',
-        cost: 1,
-        affordable: true,
-      },
-    ]
-    const win = pickWinningOption({ p1: 'a', p2: 'a', p3: 'b' }, options)
-    assert.equal(win?.id, 'a')
-    const tie = pickWinningOption({ p1: 'a', p2: 'b' }, options, 'b')
-    assert.equal(tie?.id, 'b')
+  it('picks majority and host tie-break', () => {
+    const win = pickWinningId({ p1: 'a', p2: 'a', p3: 'b' }, ['a', 'b'])
+    assert.equal(win, 'a')
+    const tie = pickWinningId({ p1: 'a', p2: 'b' }, ['a', 'b'], 'b')
+    assert.equal(tie, 'b')
   })
 
-  it('detects cure defeat and world victory', () => {
+  it('detects cure victory and plague defeat', () => {
     assert.equal(
       evaluateOutcome({
         regions: createInitialRegions(),
         cureProgress: 100,
         heartHp: 80,
       }),
-      'defeat_cure',
+      'victory_cure',
     )
     const regions = createInitialRegions().map((r) =>
-      r.id === 'plague_heart' ? r : { ...r, corruption: 60 },
+      r.id === 'plague_heart' ? r : { ...r, infection: 85 },
     )
-    assert.equal(evaluateOutcome({ regions, cureProgress: 20, heartHp: 80 }), 'victory')
+    assert.equal(evaluateOutcome({ regions, cureProgress: 20, heartHp: 80 }), 'defeat_plague')
   })
 })

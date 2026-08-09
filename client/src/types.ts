@@ -1,5 +1,10 @@
 export type Lang = 'sv' | 'en'
-export type RoomStatus = 'lobby' | 'council' | 'resolve' | 'finished'
+export type RoomStatus =
+  | 'lobby'
+  | 'council_land'
+  | 'council_action'
+  | 'resolve'
+  | 'finished'
 export type PremiumTier = 'free' | 'party'
 
 export type Player = {
@@ -17,41 +22,40 @@ export type RegionId =
   | 'heartlands'
   | 'plague_heart'
 
-export type SkillId =
-  | 'contagion'
-  | 'waterborne'
-  | 'necromancy'
-  | 'shadow_veil'
-  | 'blight_bloom'
-  | 'drake_summon'
+export type ActionKind = 'quarantine' | 'cleanse' | 'research' | 'assault'
 
 export type MapRegion = {
   id: RegionId
-  corruption: number
+  infection: number
   quarantined: boolean
 }
 
-export type VoteOption = {
+export type ActionOption = {
   id: string
-  kind: 'outbreak' | 'mutate' | 'sabotage' | 'fortify' | 'distract'
+  kind: ActionKind
   title: string
   description: string
   cost: number
-  regionId?: RegionId
-  skillId?: SkillId
   amount?: number
   affordable: boolean
 }
 
-export type GameOutcome = 'ongoing' | 'victory' | 'defeat_cure' | 'defeat_heart'
+export type GameOutcome =
+  | 'ongoing'
+  | 'victory_cure'
+  | 'victory_heart'
+  | 'victory_contained'
+  | 'defeat_plague'
 
 export type TurnResolution = {
   turn: number
-  winningOptionId: string
+  focusRegionId: RegionId | null
+  actionId: string
   playerLog: string
   aiLog: string
   incomeGained: number
-  voteCounts: Record<string, number>
+  landVoteCounts: Record<string, number>
+  actionVoteCounts: Record<string, number>
 }
 
 export type PublicRoom = {
@@ -67,19 +71,21 @@ export type PublicRoom = {
   waitlist: { id: string; name: string; at: number }[]
   phaseEndsAt: number
   turnIndex: number
-  corruptionPoints: number
-  worldCorruption: number
+  resourcePoints: number
+  worldInfection: number
   regions: MapRegion[]
-  skills: SkillId[]
   cureProgress: number
   heartHp: number
-  voteOptions: VoteOption[]
+  focusRegionId: RegionId | null
+  actionOptions: ActionOption[]
   submittedCount: number
   submitterCount: number
   submittedIds: string[]
   youSubmitted: boolean
-  yourVote: string | null
-  voteCounts: Record<string, number> | null
+  yourLandVote: string | null
+  yourActionVote: string | null
+  landVoteCounts: Record<string, number> | null
+  actionVoteCounts: Record<string, number> | null
   lastResolution: TurnResolution | null
   outcome: GameOutcome
   notice: string | null

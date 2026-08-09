@@ -23,7 +23,8 @@ import {
   applyPartyToken,
   allRooms,
   backToLobby,
-  castVote,
+  castActionVote,
+  castLandVote,
   continueTurn,
   createRoom,
   endParty,
@@ -345,10 +346,27 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('castVote', (payload, ack) => {
+  socket.on('castLandVote', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = castVote(binding.code, binding.playerId, String(payload?.optionId ?? ''))
+    const result = castLandVote(
+      binding.code,
+      binding.playerId,
+      String(payload?.regionId ?? ''),
+    )
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('castActionVote', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = castActionVote(
+      binding.code,
+      binding.playerId,
+      String(payload?.optionId ?? ''),
+    )
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

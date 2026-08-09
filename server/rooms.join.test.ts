@@ -39,7 +39,7 @@ describe('lobby joins', () => {
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started), `solo start failed: ${'error' in started ? started.error : ''}`)
     if ('error' in started) return
-    assert.equal(started.status, 'council')
+    assert.equal(started.status, 'council_land')
     const pub = toPublicRoom(started, hostId)
     assert.equal(pub.youAreHost, true)
     assert.equal(pub.submitterCount, 1)

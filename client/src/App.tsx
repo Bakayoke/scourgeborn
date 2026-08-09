@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import {
   applyPartyToken,
   backToLobby,
-  castVote,
+  castActionVote,
+  castLandVote,
   claimPartySession,
   clearSession,
   continueTurn,
@@ -30,7 +31,7 @@ import {
   type PublicLobbyCard,
   type RoomPreview,
 } from './api'
-import { loadLanguage, REGION_LABELS, rememberLanguage, SKILL_LABELS, t } from './i18n'
+import { loadLanguage, REGION_LABELS, rememberLanguage, t } from './i18n'
 import { JoinQr } from './qr'
 import type { Lang, MapRegion, PartyInfo, PartyPassLocal, PublicRoom, RegionId } from './types'
 
@@ -107,23 +108,59 @@ function regionName(id: RegionId, lang: Lang) {
   return REGION_LABELS[id][lang]
 }
 
-function WorldMap({ regions, lang }: { regions: MapRegion[]; lang: Lang }) {
+function WorldMap({
+  regions,
+  lang,
+  focusRegionId,
+  selectable,
+  selectedId,
+  quarantineLabel,
+  onSelect,
+}: {
+  regions: MapRegion[]
+  lang: Lang
+  focusRegionId?: RegionId | null
+  selectable?: boolean
+  selectedId?: string | null
+  quarantineLabel: string
+  onSelect?: (id: RegionId) => void
+}) {
   return (
     <div className="world-map" aria-label="map">
-      {regions.map((r) => (
-        <div
-          key={r.id}
-          className={`region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}`}
-          style={{ ['--blight' as string]: `${r.corruption}%` }}
-        >
-          <strong>{regionName(r.id, lang)}</strong>
-          <span className="blight-meter">
-            <i style={{ width: `${r.corruption}%` }} />
-          </span>
-          <em>{r.corruption}%</em>
-          {r.quarantined && <small className="quarantine-tag">⛔</small>}
-        </div>
-      ))}
+      {regions.map((r) => {
+        const isFocus = focusRegionId === r.id
+        const isSelected = selectedId === r.id
+        const className = `region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}${isFocus ? ' focus' : ''}${isSelected ? ' selected' : ''}${selectable ? ' clickable' : ''}`
+        const style = { ['--infection' as string]: `${r.infection}` }
+        const body = (
+          <>
+            <strong>{regionName(r.id, lang)}</strong>
+            <span className="blight-meter">
+              <i style={{ width: `${r.infection}%` }} />
+            </span>
+            <em>{r.infection}%</em>
+            {r.quarantined && <small className="quarantine-tag">{quarantineLabel}</small>}
+          </>
+        )
+        if (selectable && onSelect) {
+          return (
+            <button
+              key={r.id}
+              type="button"
+              className={className}
+              style={style}
+              onClick={() => onSelect(r.id)}
+            >
+              {body}
+            </button>
+          )
+        }
+        return (
+          <div key={r.id} className={className} style={style}>
+            {body}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -771,20 +808,24 @@ function PlayView({
   const phaseTitle =
     room.status === 'lobby'
       ? ui.lobby
-      : room.status === 'council'
-        ? ui.phaseCouncil
-        : room.status === 'resolve'
-          ? ui.phaseResolve
-          : ui.phaseFinished
+      : room.status === 'council_land'
+        ? ui.phaseCouncilLand
+        : room.status === 'council_action'
+          ? ui.phaseCouncilAction
+          : room.status === 'resolve'
+            ? ui.phaseResolve
+            : ui.phaseFinished
 
   const outcomeText =
-    room.outcome === 'victory'
-      ? ui.outcomeVictory
-      : room.outcome === 'defeat_cure'
-        ? ui.outcomeDefeatCure
-        : room.outcome === 'defeat_heart'
-          ? ui.outcomeDefeatHeart
-          : null
+    room.outcome === 'victory_cure'
+      ? ui.outcomeVictoryCure
+      : room.outcome === 'victory_heart'
+        ? ui.outcomeVictoryHeart
+        : room.outcome === 'victory_contained'
+          ? ui.outcomeVictoryContained
+          : room.outcome === 'defeat_plague'
+            ? ui.outcomeDefeatPlague
+            : null
 
   return (
     <div className={`play${tv ? ' tv' : ''}`}>
@@ -811,14 +852,14 @@ function PlayView({
       {room.status !== 'lobby' && (
         <div className="meters">
           <div className="meter">
-            <span>{ui.corruptionPoints}</span>
-            <strong>{room.corruptionPoints}</strong>
-          </div>
-          <div className="meter">
-            <span>{ui.worldCorruption}</span>
-            <strong>{room.worldCorruption}%</strong>
+            <span>{ui.resourcePoints}</span>
+            <strong>{room.resourcePoints}</strong>
           </div>
           <div className="meter danger">
+            <span>{ui.worldInfection}</span>
+            <strong>{room.worldInfection}%</strong>
+          </div>
+          <div className="meter">
             <span>{ui.cureProgress}</span>
             <strong>{room.cureProgress}%</strong>
           </div>
@@ -963,28 +1004,45 @@ function PlayView({
       {room.status !== 'lobby' && (
         <div className="panel game-panel">
           <h3>{ui.mapTitle}</h3>
-          <WorldMap regions={room.regions} lang={uiLang} />
+          {room.focusRegionId && room.status !== 'council_land' && (
+            <p className="muted">
+              {ui.focusLand}: {regionName(room.focusRegionId, uiLang)}
+            </p>
+          )}
+          <WorldMap
+            regions={room.regions}
+            lang={uiLang}
+            focusRegionId={room.focusRegionId}
+            selectable={room.status === 'council_land' && canVote && !busy}
+            selectedId={room.yourLandVote}
+            quarantineLabel={ui.quarantined}
+            onSelect={(id) => {
+              if (!canVote) return
+              void run(() => castLandVote(id))
+            }}
+          />
 
-          <div className="skills-row">
-            <span className="muted">{ui.skills}</span>
-            <div className="skill-chips">
-              {room.skills.map((id) => (
-                <span key={id} className="skill-chip">
-                  {SKILL_LABELS[id][uiLang]}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {room.status === 'council' && (
+          {room.status === 'council_land' && (
             <div className="council">
-              <p>{ui.voteHint}</p>
+              <p>{ui.landVoteHint}</p>
+              <p className="muted">
+                {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
+              </p>
+              {(room.youAreHost || room.youSubmitted) && (
+                <p className="muted">{ui.waitingAll}</p>
+              )}
+            </div>
+          )}
+
+          {room.status === 'council_action' && (
+            <div className="council">
+              <p>{ui.actionVoteHint}</p>
               <p className="muted">
                 {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
               </p>
               <div className="vote-options">
-                {room.voteOptions.map((opt) => {
-                  const selected = room.yourVote === opt.id
+                {room.actionOptions.map((opt) => {
+                  const selected = room.yourActionVote === opt.id
                   const disabled = busy || !canVote || !opt.affordable
                   return (
                     <button
@@ -994,13 +1052,13 @@ function PlayView({
                       disabled={disabled && !selected}
                       onClick={() => {
                         if (!canVote) return
-                        void run(() => castVote(opt.id))
+                        void run(() => castActionVote(opt.id))
                       }}
                     >
                       <strong>{opt.title}</strong>
                       <span>{opt.description}</span>
                       <em>
-                        {opt.cost} {ui.corruptionPoints.toLowerCase()}
+                        {opt.cost} {ui.resourcePoints.toLowerCase()}
                         {!opt.affordable ? ` · ${ui.tooExpensive}` : ''}
                         {selected ? ` · ${ui.yourVote}` : ''}
                       </em>
@@ -1063,16 +1121,19 @@ function PlayView({
             </div>
           )}
 
-          {room.youAreHost && (room.status === 'council' || room.status === 'resolve') && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-small"
-              disabled={busy}
-              onClick={() => void run(() => endParty())}
-            >
-              {ui.endParty}
-            </button>
-          )}
+          {room.youAreHost &&
+            (room.status === 'council_land' ||
+              room.status === 'council_action' ||
+              room.status === 'resolve') && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                disabled={busy}
+                onClick={() => void run(() => endParty())}
+              >
+                {ui.endParty}
+              </button>
+            )}
         </div>
       )}
 

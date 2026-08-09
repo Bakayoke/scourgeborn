@@ -1,18 +1,21 @@
 import { customAlphabet } from 'nanoid'
 import {
-  STARTING_CORRUPTION_POINTS,
   STARTING_CURE,
   STARTING_HEART_HP,
-  TIMEOUT_VICTORY_CORRUPTION,
-  applyAiTurn,
-  applyPlayerChoice,
+  STARTING_RESOURCE_POINTS,
+  TIMEOUT_VICTORY_INFECTION,
+  applyDefenderAction,
+  applyPlagueTurn,
   createInitialRegions,
   evaluateOutcome,
-  generateVoteOptions,
+  generateActionOptions,
   incomeFor,
+  labelRegion,
   MIN_PLAYERS,
-  pickWinningOption,
-  worldCorruption,
+  pickWinningId,
+  REGION_ORDER,
+  tally,
+  worldInfection,
 } from './game/scourge.js'
 import {
   limitsFor,
@@ -23,16 +26,16 @@ import {
 } from './premium.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
 import type {
+  ActionOption,
   GameOutcome,
   Lang,
   MapRegion,
   Player,
   PublicRoom,
+  RegionId,
   Room,
   RoomStatus,
-  SkillId,
   TurnResolution,
-  VoteOption,
 } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
@@ -117,26 +120,28 @@ function emptyGameFields(): Pick<
   Room,
   | 'phaseEndsAt'
   | 'turnIndex'
-  | 'corruptionPoints'
+  | 'resourcePoints'
   | 'regions'
-  | 'skills'
   | 'cureProgress'
   | 'heartHp'
-  | 'voteOptions'
-  | 'votes'
+  | 'focusRegionId'
+  | 'landVotes'
+  | 'actionVotes'
+  | 'actionOptions'
   | 'lastResolution'
   | 'outcome'
 > {
   return {
     phaseEndsAt: 0,
     turnIndex: 0,
-    corruptionPoints: STARTING_CORRUPTION_POINTS,
+    resourcePoints: STARTING_RESOURCE_POINTS,
     regions: createInitialRegions(),
-    skills: ['contagion'],
     cureProgress: STARTING_CURE,
     heartHp: STARTING_HEART_HP,
-    voteOptions: [],
-    votes: {},
+    focusRegionId: null,
+    landVotes: {},
+    actionVotes: {},
+    actionOptions: [],
     lastResolution: null,
     outcome: 'ongoing',
   }
@@ -149,13 +154,19 @@ export function allRooms() {
 function normalizeRegions(raw: unknown): MapRegion[] {
   if (!Array.isArray(raw) || raw.length === 0) return createInitialRegions()
   return createInitialRegions().map((base) => {
-    const found = raw.find((r) => r && typeof r === 'object' && (r as MapRegion).id === base.id) as
-      | MapRegion
-      | undefined
+    const found = raw.find(
+      (r) => r && typeof r === 'object' && (r as MapRegion).id === base.id,
+    ) as (MapRegion & { corruption?: number }) | undefined
     if (!found) return base
+    const infection =
+      typeof found.infection === 'number'
+        ? found.infection
+        : typeof found.corruption === 'number'
+          ? found.corruption
+          : base.infection
     return {
       id: base.id,
-      corruption: Math.max(0, Math.min(100, Number(found.corruption) || 0)),
+      infection: Math.max(0, Math.min(100, Number(infection) || 0)),
       quarantined: Boolean(found.quarantined),
     }
   })
@@ -164,10 +175,11 @@ function normalizeRegions(raw: unknown): MapRegion[] {
 export function restoreRooms(list: Room[]) {
   for (const raw of list) {
     if (!raw?.code) continue
-    // Skip legacy Party Paths emoji rooms
     if (Array.isArray((raw as { paths?: unknown }).paths)) continue
-    if (!('regions' in raw) && !('corruptionPoints' in raw)) continue
+    const hasNew = 'resourcePoints' in raw || 'regions' in raw
+    if (!hasNew) continue
 
+    const legacy = raw as Room & { corruptionPoints?: number; skills?: unknown; votes?: unknown }
     const room: Room = {
       code: raw.code,
       hostId: raw.hostId,
@@ -178,30 +190,44 @@ export function restoreRooms(list: Room[]) {
         spectator: Boolean(p.spectator),
       })),
       language: raw.language === 'en' ? 'en' : 'sv',
-      status: (raw.status as RoomStatus) || 'lobby',
+      status: normalizeStatus(raw.status),
       premiumExpiresAt: raw.premiumExpiresAt ?? null,
       isPublic: Boolean(raw.isPublic),
       waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
       phaseEndsAt: Number(raw.phaseEndsAt) || 0,
       turnIndex: Number(raw.turnIndex) || 0,
-      corruptionPoints: Number(raw.corruptionPoints) || STARTING_CORRUPTION_POINTS,
+      resourcePoints:
+        Number(raw.resourcePoints) ||
+        Number(legacy.corruptionPoints) ||
+        STARTING_RESOURCE_POINTS,
       regions: normalizeRegions(raw.regions),
-      skills: Array.isArray(raw.skills) ? (raw.skills as SkillId[]) : ['contagion'],
       cureProgress: Number(raw.cureProgress) || STARTING_CURE,
       heartHp: Number(raw.heartHp) || STARTING_HEART_HP,
-      voteOptions: Array.isArray(raw.voteOptions) ? (raw.voteOptions as VoteOption[]) : [],
-      votes: raw.votes && typeof raw.votes === 'object' ? raw.votes : {},
+      focusRegionId: (raw.focusRegionId as RegionId) || null,
+      landVotes: raw.landVotes && typeof raw.landVotes === 'object' ? raw.landVotes : {},
+      actionVotes: raw.actionVotes && typeof raw.actionVotes === 'object' ? raw.actionVotes : {},
+      actionOptions: Array.isArray(raw.actionOptions) ? (raw.actionOptions as ActionOption[]) : [],
       lastResolution: raw.lastResolution ?? null,
       outcome: (raw.outcome as GameOutcome) || 'ongoing',
       notice: raw.notice ?? null,
       updatedAt: raw.updatedAt ?? Date.now(),
     }
-
-    // Keep mid-game status when hydrating from Redis. Resetting council→lobby here
-    // broke solo start: saveRoomRecord published an update, this instance reloaded
-    // the room, and wipe-to-lobby bounced the host straight back.
     rooms.set(room.code, room)
   }
+}
+
+function normalizeStatus(raw: unknown): RoomStatus {
+  if (raw === 'council') return 'council_land'
+  if (
+    raw === 'lobby' ||
+    raw === 'council_land' ||
+    raw === 'council_action' ||
+    raw === 'resolve' ||
+    raw === 'finished'
+  ) {
+    return raw
+  }
+  return 'lobby'
 }
 
 export function getRoom(code: string) {
@@ -225,8 +251,6 @@ export async function reloadRoomFromStore(code: string): Promise<Room | null> {
   const loaded = await loadRoomRecord(c)
   if (!loaded) return null
 
-  // Ignore Redis echo of our own save — otherwise we clobber live sockets
-  // (saveRoomRecord persists connected:false) and used to wipe mid-game status.
   if (existing && (existing.updatedAt ?? 0) >= (loaded.updatedAt ?? 0)) {
     return existing
   }
@@ -236,7 +260,6 @@ export async function reloadRoomFromStore(code: string): Promise<Room | null> {
   const room = rooms.get(c)
   if (!room) return null
 
-  // Re-apply who is actually connected on this instance.
   const connectedIds = new Set<string>()
   for (const binding of socketToPlayer.values()) {
     if (binding.code === c) connectedIds.add(binding.playerId)
@@ -535,54 +558,45 @@ export function setPublicLobby(
   return room
 }
 
-function beginCouncil(room: Room, grantIncome: boolean) {
-  let income = 0
-  if (grantIncome) {
-    income = incomeFor(room.skills, room.regions)
-    room.corruptionPoints += income
-  }
-
-  room.turnIndex += 1
-  room.status = 'council'
-  room.votes = {}
-  room.voteOptions = generateVoteOptions({
-    lang: room.language,
-    points: room.corruptionPoints,
-    skills: room.skills,
-    regions: room.regions,
-    cureProgress: room.cureProgress,
-    heartHp: room.heartHp,
-    turn: room.turnIndex,
-  })
-  room.phaseEndsAt = 0
-
-  if (grantIncome && income > 0) {
-    room.lastResolution = room.lastResolution
-      ? { ...room.lastResolution, incomeGained: income }
-      : null
-  }
-}
-
 function hostConnected(room: Room): boolean {
   return Boolean(room.players.find((p) => p.id === room.hostId)?.connected)
 }
 
+function beginLandCouncil(room: Room, grantIncome: boolean) {
+  let income = 0
+  if (grantIncome) {
+    income = incomeFor(room.regions, room.cureProgress)
+    room.resourcePoints += income
+  }
+
+  room.turnIndex += 1
+  room.status = 'council_land'
+  room.focusRegionId = null
+  room.landVotes = {}
+  room.actionVotes = {}
+  room.actionOptions = []
+  room.phaseEndsAt = 0
+
+  if (grantIncome && income > 0 && room.lastResolution) {
+    room.lastResolution = { ...room.lastResolution, incomeGained: income }
+  }
+}
+
 function startCampaign(room: Room): Room | { error: string } {
   const order = connectedPlayers(room)
-  // Solo: host alone is enough. With guests, respect MIN_PLAYERS.
   if (order.length < MIN_PLAYERS && !(order.length === 0 && hostConnected(room))) {
     return {
       error: roomMsg(
         room,
-        'Ingen ansluten spelare — starta solo som värd eller bjud in svärmen',
-        'No connected player — start solo as host or invite the swarm',
+        'Ingen ansluten spelare — starta solo som värd eller bjud in rådet',
+        'No connected player — start solo as host or invite the council',
       ),
     }
   }
 
   Object.assign(room, emptyGameFields())
   room.outcome = 'ongoing'
-  beginCouncil(room, false)
+  beginLandCouncil(room, false)
   touch(room)
   return room
 }
@@ -618,12 +632,14 @@ export function continueTurn(code: string, playerId: string): Room | { error: st
   if (limits.maxRounds > 0 && room.turnIndex >= limits.maxRounds) {
     room.status = 'finished'
     room.outcome =
-      worldCorruption(room.regions) >= TIMEOUT_VICTORY_CORRUPTION ? 'victory' : 'defeat_cure'
+      worldInfection(room.regions) <= TIMEOUT_VICTORY_INFECTION
+        ? 'victory_contained'
+        : 'defeat_plague'
     touch(room)
     return room
   }
 
-  beginCouncil(room, true)
+  beginLandCouncil(room, true)
   touch(room)
   return room
 }
@@ -636,7 +652,7 @@ export function endParty(code: string, playerId: string): Room | { error: string
   room.phaseEndsAt = 0
   room.isPublic = false
   if (room.outcome === 'ongoing') {
-    room.outcome = 'defeat_cure'
+    room.outcome = 'defeat_plague'
   }
   touch(room)
   return room
@@ -672,144 +688,190 @@ function promoteWaitlist(room: Room) {
 
 function voterIds(room: Room): string[] {
   const seated = connectedPlayers(room).map((p) => p.id)
-  // Solo host: when no virus seats are filled, the host casts the council vote.
   if (seated.length === 0 && hostConnected(room)) return [room.hostId]
   return seated
 }
 
-function maybeResolveVotes(room: Room) {
-  const needed = voterIds(room)
-  if (needed.length === 0) return
-  const done = needed.every((id) => room.votes[id] !== undefined)
-  if (!done) return
-  lockVotes(room)
+function canVote(room: Room, playerId: string): boolean {
+  return voterIds(room).includes(playerId)
 }
 
-function lockVotes(room: Room) {
-  const hostVote = room.votes[room.hostId] ?? null
-  const winning = pickWinningOption(room.votes, room.voteOptions, hostVote)
-  if (!winning) {
+function maybeAdvanceLand(room: Room) {
+  const needed = voterIds(room)
+  if (needed.length === 0) return
+  if (!needed.every((id) => room.landVotes[id] !== undefined)) return
+
+  const hostVote = room.landVotes[room.hostId] ?? null
+  const winner = pickWinningId(room.landVotes, [...REGION_ORDER], hostVote)
+  if (!winner) return
+
+  room.focusRegionId = winner as RegionId
+  room.status = 'council_action'
+  room.actionVotes = {}
+  room.actionOptions = generateActionOptions({
+    lang: room.language,
+    points: room.resourcePoints,
+    focusRegionId: room.focusRegionId,
+    regions: room.regions,
+    cureProgress: room.cureProgress,
+    turn: room.turnIndex,
+  })
+  touch(room)
+}
+
+function lockActionVotes(room: Room) {
+  const focus = room.focusRegionId
+  if (!focus) return
+
+  const hostVote = room.actionVotes[room.hostId] ?? null
+  const ids = room.actionOptions.map((o) => o.id)
+  const winningId = pickWinningId(room.actionVotes, ids, hostVote)
+  const option =
+    room.actionOptions.find((o) => o.id === winningId) ??
+    room.actionOptions.find((o) => o.affordable) ??
+    room.actionOptions[0]
+
+  if (!option) {
     room.status = 'resolve'
     room.lastResolution = {
       turn: room.turnIndex,
-      winningOptionId: '',
+      focusRegionId: focus,
+      actionId: '',
       playerLog: roomMsg(room, 'Ingen giltig plan.', 'No valid plan.'),
       aiLog: '',
       incomeGained: 0,
-      voteCounts: {},
+      landVoteCounts: tally(room.landVotes),
+      actionVoteCounts: {},
     }
     touch(room)
     return
   }
 
-  const applied = applyPlayerChoice(winning, {
-    points: room.corruptionPoints,
-    skills: room.skills,
+  const applied = applyDefenderAction(option, focus, {
+    points: room.resourcePoints,
     regions: room.regions,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
     lang: room.language,
   })
 
+  let playerLog: string
   if ('error' in applied) {
-    // Fall back: skip effect but still let AI act
-    room.lastResolution = {
-      turn: room.turnIndex,
-      winningOptionId: winning.id,
-      playerLog: applied.error,
-      aiLog: '',
-      incomeGained: 0,
-      voteCounts: tally(room.votes),
-    }
+    playerLog = applied.error
   } else {
-    room.corruptionPoints = applied.points
-    room.skills = applied.skills
+    room.resourcePoints = applied.points
     room.regions = applied.regions
     room.cureProgress = applied.cureProgress
     room.heartHp = applied.heartHp
-
-    const ai = applyAiTurn({
-      regions: room.regions,
-      cureProgress: room.cureProgress,
-      heartHp: room.heartHp,
-      skills: room.skills,
-      distracted: applied.distracted,
-      turn: room.turnIndex,
-    })
-    room.regions = ai.regions
-    room.cureProgress = ai.cureProgress
-    room.heartHp = ai.heartHp
-
-    const resolution: TurnResolution = {
-      turn: room.turnIndex,
-      winningOptionId: winning.id,
-      playerLog: room.language === 'en' ? applied.logEn : applied.logSv,
-      aiLog: room.language === 'en' ? ai.logEn : ai.logSv,
-      incomeGained: 0,
-      voteCounts: tally(room.votes),
-    }
-    room.lastResolution = resolution
+    playerLog = room.language === 'en' ? applied.logEn : applied.logSv
   }
 
+  const ai = applyPlagueTurn({
+    regions: room.regions,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
+    turn: room.turnIndex,
+  })
+  room.regions = ai.regions
+  room.cureProgress = ai.cureProgress
+  room.heartHp = ai.heartHp
+
+  const resolution: TurnResolution = {
+    turn: room.turnIndex,
+    focusRegionId: focus,
+    actionId: option.id,
+    playerLog,
+    aiLog: room.language === 'en' ? ai.logEn : ai.logSv,
+    incomeGained: 0,
+    landVoteCounts: tally(room.landVotes),
+    actionVoteCounts: tally(room.actionVotes),
+  }
+  room.lastResolution = resolution
   room.outcome = evaluateOutcome({
     regions: room.regions,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
   })
   room.status = room.outcome === 'ongoing' ? 'resolve' : 'finished'
-  room.votes = {}
+  room.actionVotes = {}
   room.phaseEndsAt = 0
   touch(room)
 }
 
-function tally(votes: Record<string, string>): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (const id of Object.values(votes)) {
-    out[id] = (out[id] ?? 0) + 1
-  }
-  return out
+function maybeAdvanceAction(room: Room) {
+  const needed = voterIds(room)
+  if (needed.length === 0) return
+  if (!needed.every((id) => room.actionVotes[id] !== undefined)) return
+  lockActionVotes(room)
 }
 
-export function castVote(
+export function castLandVote(
+  code: string,
+  playerId: string,
+  regionId: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'council_land') {
+    return { error: roomMsg(room, 'Inte land-röstning', 'Not land voting phase') }
+  }
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator) {
+    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
+  }
+  if (!canVote(room, playerId)) {
+    return {
+      error: roomMsg(
+        room,
+        'Värden röstar inte när rådet spelar',
+        'Host does not vote while the council plays',
+      ),
+    }
+  }
+  if (!REGION_ORDER.includes(regionId as RegionId)) {
+    return { error: roomMsg(room, 'Ogiltigt land', 'Invalid land') }
+  }
+  room.landVotes[playerId] = regionId
+  touch(room)
+  maybeAdvanceLand(room)
+  return room
+}
+
+export function castActionVote(
   code: string,
   playerId: string,
   optionId: string,
 ): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'council') {
-    return { error: roomMsg(room, 'Inte rådets fas', 'Not council phase') }
+  if (room.status !== 'council_action') {
+    return { error: roomMsg(room, 'Inte åtgärdsfas', 'Not action voting phase') }
   }
   const player = room.players.find((p) => p.id === playerId)
   if (!player || player.spectator) {
     return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
   }
-  const allowed = voterIds(room)
-  if (!allowed.includes(playerId)) {
+  if (!canVote(room, playerId)) {
     return {
       error: roomMsg(
         room,
-        'Värden röstar inte när svärmen spelar',
-        'Host does not vote while the swarm plays',
+        'Värden röstar inte när rådet spelar',
+        'Host does not vote while the council plays',
       ),
     }
   }
-  const option = room.voteOptions.find((o) => o.id === optionId)
+  const option = room.actionOptions.find((o) => o.id === optionId)
   if (!option) return { error: roomMsg(room, 'Ogiltigt val', 'Invalid option') }
   if (!option.affordable) {
-    return {
-      error: roomMsg(room, 'För dyrt just nu', 'Too expensive right now'),
-    }
+    return { error: roomMsg(room, 'För dyrt just nu', 'Too expensive right now') }
   }
-  room.votes[playerId] = optionId
+  room.actionVotes[playerId] = optionId
   touch(room)
-  maybeResolveVotes(room)
+  maybeAdvanceAction(room)
   return room
 }
 
-export function onPhaseTimeout(_room: Room) {
-  // Turns advance when all voters have cast (no timers).
-}
+export function onPhaseTimeout(_room: Room) {}
 
 export function roomsNeedingTick(): Room[] {
   return []
@@ -872,7 +934,21 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     )
   }
 
-  const showCounts = room.status === 'resolve' || room.status === 'finished'
+  const showLandCounts = room.status === 'council_action' || room.status === 'resolve' || room.status === 'finished'
+  const showActionCounts = room.status === 'resolve' || room.status === 'finished'
+
+  let submittedCount = 0
+  let submittedIds: string[] = []
+  let youSubmitted = false
+  if (room.status === 'council_land') {
+    submittedIds = Object.keys(room.landVotes)
+    submittedCount = submittedIds.length
+    youSubmitted = Boolean(viewerId && room.landVotes[viewerId] !== undefined)
+  } else if (room.status === 'council_action') {
+    submittedIds = Object.keys(room.actionVotes)
+    submittedCount = submittedIds.length
+    youSubmitted = Boolean(viewerId && room.actionVotes[viewerId] !== undefined)
+  }
 
   return {
     code: room.code,
@@ -887,19 +963,23 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     waitlist: room.waitlist,
     phaseEndsAt: room.phaseEndsAt,
     turnIndex: room.turnIndex,
-    corruptionPoints: room.corruptionPoints,
-    worldCorruption: worldCorruption(room.regions),
+    resourcePoints: room.resourcePoints,
+    worldInfection: worldInfection(room.regions),
     regions: room.regions,
-    skills: room.skills,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
-    voteOptions: room.voteOptions,
-    submittedCount: Object.keys(room.votes).length,
+    focusRegionId: room.focusRegionId,
+    actionOptions: room.actionOptions,
+    submittedCount,
     submitterCount: needed.length,
-    submittedIds: Object.keys(room.votes),
-    youSubmitted: Boolean(viewerId && room.votes[viewerId] !== undefined),
-    yourVote: viewerId ? room.votes[viewerId] ?? null : null,
-    voteCounts: showCounts ? room.lastResolution?.voteCounts ?? null : null,
+    submittedIds,
+    youSubmitted,
+    yourLandVote: viewerId ? room.landVotes[viewerId] ?? null : null,
+    yourActionVote: viewerId ? room.actionVotes[viewerId] ?? null : null,
+    landVoteCounts: showLandCounts ? tally(room.landVotes) : null,
+    actionVoteCounts: showActionCounts
+      ? room.lastResolution?.actionVoteCounts ?? tally(room.actionVotes)
+      : null,
     lastResolution: room.lastResolution,
     outcome: room.outcome,
     notice,
@@ -908,3 +988,6 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     maxRounds: limits.maxRounds,
   }
 }
+
+/** Exported for tests / UI helpers */
+export { labelRegion }
