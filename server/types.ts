@@ -27,8 +27,8 @@ export type RoomNotice = {
 
 export type RoomStatus =
   | 'lobby'
-  | 'council_land'
-  | 'council_action'
+  | 'council_contain'
+  | 'council_cure'
   | 'resolve'
   | 'finished'
 
@@ -42,13 +42,18 @@ export type RegionId =
 
 export type ActionKind = 'quarantine' | 'cleanse' | 'research' | 'assault'
 
+export type ActionGroup = 'contain' | 'cure'
+
 export type ActionOption = {
   id: string
   kind: ActionKind
+  group: ActionGroup
   title: string
   description: string
   cost: number
   amount?: number
+  /** For cure options: which lab hub the spend targets */
+  targetRegionId?: RegionId
   affordable: boolean
 }
 
@@ -61,13 +66,17 @@ export type GameOutcome =
 
 export type TurnResolution = {
   turn: number
-  focusRegionId: RegionId | null
-  actionId: string
+  containRegionId: RegionId | null
+  containActionId: string
+  cureActionId: string
+  containLog: string
+  cureLog: string
   playerLog: string
   aiLog: string
   incomeGained: number
-  landVoteCounts: Record<string, number>
-  actionVoteCounts: Record<string, number>
+  containLandVoteCounts: Record<string, number>
+  containActionVoteCounts: Record<string, number>
+  cureVoteCounts: Record<string, number>
 }
 
 export type Room = {
@@ -85,13 +94,18 @@ export type Room = {
   regions: MapRegion[]
   cureProgress: number
   heartHp: number
-  /** Winning land from council_land */
+  /** Winning contain land (null while still picking land) */
+  containRegionId: RegionId | null
+  /** Alias used in public API / map highlight */
   focusRegionId: RegionId | null
-  /** playerId -> regionId */
-  landVotes: Record<string, string>
-  /** playerId -> action option id */
-  actionVotes: Record<string, string>
-  actionOptions: ActionOption[]
+  containLandVotes: Record<string, string>
+  containActionVotes: Record<string, string>
+  cureVotes: Record<string, string>
+  containOptions: ActionOption[]
+  cureOptions: ActionOption[]
+  /** Pending contain log after spend, before cure resolves */
+  pendingContainLog: string | null
+  pendingContainActionId: string | null
   lastResolution: TurnResolution | null
   outcome: GameOutcome
   notice: RoomNotice | null
@@ -122,16 +136,22 @@ export type PublicRoom = {
   regions: MapRegion[]
   cureProgress: number
   heartHp: number
+  containRegionId: RegionId | null
   focusRegionId: RegionId | null
-  actionOptions: ActionOption[]
+  containOptions: ActionOption[]
+  cureOptions: ActionOption[]
+  /** contain land pick vs contain action vs cure */
+  voteStep: 'contain_land' | 'contain_action' | 'cure' | 'none'
   submittedCount: number
   submitterCount: number
   submittedIds: string[]
   youSubmitted: boolean
-  yourLandVote: string | null
-  yourActionVote: string | null
-  landVoteCounts: Record<string, number> | null
-  actionVoteCounts: Record<string, number> | null
+  yourContainLandVote: string | null
+  yourContainActionVote: string | null
+  yourCureVote: string | null
+  containLandVoteCounts: Record<string, number> | null
+  containActionVoteCounts: Record<string, number> | null
+  cureVoteCounts: Record<string, number> | null
   lastResolution: TurnResolution | null
   outcome: GameOutcome
   notice: string | null

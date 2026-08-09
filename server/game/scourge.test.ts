@@ -4,7 +4,8 @@ import {
   applyDefenderAction,
   createInitialRegions,
   evaluateOutcome,
-  generateActionOptions,
+  generateContainOptions,
+  generateCureOptions,
   pickWinningId,
   worldInfection,
 } from './scourge.js'
@@ -18,40 +19,32 @@ describe('scourge defenders', () => {
     assert.ok(worldInfection(regions) < 50)
   })
 
-  it('generates actions for a focus land', () => {
-    const options = generateActionOptions({
+  it('always offers contain actions for a land', () => {
+    const options = generateContainOptions({
       lang: 'sv',
-      points: 500,
+      points: 520,
       focusRegionId: 'heartlands',
       regions: createInitialRegions(),
-      cureProgress: 10,
       turn: 1,
     })
     assert.ok(options.length >= 2)
-    assert.ok(options.some((o) => o.kind === 'research'))
+    assert.ok(options.every((o) => o.group === 'contain'))
+    assert.ok(options.some((o) => o.affordable))
   })
 
-  it('offers cure research from any land', () => {
-    const options = generateActionOptions({
-      lang: 'sv',
-      points: 500,
-      focusRegionId: 'north_kingdom',
-      regions: createInitialRegions(),
-      cureProgress: 0,
-      turn: 1,
-    })
-    const research = options.find((o) => o.kind === 'research')
-    assert.ok(research)
-    assert.equal(research!.affordable, true)
-    assert.ok((research!.cost ?? 0) >= 180)
+  it('always offers cure focus choices each round', () => {
+    const options = generateCureOptions({ lang: 'sv', points: 200, turn: 1 })
+    assert.ok(options.length >= 3)
+    assert.ok(options.every((o) => o.kind === 'research' && o.group === 'cure'))
+    assert.ok(options.some((o) => o.affordable))
   })
 
   it('cleanses infection', () => {
     const regions = createInitialRegions()
-    const before = regions.find((r) => r.id === 'heartlands')!.infection
     const option = {
       id: 't',
       kind: 'cleanse' as const,
+      group: 'contain' as const,
       title: 'x',
       description: 'y',
       cost: 100,

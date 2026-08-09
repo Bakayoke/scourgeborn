@@ -1,8 +1,8 @@
 export type Lang = 'sv' | 'en'
 export type RoomStatus =
   | 'lobby'
-  | 'council_land'
-  | 'council_action'
+  | 'council_contain'
+  | 'council_cure'
   | 'resolve'
   | 'finished'
 export type PremiumTier = 'free' | 'party'
@@ -23,6 +23,7 @@ export type RegionId =
   | 'plague_heart'
 
 export type ActionKind = 'quarantine' | 'cleanse' | 'research' | 'assault'
+export type ActionGroup = 'contain' | 'cure'
 
 export type MapRegion = {
   id: RegionId
@@ -33,10 +34,12 @@ export type MapRegion = {
 export type ActionOption = {
   id: string
   kind: ActionKind
+  group: ActionGroup
   title: string
   description: string
   cost: number
   amount?: number
+  targetRegionId?: RegionId
   affordable: boolean
 }
 
@@ -49,13 +52,17 @@ export type GameOutcome =
 
 export type TurnResolution = {
   turn: number
-  focusRegionId: RegionId | null
-  actionId: string
+  containRegionId: RegionId | null
+  containActionId: string
+  cureActionId: string
+  containLog: string
+  cureLog: string
   playerLog: string
   aiLog: string
   incomeGained: number
-  landVoteCounts: Record<string, number>
-  actionVoteCounts: Record<string, number>
+  containLandVoteCounts: Record<string, number>
+  containActionVoteCounts: Record<string, number>
+  cureVoteCounts: Record<string, number>
 }
 
 export type PublicRoom = {
@@ -76,16 +83,21 @@ export type PublicRoom = {
   regions: MapRegion[]
   cureProgress: number
   heartHp: number
+  containRegionId: RegionId | null
   focusRegionId: RegionId | null
-  actionOptions: ActionOption[]
+  containOptions: ActionOption[]
+  cureOptions: ActionOption[]
+  voteStep: 'contain_land' | 'contain_action' | 'cure' | 'none'
   submittedCount: number
   submitterCount: number
   submittedIds: string[]
   youSubmitted: boolean
-  yourLandVote: string | null
-  yourActionVote: string | null
-  landVoteCounts: Record<string, number> | null
-  actionVoteCounts: Record<string, number> | null
+  yourContainLandVote: string | null
+  yourContainActionVote: string | null
+  yourCureVote: string | null
+  containLandVoteCounts: Record<string, number> | null
+  containActionVoteCounts: Record<string, number> | null
+  cureVoteCounts: Record<string, number> | null
   lastResolution: TurnResolution | null
   outcome: GameOutcome
   notice: string | null

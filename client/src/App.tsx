@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import {
   applyPartyToken,
   backToLobby,
-  castActionVote,
-  castLandVote,
+  castContainActionVote,
+  castContainLandVote,
+  castCureVote,
   claimPartySession,
   clearSession,
   continueTurn,
@@ -850,10 +851,12 @@ function PlayView({
   const phaseTitle =
     room.status === 'lobby'
       ? ui.lobby
-      : room.status === 'council_land'
-        ? ui.phaseCouncilLand
-        : room.status === 'council_action'
-          ? ui.phaseCouncilAction
+      : room.status === 'council_contain'
+        ? room.voteStep === 'contain_action'
+          ? ui.phaseContainAction
+          : ui.phaseContainLand
+        : room.status === 'council_cure'
+          ? ui.phaseCure
           : room.status === 'resolve'
             ? ui.phaseResolve
             : ui.phaseFinished
@@ -1051,41 +1054,48 @@ function PlayView({
       {room.status !== 'lobby' && (
         <div className="panel game-panel">
           <h3>{ui.mapTitle}</h3>
-          {room.focusRegionId && room.status !== 'council_land' && (
+          {room.containRegionId && room.voteStep !== 'contain_land' && (
             <p className="muted">
-              {ui.focusLand}: {regionName(room.focusRegionId, uiLang)}
+              {ui.focusLand}: {regionName(room.containRegionId, uiLang)}
+              {room.voteStep === 'cure' ? ` · ${ui.cureStepLabel}` : ` · ${ui.containStepLabel}`}
             </p>
           )}
           <WorldMap
             regions={room.regions}
             lang={uiLang}
-            focusRegionId={room.focusRegionId}
-            selectable={room.status === 'council_land' && canVote && !busy}
-            selectedId={room.yourLandVote}
+            focusRegionId={
+              room.voteStep === 'cure'
+                ? room.cureOptions.find((o) => o.id === room.yourCureVote)?.targetRegionId ??
+                  room.focusRegionId
+                : room.focusRegionId
+            }
+            selectable={room.voteStep === 'contain_land' && canVote && !busy}
+            selectedId={room.yourContainLandVote}
             quarantineLabel={ui.quarantined}
             onSelect={(id) => {
               if (!canVote) return
-              void run(() => castLandVote(id))
+              void run(() => castContainLandVote(id))
             }}
           />
 
-          {room.status === 'council_land' && (
+          {room.voteStep === 'contain_land' && (
             <div className="council">
-              <p>{ui.landVoteHint}</p>
+              <p className="step-badge">{ui.containStepLabel}</p>
+              <p>{ui.containLandHint}</p>
               <p className="muted">
                 {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
               </p>
               {canVote && (
                 <div className="vote-options land-options">
                   {room.regions.map((r) => {
-                    const selected = room.yourLandVote === r.id
+                    const selected = room.yourContainLandVote === r.id
                     return (
                       <button
                         key={r.id}
                         type="button"
                         className={`vote-card${selected ? ' selected' : ''}`}
                         disabled={busy}
-                        onClick={() => void run(() => castLandVote(r.id))}
+                        onClick={() => void run(() => castContainLandVote(r.id))}
                       >
                         <strong>{regionName(r.id, uiLang)}</strong>
                         <span>
@@ -1103,25 +1113,65 @@ function PlayView({
             </div>
           )}
 
-          {room.status === 'council_action' && (
+          {room.voteStep === 'contain_action' && (
             <div className="council">
-              <p>{ui.actionVoteHint}</p>
+              <p className="step-badge">{ui.containStepLabel}</p>
+              <p>{ui.containActionHint}</p>
               <p className="muted">
                 {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
               </p>
               <div className="vote-options">
-                {room.actionOptions.map((opt) => {
-                  const selected = room.yourActionVote === opt.id
+                {room.containOptions.map((opt) => {
+                  const selected = room.yourContainActionVote === opt.id
                   const disabled = busy || !canVote || !opt.affordable
                   return (
                     <button
                       key={opt.id}
                       type="button"
-                      className={`vote-card${selected ? ' selected' : ''}${!opt.affordable ? ' locked' : ''}`}
+                      className={`vote-card contain-card${selected ? ' selected' : ''}${!opt.affordable ? ' locked' : ''}`}
                       disabled={disabled && !selected}
                       onClick={() => {
                         if (!canVote) return
-                        void run(() => castActionVote(opt.id))
+                        void run(() => castContainActionVote(opt.id))
+                      }}
+                    >
+                      <strong>{opt.title}</strong>
+                      <span>{opt.description}</span>
+                      <em>
+                        {opt.cost} {ui.resourcePoints.toLowerCase()}
+                        {!opt.affordable ? ` · ${ui.tooExpensive}` : ''}
+                        {selected ? ` · ${ui.yourVote}` : ''}
+                      </em>
+                    </button>
+                  )
+                })}
+              </div>
+              {(room.youAreHost || room.youSubmitted) && (
+                <p className="muted">{ui.waitingAll}</p>
+              )}
+            </div>
+          )}
+
+          {room.voteStep === 'cure' && (
+            <div className="council">
+              <p className="step-badge cure">{ui.cureStepLabel}</p>
+              <p>{ui.cureHint}</p>
+              <p className="muted">
+                {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
+              </p>
+              <div className="vote-options">
+                {room.cureOptions.map((opt) => {
+                  const selected = room.yourCureVote === opt.id
+                  const disabled = busy || !canVote || !opt.affordable
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`vote-card cure-card${selected ? ' selected' : ''}${!opt.affordable ? ' locked' : ''}`}
+                      disabled={disabled && !selected}
+                      onClick={() => {
+                        if (!canVote) return
+                        void run(() => castCureVote(opt.id))
                       }}
                     >
                       <strong>{opt.title}</strong>
@@ -1144,9 +1194,16 @@ function PlayView({
           {(room.status === 'resolve' || room.status === 'finished') && room.lastResolution && (
             <div className="resolve-log">
               <h3>{ui.phaseResolve}</h3>
-              <p>
-                <strong>{ui.playerMove}:</strong> {room.lastResolution.playerLog}
-              </p>
+              {room.lastResolution.containLog && (
+                <p>
+                  <strong>{ui.containMove}:</strong> {room.lastResolution.containLog}
+                </p>
+              )}
+              {room.lastResolution.cureLog && (
+                <p>
+                  <strong>{ui.cureMove}:</strong> {room.lastResolution.cureLog}
+                </p>
+              )}
               {room.lastResolution.aiLog && (
                 <p>
                   <strong>{ui.aiMove}:</strong> {room.lastResolution.aiLog}
@@ -1191,8 +1248,8 @@ function PlayView({
           )}
 
           {room.youAreHost &&
-            (room.status === 'council_land' ||
-              room.status === 'council_action' ||
+            (room.status === 'council_contain' ||
+              room.status === 'council_cure' ||
               room.status === 'resolve') && (
               <button
                 type="button"
