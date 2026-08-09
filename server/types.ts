@@ -137,5 +137,6 @@ export type PublicRoom = {
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
+  youCanVote: boolean
   maxRounds: number
 }

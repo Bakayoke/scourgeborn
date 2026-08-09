@@ -688,8 +688,9 @@ function promoteWaitlist(room: Room) {
 
 function voterIds(room: Room): string[] {
   const seated = connectedPlayers(room).map((p) => p.id)
-  if (seated.length === 0 && hostConnected(room)) return [room.hostId]
-  return seated
+  if (seated.length > 0) return seated
+  // Solo: host votes even if connected briefly flaps after Redis reload / reconnect.
+  return room.hostId ? [room.hostId] : []
 }
 
 function canVote(room: Room, playerId: string): boolean {
@@ -985,6 +986,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
     youAreHost: Boolean(viewer && viewer.id === room.hostId),
+    youCanVote: Boolean(viewerId && needed.includes(viewerId)),
     maxRounds: limits.maxRounds,
   }
 }

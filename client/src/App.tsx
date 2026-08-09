@@ -776,7 +776,10 @@ function PlayView({
   const connectedSeated = seated.filter((p) => p.connected)
   const soloHost = connectedSeated.length === 0
   const canStart = room.youAreHost
-  const canVote = !room.youAreSpectator && (!room.youAreHost || soloHost)
+  const canVote =
+    typeof room.youCanVote === 'boolean'
+      ? room.youCanVote && !room.youAreSpectator
+      : !room.youAreSpectator && (!room.youAreHost || soloHost)
 
   useEffect(() => {
     function onFullscreenChange() {
@@ -1072,6 +1075,28 @@ function PlayView({
               <p className="muted">
                 {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
               </p>
+              {canVote && (
+                <div className="vote-options land-options">
+                  {room.regions.map((r) => {
+                    const selected = room.yourLandVote === r.id
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        className={`vote-card${selected ? ' selected' : ''}`}
+                        disabled={busy}
+                        onClick={() => void run(() => castLandVote(r.id))}
+                      >
+                        <strong>{regionName(r.id, uiLang)}</strong>
+                        <span>
+                          {r.infection}% · {r.quarantined ? ui.quarantined : '—'}
+                        </span>
+                        <em>{selected ? ui.yourVote : ui.castVote}</em>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
               {(room.youAreHost || room.youSubmitted) && (
                 <p className="muted">{ui.waitingAll}</p>
               )}
