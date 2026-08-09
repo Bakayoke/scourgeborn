@@ -195,20 +195,8 @@ export async function backToLobby() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('backToLobby', {})
 }
 
-export async function castContainLandVote(regionId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castContainLandVote', {
-    regionId,
-  })
-}
-
-export async function castContainActionVote(optionId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castContainActionVote', {
-    optionId,
-  })
-}
-
-export async function castCureVote(optionId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castCureVote', { optionId })
+export async function castVote(optionId: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castVote', { optionId })
 }
 
 export async function setLanguage(language: Lang) {

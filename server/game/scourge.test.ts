@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
-  applyDefenderAction,
+  applyAction,
   createInitialRegions,
   evaluateOutcome,
-  generateContainOptions,
-  generateCureOptions,
+  generatePlagueOptions,
+  generatePlayerOptions,
+  pickPlagueOption,
   pickWinningId,
   worldInfection,
 } from './scourge.js'
@@ -19,24 +20,39 @@ describe('scourge defenders', () => {
     assert.ok(worldInfection(regions) < 50)
   })
 
-  it('always offers contain actions for a land', () => {
-    const options = generateContainOptions({
+  it('offers one-shot player contain options', () => {
+    const options = generatePlayerOptions({
       lang: 'sv',
       points: 520,
-      focusRegionId: 'heartlands',
       regions: createInitialRegions(),
       turn: 1,
     })
-    assert.ok(options.length >= 2)
-    assert.ok(options.every((o) => o.group === 'contain'))
+    assert.ok(options.length >= 3)
+    assert.ok(options.every((o) => o.side === 'good'))
     assert.ok(options.some((o) => o.affordable))
+    assert.ok(options.every((o) => o.targetRegionId))
   })
 
-  it('always offers cure focus choices each round', () => {
-    const options = generateCureOptions({ lang: 'sv', points: 200, turn: 1 })
-    assert.ok(options.length >= 3)
-    assert.ok(options.every((o) => o.kind === 'research' && o.group === 'cure'))
-    assert.ok(options.some((o) => o.affordable))
+  it('lets plague AI pick from its own option cards', () => {
+    const options = generatePlagueOptions({
+      lang: 'sv',
+      regions: createInitialRegions(),
+      cureProgress: 25,
+      heartHp: 70,
+      turn: 4,
+    })
+    assert.ok(options.length >= 2)
+    assert.ok(options.every((o) => o.side === 'plague'))
+    const pick = pickPlagueOption(options)
+    assert.ok(pick.id)
+    const applied = applyAction(pick, {
+      points: 400,
+      regions: createInitialRegions(),
+      cureProgress: 25,
+      heartHp: 70,
+      lang: 'sv',
+    })
+    assert.ok(!('error' in applied))
   })
 
   it('cleanses infection', () => {
@@ -44,14 +60,15 @@ describe('scourge defenders', () => {
     const option = {
       id: 't',
       kind: 'cleanse' as const,
-      group: 'contain' as const,
+      side: 'good' as const,
+      targetRegionId: 'heartlands' as const,
       title: 'x',
       description: 'y',
       cost: 100,
       amount: 20,
       affordable: true,
     }
-    const result = applyDefenderAction(option, 'heartlands', {
+    const result = applyAction(option, {
       points: 400,
       regions,
       cureProgress: 10,
@@ -65,10 +82,8 @@ describe('scourge defenders', () => {
   })
 
   it('picks majority and host tie-break', () => {
-    const win = pickWinningId({ p1: 'a', p2: 'a', p3: 'b' }, ['a', 'b'])
-    assert.equal(win, 'a')
-    const tie = pickWinningId({ p1: 'a', p2: 'b' }, ['a', 'b'], 'b')
-    assert.equal(tie, 'b')
+    assert.equal(pickWinningId({ p1: 'a', p2: 'a', p3: 'b' }, ['a', 'b']), 'a')
+    assert.equal(pickWinningId({ p1: 'a', p2: 'b' }, ['a', 'b'], 'b'), 'b')
   })
 
   it('detects cure victory and plague defeat', () => {

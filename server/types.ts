@@ -7,7 +7,6 @@ export type PremiumLimits = {
   maxPlayers: number
   /** Max council turns per session */
   maxRounds: number
-  /** Unused for Scourgeborn; kept for party-pass shape */
   freePack: boolean
 }
 
@@ -15,7 +14,6 @@ export type Player = {
   id: string
   name: string
   connected: boolean
-  /** Mid-game joiners watch until next lobby */
   spectator?: boolean
 }
 
@@ -25,12 +23,7 @@ export type RoomNotice = {
   at: number
 }
 
-export type RoomStatus =
-  | 'lobby'
-  | 'council_contain'
-  | 'council_cure'
-  | 'resolve'
-  | 'finished'
+export type RoomStatus = 'lobby' | 'council' | 'resolve' | 'finished'
 
 export type RegionId =
   | 'north_kingdom'
@@ -40,20 +33,28 @@ export type RegionId =
   | 'heartlands'
   | 'plague_heart'
 
-export type ActionKind = 'quarantine' | 'cleanse' | 'research' | 'assault'
+/** Player contain moves + plague AI moves share this union */
+export type ActionKind =
+  | 'quarantine'
+  | 'cleanse'
+  | 'assault'
+  | 'research'
+  | 'spread'
+  | 'breach'
+  | 'sabotage'
+  | 'pulse'
 
-export type ActionGroup = 'contain' | 'cure'
+export type ActionSide = 'good' | 'plague'
 
 export type ActionOption = {
   id: string
   kind: ActionKind
-  group: ActionGroup
+  side: ActionSide
   title: string
   description: string
   cost: number
   amount?: number
-  /** For cure options: which lab hub the spend targets */
-  targetRegionId?: RegionId
+  targetRegionId: RegionId
   affordable: boolean
 }
 
@@ -66,17 +67,13 @@ export type GameOutcome =
 
 export type TurnResolution = {
   turn: number
-  containRegionId: RegionId | null
-  containActionId: string
-  cureActionId: string
-  containLog: string
-  cureLog: string
+  actionId: string
+  aiActionId: string
+  focusRegionId: RegionId | null
   playerLog: string
   aiLog: string
   incomeGained: number
-  containLandVoteCounts: Record<string, number>
-  containActionVoteCounts: Record<string, number>
-  cureVoteCounts: Record<string, number>
+  voteCounts: Record<string, number>
 }
 
 export type Room = {
@@ -94,18 +91,9 @@ export type Room = {
   regions: MapRegion[]
   cureProgress: number
   heartHp: number
-  /** Winning contain land (null while still picking land) */
-  containRegionId: RegionId | null
-  /** Alias used in public API / map highlight */
   focusRegionId: RegionId | null
-  containLandVotes: Record<string, string>
-  containActionVotes: Record<string, string>
-  cureVotes: Record<string, string>
-  containOptions: ActionOption[]
-  cureOptions: ActionOption[]
-  /** Pending contain log after spend, before cure resolves */
-  pendingContainLog: string | null
-  pendingContainActionId: string | null
+  votes: Record<string, string>
+  voteOptions: ActionOption[]
   lastResolution: TurnResolution | null
   outcome: GameOutcome
   notice: RoomNotice | null
@@ -136,22 +124,14 @@ export type PublicRoom = {
   regions: MapRegion[]
   cureProgress: number
   heartHp: number
-  containRegionId: RegionId | null
   focusRegionId: RegionId | null
-  containOptions: ActionOption[]
-  cureOptions: ActionOption[]
-  /** contain land pick vs contain action vs cure */
-  voteStep: 'contain_land' | 'contain_action' | 'cure' | 'none'
+  voteOptions: ActionOption[]
   submittedCount: number
   submitterCount: number
   submittedIds: string[]
   youSubmitted: boolean
-  yourContainLandVote: string | null
-  yourContainActionVote: string | null
-  yourCureVote: string | null
-  containLandVoteCounts: Record<string, number> | null
-  containActionVoteCounts: Record<string, number> | null
-  cureVoteCounts: Record<string, number> | null
+  yourVote: string | null
+  voteCounts: Record<string, number> | null
   lastResolution: TurnResolution | null
   outcome: GameOutcome
   notice: string | null

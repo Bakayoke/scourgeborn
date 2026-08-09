@@ -1,14 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import {
-  castContainActionVote,
-  castContainLandVote,
-  castCureVote,
-  createRoom,
-  joinRoom,
-  startGame,
-  toPublicRoom,
-} from './rooms.js'
+import { castVote, createRoom, joinRoom, startGame, toPublicRoom } from './rooms.js'
 
 describe('lobby joins', () => {
   it('lets host + three players join (start needs 2 non-host)', () => {
@@ -47,15 +39,15 @@ describe('lobby joins', () => {
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started), `solo start failed: ${'error' in started ? started.error : ''}`)
     if ('error' in started) return
-    assert.equal(started.status, 'council_contain')
+    assert.equal(started.status, 'council')
     const pub = toPublicRoom(started, hostId)
     assert.equal(pub.youAreHost, true)
     assert.equal(pub.submitterCount, 1)
     assert.equal(pub.youCanVote, true)
-    assert.equal(pub.voteStep, 'contain_land')
+    assert.ok(pub.voteOptions.length >= 3)
   })
 
-  it('lets the solo host vote even if connected flag is false', () => {
+  it('lets the solo host cast one vote and get a plague reply', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-host-flap', 'sv')
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started))
@@ -67,31 +59,16 @@ describe('lobby joins', () => {
 
     const pub = toPublicRoom(room, hostId)
     assert.equal(pub.youCanVote, true)
-    assert.equal(pub.submitterCount, 1)
 
-    const land = castContainLandVote(room.code, hostId, 'elf_woods')
-    assert.ok(!('error' in land), `land vote failed: ${'error' in land ? land.error : ''}`)
-    if ('error' in land) return
-    assert.equal(land.status, 'council_contain')
-    assert.equal(land.containRegionId, 'elf_woods')
-    assert.ok(land.containOptions.length > 0)
-
-    const opt = land.containOptions.find((o) => o.affordable) ?? land.containOptions[0]
+    const opt = room.voteOptions.find((o) => o.affordable) ?? room.voteOptions[0]
     assert.ok(opt)
-    const contain = castContainActionVote(room.code, hostId, opt!.id)
-    assert.ok(!('error' in contain), `contain failed: ${'error' in contain ? contain.error : ''}`)
-    if ('error' in contain) return
-    assert.equal(contain.status, 'council_cure')
-    assert.ok(contain.cureOptions.length > 0)
-
-    const cureOpt = contain.cureOptions.find((o) => o.affordable) ?? contain.cureOptions[0]
-    assert.ok(cureOpt)
-    const cure = castCureVote(room.code, hostId, cureOpt!.id)
-    assert.ok(!('error' in cure), `cure failed: ${'error' in cure ? cure.error : ''}`)
-    if ('error' in cure) return
-    assert.ok(cure.status === 'resolve' || cure.status === 'finished')
-    assert.ok(cure.lastResolution?.containLog)
-    assert.ok(cure.lastResolution?.cureLog)
+    const voted = castVote(room.code, hostId, opt!.id)
+    assert.ok(!('error' in voted), `vote failed: ${'error' in voted ? voted.error : ''}`)
+    if ('error' in voted) return
+    assert.ok(voted.status === 'resolve' || voted.status === 'finished')
+    assert.ok(voted.lastResolution?.playerLog)
+    assert.ok(voted.lastResolution?.aiLog)
+    assert.ok(voted.lastResolution?.aiActionId)
   })
 
   it('does not let disconnected ghosts block the third seat', () => {
@@ -103,7 +80,6 @@ describe('lobby joins', () => {
     assert.ok(!('error' in ghost))
     if ('error' in ghost) return
 
-    // Simulate abandon without reclaim: mark disconnected but leave the seat.
     const g = room.players.find((p) => p.id === ghost.playerId)
     assert.ok(g)
     g!.connected = false

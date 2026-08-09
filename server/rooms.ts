@@ -4,17 +4,16 @@ import {
   STARTING_HEART_HP,
   STARTING_RESOURCE_POINTS,
   TIMEOUT_VICTORY_INFECTION,
-  applyDefenderAction,
-  applyPlagueTurn,
+  applyAction,
   createInitialRegions,
   evaluateOutcome,
-  generateContainOptions,
-  generateCureOptions,
+  generatePlagueOptions,
+  generatePlayerOptions,
   incomeFor,
   labelRegion,
   MIN_PLAYERS,
+  pickPlagueOption,
   pickWinningId,
-  REGION_ORDER,
   tally,
   worldInfection,
 } from './game/scourge.js'
@@ -125,15 +124,9 @@ function emptyGameFields(): Pick<
   | 'regions'
   | 'cureProgress'
   | 'heartHp'
-  | 'containRegionId'
   | 'focusRegionId'
-  | 'containLandVotes'
-  | 'containActionVotes'
-  | 'cureVotes'
-  | 'containOptions'
-  | 'cureOptions'
-  | 'pendingContainLog'
-  | 'pendingContainActionId'
+  | 'votes'
+  | 'voteOptions'
   | 'lastResolution'
   | 'outcome'
 > {
@@ -144,15 +137,9 @@ function emptyGameFields(): Pick<
     regions: createInitialRegions(),
     cureProgress: STARTING_CURE,
     heartHp: STARTING_HEART_HP,
-    containRegionId: null,
     focusRegionId: null,
-    containLandVotes: {},
-    containActionVotes: {},
-    cureVotes: {},
-    containOptions: [],
-    cureOptions: [],
-    pendingContainLog: null,
-    pendingContainActionId: null,
+    votes: {},
+    voteOptions: [],
     lastResolution: null,
     outcome: 'ongoing',
   }
@@ -194,13 +181,31 @@ export function restoreRooms(list: Room[]) {
       corruptionPoints?: number
       landVotes?: Record<string, string>
       actionVotes?: Record<string, string>
+      containLandVotes?: Record<string, string>
+      containActionVotes?: Record<string, string>
+      cureVotes?: Record<string, string>
       actionOptions?: ActionOption[]
-      focusRegionId?: RegionId | null
+      containOptions?: ActionOption[]
+      voteOptions?: ActionOption[]
+      votes?: Record<string, string>
     }
-    const containRegionId =
-      (raw.containRegionId as RegionId) ||
-      (legacy.focusRegionId as RegionId) ||
-      null
+    const votes =
+      (raw.votes && typeof raw.votes === 'object' ? raw.votes : null) ||
+      (legacy.votes && typeof legacy.votes === 'object' ? legacy.votes : null) ||
+      (legacy.containActionVotes && typeof legacy.containActionVotes === 'object'
+        ? legacy.containActionVotes
+        : null) ||
+      (legacy.actionVotes && typeof legacy.actionVotes === 'object' ? legacy.actionVotes : null) ||
+      {}
+    const voteOptions = Array.isArray(raw.voteOptions)
+      ? (raw.voteOptions as ActionOption[])
+      : Array.isArray(legacy.voteOptions)
+        ? legacy.voteOptions
+        : Array.isArray(legacy.containOptions)
+          ? legacy.containOptions
+          : Array.isArray(legacy.actionOptions)
+            ? legacy.actionOptions
+            : []
     const room: Room = {
       code: raw.code,
       hostId: raw.hostId,
@@ -224,29 +229,9 @@ export function restoreRooms(list: Room[]) {
       regions: normalizeRegions(raw.regions),
       cureProgress: Number(raw.cureProgress) || STARTING_CURE,
       heartHp: Number(raw.heartHp) || STARTING_HEART_HP,
-      containRegionId,
-      focusRegionId: containRegionId,
-      containLandVotes:
-        (raw.containLandVotes && typeof raw.containLandVotes === 'object'
-          ? raw.containLandVotes
-          : legacy.landVotes && typeof legacy.landVotes === 'object'
-            ? legacy.landVotes
-            : {}) as Record<string, string>,
-      containActionVotes:
-        (raw.containActionVotes && typeof raw.containActionVotes === 'object'
-          ? raw.containActionVotes
-          : legacy.actionVotes && typeof legacy.actionVotes === 'object'
-            ? legacy.actionVotes
-            : {}) as Record<string, string>,
-      cureVotes: raw.cureVotes && typeof raw.cureVotes === 'object' ? raw.cureVotes : {},
-      containOptions: Array.isArray(raw.containOptions)
-        ? (raw.containOptions as ActionOption[])
-        : Array.isArray(legacy.actionOptions)
-          ? legacy.actionOptions
-          : [],
-      cureOptions: Array.isArray(raw.cureOptions) ? (raw.cureOptions as ActionOption[]) : [],
-      pendingContainLog: raw.pendingContainLog ?? null,
-      pendingContainActionId: raw.pendingContainActionId ?? null,
+      focusRegionId: (raw.focusRegionId as RegionId) || null,
+      votes: votes as Record<string, string>,
+      voteOptions,
       lastResolution: normalizeResolution(raw.lastResolution),
       outcome: (raw.outcome as GameOutcome) || 'ongoing',
       notice: raw.notice ?? null,
@@ -259,39 +244,34 @@ export function restoreRooms(list: Room[]) {
 function normalizeResolution(raw: unknown): TurnResolution | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Partial<TurnResolution> & {
-    focusRegionId?: RegionId | null
-    actionId?: string
-    landVoteCounts?: Record<string, number>
+    containRegionId?: RegionId | null
+    containActionId?: string
     actionVoteCounts?: Record<string, number>
+    containActionVoteCounts?: Record<string, number>
   }
   return {
     turn: Number(r.turn) || 0,
-    containRegionId: (r.containRegionId ?? r.focusRegionId ?? null) as RegionId | null,
-    containActionId: String(r.containActionId ?? r.actionId ?? ''),
-    cureActionId: String(r.cureActionId ?? ''),
-    containLog: String(r.containLog ?? ''),
-    cureLog: String(r.cureLog ?? ''),
+    actionId: String(r.actionId ?? r.containActionId ?? ''),
+    aiActionId: String(r.aiActionId ?? ''),
+    focusRegionId: (r.focusRegionId ?? r.containRegionId ?? null) as RegionId | null,
     playerLog: String(r.playerLog ?? ''),
     aiLog: String(r.aiLog ?? ''),
     incomeGained: Number(r.incomeGained) || 0,
-    containLandVoteCounts: r.containLandVoteCounts ?? r.landVoteCounts ?? {},
-    containActionVoteCounts: r.containActionVoteCounts ?? r.actionVoteCounts ?? {},
-    cureVoteCounts: r.cureVoteCounts ?? {},
+    voteCounts: r.voteCounts ?? r.containActionVoteCounts ?? r.actionVoteCounts ?? {},
   }
 }
 
 function normalizeStatus(raw: unknown): RoomStatus {
-  if (raw === 'council' || raw === 'council_land') return 'council_contain'
-  if (raw === 'council_action') return 'council_cure'
   if (
-    raw === 'lobby' ||
+    raw === 'council' ||
+    raw === 'council_land' ||
+    raw === 'council_action' ||
     raw === 'council_contain' ||
-    raw === 'council_cure' ||
-    raw === 'resolve' ||
-    raw === 'finished'
+    raw === 'council_cure'
   ) {
-    return raw
+    return 'council'
   }
+  if (raw === 'lobby' || raw === 'resolve' || raw === 'finished') return raw
   return 'lobby'
 }
 
@@ -627,7 +607,7 @@ function hostConnected(room: Room): boolean {
   return Boolean(room.players.find((p) => p.id === room.hostId)?.connected)
 }
 
-function beginContainCouncil(room: Room, grantIncome: boolean) {
+function beginCouncil(room: Room, grantIncome: boolean) {
   let income = 0
   if (grantIncome) {
     income = incomeFor(room.regions, room.cureProgress)
@@ -635,16 +615,15 @@ function beginContainCouncil(room: Room, grantIncome: boolean) {
   }
 
   room.turnIndex += 1
-  room.status = 'council_contain'
-  room.containRegionId = null
+  room.status = 'council'
   room.focusRegionId = null
-  room.containLandVotes = {}
-  room.containActionVotes = {}
-  room.cureVotes = {}
-  room.containOptions = []
-  room.cureOptions = []
-  room.pendingContainLog = null
-  room.pendingContainActionId = null
+  room.votes = {}
+  room.voteOptions = generatePlayerOptions({
+    lang: room.language,
+    points: room.resourcePoints,
+    regions: room.regions,
+    turn: room.turnIndex,
+  })
   room.phaseEndsAt = 0
 
   if (grantIncome && income > 0 && room.lastResolution) {
@@ -666,7 +645,7 @@ function startCampaign(room: Room): Room | { error: string } {
 
   Object.assign(room, emptyGameFields())
   room.outcome = 'ongoing'
-  beginContainCouncil(room, false)
+  beginCouncil(room, false)
   touch(room)
   return room
 }
@@ -709,7 +688,7 @@ export function continueTurn(code: string, playerId: string): Room | { error: st
     return room
   }
 
-  beginContainCouncil(room, true)
+  beginCouncil(room, true)
   touch(room)
   return room
 }
@@ -766,260 +745,151 @@ function canVote(room: Room, playerId: string): boolean {
   return voterIds(room).includes(playerId)
 }
 
-function voteDenied(room: Room): { error: string } {
-  return {
-    error: roomMsg(
-      room,
-      'Värden röstar inte när rådet spelar',
-      'Host does not vote while the council plays',
-    ),
-  }
-}
-
-function maybeAdvanceContainLand(room: Room) {
-  const needed = voterIds(room)
-  if (needed.length === 0) return
-  if (!needed.every((id) => room.containLandVotes[id] !== undefined)) return
-
-  const hostVote = room.containLandVotes[room.hostId] ?? null
-  const winner = pickWinningId(room.containLandVotes, [...REGION_ORDER], hostVote)
-  if (!winner) return
-
-  room.containRegionId = winner as RegionId
-  room.focusRegionId = room.containRegionId
-  room.containActionVotes = {}
-  room.containOptions = generateContainOptions({
-    lang: room.language,
-    points: room.resourcePoints,
-    focusRegionId: room.containRegionId,
-    regions: room.regions,
-    turn: room.turnIndex,
-  })
-  touch(room)
-}
-
-function lockContainAction(room: Room) {
-  const focus = room.containRegionId
-  if (!focus) return
-
-  const hostVote = room.containActionVotes[room.hostId] ?? null
-  const ids = room.containOptions.map((o) => o.id)
-  const winningId = pickWinningId(room.containActionVotes, ids, hostVote)
+function resolveCouncil(room: Room) {
+  const hostVote = room.votes[room.hostId] ?? null
+  const ids = room.voteOptions.map((o) => o.id)
+  const winningId = pickWinningId(room.votes, ids, hostVote)
   const option =
-    room.containOptions.find((o) => o.id === winningId) ??
-    room.containOptions.find((o) => o.affordable) ??
-    room.containOptions[0]
+    room.voteOptions.find((o) => o.id === winningId) ??
+    room.voteOptions.find((o) => o.affordable) ??
+    room.voteOptions[0]
 
-  if (!option) {
-    room.pendingContainLog = roomMsg(room, 'Ingen smittåtgärd.', 'No contain action.')
-    room.pendingContainActionId = ''
-  } else {
-    const applied = applyDefenderAction(option, focus, {
-      points: room.resourcePoints,
-      regions: room.regions,
-      cureProgress: room.cureProgress,
-      heartHp: room.heartHp,
-      lang: room.language,
-    })
-    if ('error' in applied) {
-      room.pendingContainLog = applied.error
-      room.pendingContainActionId = option.id
-    } else {
-      room.resourcePoints = applied.points
-      room.regions = applied.regions
-      room.cureProgress = applied.cureProgress
-      room.heartHp = applied.heartHp
-      room.pendingContainLog = room.language === 'en' ? applied.logEn : applied.logSv
-      room.pendingContainActionId = option.id
-    }
-  }
-
-  room.status = 'council_cure'
-  room.cureVotes = {}
-  room.cureOptions = generateCureOptions({
-    lang: room.language,
-    points: room.resourcePoints,
-    turn: room.turnIndex,
-  })
-  touch(room)
-}
-
-function maybeAdvanceContainAction(room: Room) {
-  const needed = voterIds(room)
-  if (needed.length === 0) return
-  if (!needed.every((id) => room.containActionVotes[id] !== undefined)) return
-  lockContainAction(room)
-}
-
-function lockCureVotes(room: Room) {
-  const hostVote = room.cureVotes[room.hostId] ?? null
-  const ids = room.cureOptions.map((o) => o.id)
-  const winningId = pickWinningId(room.cureVotes, ids, hostVote)
-  const option =
-    room.cureOptions.find((o) => o.id === winningId) ??
-    room.cureOptions.find((o) => o.affordable) ??
-    room.cureOptions[0]
-
-  let cureLog = roomMsg(room, 'Ingen botemedelssatsning.', 'No cure spend.')
-  let cureActionId = ''
+  let playerLog = roomMsg(room, 'Ingen giltig plan.', 'No valid plan.')
+  let actionId = ''
+  let focus: RegionId | null = null
 
   if (option) {
-    const focus = option.targetRegionId ?? room.containRegionId ?? 'heartlands'
-    const applied = applyDefenderAction(option, focus, {
+    const applied = applyAction(option, {
       points: room.resourcePoints,
       regions: room.regions,
       cureProgress: room.cureProgress,
       heartHp: room.heartHp,
       lang: room.language,
     })
+    actionId = option.id
+    focus = option.targetRegionId
     if ('error' in applied) {
-      cureLog = applied.error
-      cureActionId = option.id
+      playerLog = applied.error
     } else {
       room.resourcePoints = applied.points
       room.regions = applied.regions
       room.cureProgress = applied.cureProgress
       room.heartHp = applied.heartHp
-      cureLog = room.language === 'en' ? applied.logEn : applied.logSv
-      cureActionId = option.id
+      playerLog = room.language === 'en' ? applied.logEn : applied.logSv
     }
   }
 
-  const ai = applyPlagueTurn({
+  room.focusRegionId = focus
+
+  const plagueOpts = generatePlagueOptions({
+    lang: room.language,
     regions: room.regions,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
     turn: room.turnIndex,
   })
-  room.regions = ai.regions
-  room.cureProgress = ai.cureProgress
-  room.heartHp = ai.heartHp
-
-  const containLog = room.pendingContainLog ?? ''
-  const containActionId = room.pendingContainActionId ?? ''
-  const playerLog = [containLog, cureLog].filter(Boolean).join(' ')
-
-  const resolution: TurnResolution = {
-    turn: room.turnIndex,
-    containRegionId: room.containRegionId,
-    containActionId,
-    cureActionId,
-    containLog,
-    cureLog,
-    playerLog,
-    aiLog: room.language === 'en' ? ai.logEn : ai.logSv,
-    incomeGained: 0,
-    containLandVoteCounts: tally(room.containLandVotes),
-    containActionVoteCounts: tally(room.containActionVotes),
-    cureVoteCounts: tally(room.cureVotes),
+  const aiOpt = pickPlagueOption(plagueOpts)
+  const aiApplied = applyAction(aiOpt, {
+    points: room.resourcePoints,
+    regions: room.regions,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
+    lang: room.language,
+  })
+  let aiLog = ''
+  let aiActionId = aiOpt.id
+  if (!('error' in aiApplied)) {
+    room.resourcePoints = aiApplied.points
+    room.regions = aiApplied.regions
+    room.cureProgress = aiApplied.cureProgress
+    room.heartHp = aiApplied.heartHp
+    aiLog = room.language === 'en' ? aiApplied.logEn : aiApplied.logSv
   }
-  room.lastResolution = resolution
-  room.pendingContainLog = null
-  room.pendingContainActionId = null
+
+  // Quarantines eventually fray
+  for (const r of room.regions) {
+    if (r.id !== 'plague_heart' && r.quarantined && Math.random() < 0.22) {
+      r.quarantined = false
+    }
+  }
+
+  room.lastResolution = {
+    turn: room.turnIndex,
+    actionId,
+    aiActionId,
+    focusRegionId: focus,
+    playerLog,
+    aiLog,
+    incomeGained: 0,
+    voteCounts: tally(room.votes),
+  }
   room.outcome = evaluateOutcome({
     regions: room.regions,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
   })
   room.status = room.outcome === 'ongoing' ? 'resolve' : 'finished'
-  room.cureVotes = {}
+  room.votes = {}
   room.phaseEndsAt = 0
   touch(room)
 }
 
-function maybeAdvanceCure(room: Room) {
+function maybeAdvanceCouncil(room: Room) {
   const needed = voterIds(room)
   if (needed.length === 0) return
-  if (!needed.every((id) => room.cureVotes[id] !== undefined)) return
-  lockCureVotes(room)
+  if (!needed.every((id) => room.votes[id] !== undefined)) return
+  resolveCouncil(room)
 }
 
-export function castContainLandVote(
-  code: string,
-  playerId: string,
-  regionId: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'council_contain' || room.containRegionId) {
-    return { error: roomMsg(room, 'Inte land-röstning för smitta', 'Not contain land voting') }
-  }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) {
-    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
-  }
-  if (!canVote(room, playerId)) return voteDenied(room)
-  if (!REGION_ORDER.includes(regionId as RegionId)) {
-    return { error: roomMsg(room, 'Ogiltigt land', 'Invalid land') }
-  }
-  room.containLandVotes[playerId] = regionId
-  touch(room)
-  maybeAdvanceContainLand(room)
-  return room
-}
-
-export function castContainActionVote(
+export function castVote(
   code: string,
   playerId: string,
   optionId: string,
 ): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'council_contain' || !room.containRegionId) {
-    return { error: roomMsg(room, 'Inte smittåtgärdsfas', 'Not contain action phase') }
+  if (room.status !== 'council') {
+    return { error: roomMsg(room, 'Inte omröstning', 'Not voting phase') }
   }
   const player = room.players.find((p) => p.id === playerId)
   if (!player || player.spectator) {
     return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
   }
-  if (!canVote(room, playerId)) return voteDenied(room)
-  const option = room.containOptions.find((o) => o.id === optionId)
+  if (!canVote(room, playerId)) {
+    return {
+      error: roomMsg(
+        room,
+        'Värden röstar inte när rådet spelar',
+        'Host does not vote while the council plays',
+      ),
+    }
+  }
+  const option = room.voteOptions.find((o) => o.id === optionId)
   if (!option) return { error: roomMsg(room, 'Ogiltigt val', 'Invalid option') }
   if (!option.affordable) {
     return { error: roomMsg(room, 'För dyrt just nu', 'Too expensive right now') }
   }
-  room.containActionVotes[playerId] = optionId
+  room.votes[playerId] = optionId
   touch(room)
-  maybeAdvanceContainAction(room)
+  maybeAdvanceCouncil(room)
   return room
 }
 
-export function castCureVote(
-  code: string,
-  playerId: string,
-  optionId: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'council_cure') {
-    return { error: roomMsg(room, 'Inte botemedelsfas', 'Not cure voting phase') }
-  }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) {
-    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
-  }
-  if (!canVote(room, playerId)) return voteDenied(room)
-  const option = room.cureOptions.find((o) => o.id === optionId)
-  if (!option) return { error: roomMsg(room, 'Ogiltigt val', 'Invalid option') }
-  if (!option.affordable) {
-    return { error: roomMsg(room, 'För dyrt just nu', 'Too expensive right now') }
-  }
-  room.cureVotes[playerId] = optionId
-  touch(room)
-  maybeAdvanceCure(room)
-  return room
+/** Legacy aliases */
+export function castContainLandVote(code: string, playerId: string, _regionId: string) {
+  return { error: 'Uppdatera klienten — ett val per råd' }
 }
-
-/** Back-compat aliases */
-export function castLandVote(code: string, playerId: string, regionId: string) {
-  return castContainLandVote(code, playerId, regionId)
+export function castContainActionVote(code: string, playerId: string, optionId: string) {
+  return castVote(code, playerId, optionId)
 }
-
+export function castCureVote(code: string, playerId: string, optionId: string) {
+  return castVote(code, playerId, optionId)
+}
+export function castLandVote(code: string, playerId: string, _regionId: string) {
+  return { error: 'Uppdatera klienten — ett val per råd' }
+}
 export function castActionVote(code: string, playerId: string, optionId: string) {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status === 'council_cure') return castCureVote(code, playerId, optionId)
-  return castContainActionVote(code, playerId, optionId)
+  return castVote(code, playerId, optionId)
 }
 
 export function onPhaseTimeout(_room: Room) {}
@@ -1085,38 +955,10 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     )
   }
 
-  let voteStep: PublicRoom['voteStep'] = 'none'
-  if (room.status === 'council_contain') {
-    voteStep = room.containRegionId ? 'contain_action' : 'contain_land'
-  } else if (room.status === 'council_cure') {
-    voteStep = 'cure'
-  }
-
-  const showContainLandCounts =
-    Boolean(room.containRegionId) ||
-    room.status === 'council_cure' ||
-    room.status === 'resolve' ||
-    room.status === 'finished'
-  const showContainActionCounts =
-    room.status === 'council_cure' || room.status === 'resolve' || room.status === 'finished'
-  const showCureCounts = room.status === 'resolve' || room.status === 'finished'
-
-  let submittedCount = 0
-  let submittedIds: string[] = []
-  let youSubmitted = false
-  if (voteStep === 'contain_land') {
-    submittedIds = Object.keys(room.containLandVotes)
-    submittedCount = submittedIds.length
-    youSubmitted = Boolean(viewerId && room.containLandVotes[viewerId] !== undefined)
-  } else if (voteStep === 'contain_action') {
-    submittedIds = Object.keys(room.containActionVotes)
-    submittedCount = submittedIds.length
-    youSubmitted = Boolean(viewerId && room.containActionVotes[viewerId] !== undefined)
-  } else if (voteStep === 'cure') {
-    submittedIds = Object.keys(room.cureVotes)
-    submittedCount = submittedIds.length
-    youSubmitted = Boolean(viewerId && room.cureVotes[viewerId] !== undefined)
-  }
+  const submittedIds = room.status === 'council' ? Object.keys(room.votes) : []
+  const submittedCount = submittedIds.length
+  const youSubmitted = Boolean(viewerId && room.votes[viewerId] !== undefined)
+  const showCounts = room.status === 'resolve' || room.status === 'finished'
 
   return {
     code: room.code,
@@ -1136,25 +978,14 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     regions: room.regions,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
-    containRegionId: room.containRegionId,
-    focusRegionId: room.focusRegionId ?? room.containRegionId,
-    containOptions: room.containOptions,
-    cureOptions: room.cureOptions,
-    voteStep,
+    focusRegionId: room.focusRegionId,
+    voteOptions: room.voteOptions,
     submittedCount,
     submitterCount: needed.length,
     submittedIds,
     youSubmitted,
-    yourContainLandVote: viewerId ? room.containLandVotes[viewerId] ?? null : null,
-    yourContainActionVote: viewerId ? room.containActionVotes[viewerId] ?? null : null,
-    yourCureVote: viewerId ? room.cureVotes[viewerId] ?? null : null,
-    containLandVoteCounts: showContainLandCounts ? tally(room.containLandVotes) : null,
-    containActionVoteCounts: showContainActionCounts
-      ? room.lastResolution?.containActionVoteCounts ?? tally(room.containActionVotes)
-      : null,
-    cureVoteCounts: showCureCounts
-      ? room.lastResolution?.cureVoteCounts ?? tally(room.cureVotes)
-      : null,
+    yourVote: viewerId ? room.votes[viewerId] ?? null : null,
+    voteCounts: showCounts ? room.lastResolution?.voteCounts ?? tally(room.votes) : null,
     lastResolution: room.lastResolution,
     outcome: room.outcome,
     notice,
