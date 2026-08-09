@@ -1,6 +1,7 @@
 import type { Lang, MapRegion, RegionId, SkillId, VoteOption } from '../types.js'
 
-export const MIN_PLAYERS = 2
+/** Seated virus players required. Host alone may still start (solo). */
+export const MIN_PLAYERS = 0
 export const STARTING_CORRUPTION_POINTS = 400
 export const BASE_INCOME = 180
 export const WIN_WORLD_CORRUPTION = 72

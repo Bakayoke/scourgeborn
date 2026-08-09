@@ -544,14 +544,19 @@ function beginCouncil(room: Room, grantIncome: boolean) {
   }
 }
 
+function hostConnected(room: Room): boolean {
+  return Boolean(room.players.find((p) => p.id === room.hostId)?.connected)
+}
+
 function startCampaign(room: Room): Room | { error: string } {
   const order = connectedPlayers(room)
-  if (order.length < MIN_PLAYERS) {
+  // Solo: host alone is enough. With guests, respect MIN_PLAYERS.
+  if (order.length < MIN_PLAYERS && !(order.length === 0 && hostConnected(room))) {
     return {
       error: roomMsg(
         room,
-        `Behöver minst ${MIN_PLAYERS} spelare (+ värd)`,
-        `Need at least ${MIN_PLAYERS} players (+ host)`,
+        'Ingen ansluten spelare — starta solo som värd eller bjud in svärmen',
+        'No connected player — start solo as host or invite the swarm',
       ),
     }
   }
@@ -646,7 +651,10 @@ function promoteWaitlist(room: Room) {
 }
 
 function voterIds(room: Room): string[] {
-  return connectedPlayers(room).map((p) => p.id)
+  const seated = connectedPlayers(room).map((p) => p.id)
+  // Solo host: when no virus seats are filled, the host casts the council vote.
+  if (seated.length === 0 && hostConnected(room)) return [room.hostId]
+  return seated
 }
 
 function maybeResolveVotes(room: Room) {
@@ -753,8 +761,18 @@ export function castVote(
     return { error: roomMsg(room, 'Inte rådets fas', 'Not council phase') }
   }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator || player.id === room.hostId) {
-    return { error: roomMsg(room, 'Värden röstar inte', 'Host does not vote') }
+  if (!player || player.spectator) {
+    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
+  }
+  const allowed = voterIds(room)
+  if (!allowed.includes(playerId)) {
+    return {
+      error: roomMsg(
+        room,
+        'Värden röstar inte när svärmen spelar',
+        'Host does not vote while the swarm plays',
+      ),
+    }
   }
   const option = room.voteOptions.find((o) => o.id === optionId)
   if (!option) return { error: roomMsg(room, 'Ogiltigt val', 'Invalid option') }

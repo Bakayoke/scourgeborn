@@ -34,6 +34,17 @@ describe('lobby joins', () => {
     assert.ok(!('error' in started), `start should work with 2 non-host players: ${'error' in started ? started.error : ''}`)
   })
 
+  it('starts solo with only the host', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-host-solo', 'sv')
+    const started = startGame(room.code, hostId)
+    assert.ok(!('error' in started), `solo start failed: ${'error' in started ? started.error : ''}`)
+    if ('error' in started) return
+    assert.equal(started.status, 'council')
+    const pub = toPublicRoom(started, hostId)
+    assert.equal(pub.youAreHost, true)
+    assert.equal(pub.submitterCount, 1)
+  })
+
   it('does not let disconnected ghosts block the third seat', () => {
     const { room } = createRoom('Host', 'sock-host', 'sv')
     const code = room.code
