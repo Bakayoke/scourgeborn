@@ -434,6 +434,8 @@ export default function App() {
         <div className="mist-layer mist-a" />
         <div className="mist-layer mist-b" />
         <div className="mist-layer mist-c" />
+        <div className="spore-field" />
+        <div className="hazard-rail" />
       </div>
       <ConnBadge conn={conn} ui={ui} />
       <header className="topbar">
@@ -469,6 +471,9 @@ export default function App() {
 
       {screen === 'home' && (
         <div className="panel hero">
+          <p className="outbreak-stamp" aria-hidden="true">
+            {ui.outbreakStamp}
+          </p>
           <h1 className="logo">{ui.brand}</h1>
           <p className="tagline">{ui.tagline}</p>
           <p className="support">{ui.heroSupport}</p>
@@ -731,7 +736,9 @@ function PlayView({
   const joinUrl = `${APP_ORIGIN}/?join=${room.code}`
   const seated = room.players.filter((p) => !p.spectator && p.id !== room.hostId)
   const connectedSeated = seated.filter((p) => p.connected)
-  const canStart = connectedSeated.length >= 2
+  const soloHost = connectedSeated.length === 0
+  const canStart = room.youAreHost
+  const canVote = !room.youAreSpectator && (!room.youAreHost || soloHost)
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string; room?: PublicRoom }>) {
     setBusy(true)
@@ -876,7 +883,7 @@ function PlayView({
 
           {room.youAreHost && (
             <div className="host-controls">
-              <p className="muted">{ui.hostHint}</p>
+              <p className="muted">{soloHost ? ui.hostSoloHint : ui.hostHint}</p>
               <div className="row wrap">
                 <button
                   type="button"
@@ -910,7 +917,7 @@ function PlayView({
               >
                 {ui.startGame}
               </button>
-              {!canStart && <p className="muted">{ui.needPlayers}</p>}
+              {soloHost && <p className="muted">{ui.soloReady}</p>}
 
               {!hasParty && (
                 <div className="party-box compact">
@@ -978,11 +985,7 @@ function PlayView({
               <div className="vote-options">
                 {room.voteOptions.map((opt) => {
                   const selected = room.yourVote === opt.id
-                  const disabled =
-                    busy ||
-                    room.youAreHost ||
-                    room.youAreSpectator ||
-                    !opt.affordable
+                  const disabled = busy || !canVote || !opt.affordable
                   return (
                     <button
                       key={opt.id}
@@ -990,7 +993,7 @@ function PlayView({
                       className={`vote-card${selected ? ' selected' : ''}${!opt.affordable ? ' locked' : ''}`}
                       disabled={disabled && !selected}
                       onClick={() => {
-                        if (room.youAreHost || room.youAreSpectator) return
+                        if (!canVote) return
                         void run(() => castVote(opt.id))
                       }}
                     >
