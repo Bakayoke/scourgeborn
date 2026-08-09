@@ -3,6 +3,7 @@ import {
   STARTING_CORRUPTION_POINTS,
   STARTING_CURE,
   STARTING_HEART_HP,
+  TIMEOUT_VICTORY_CORRUPTION,
   applyAiTurn,
   applyPlayerChoice,
   createInitialRegions,
@@ -616,7 +617,8 @@ export function continueTurn(code: string, playerId: string): Room | { error: st
   const limits = roomLimits(room)
   if (limits.maxRounds > 0 && room.turnIndex >= limits.maxRounds) {
     room.status = 'finished'
-    room.outcome = worldCorruption(room.regions) >= 50 ? 'victory' : 'defeat_cure'
+    room.outcome =
+      worldCorruption(room.regions) >= TIMEOUT_VICTORY_CORRUPTION ? 'victory' : 'defeat_cure'
     touch(room)
     return room
   }

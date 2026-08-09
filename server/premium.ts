@@ -11,7 +11,7 @@ export type PartyPass = {
 
 export const FREE_LIMITS: PremiumLimits = {
   maxPlayers: 5,
-  maxRounds: 8,
+  maxRounds: 12,
   freePack: true,
 }
 

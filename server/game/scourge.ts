@@ -2,13 +2,15 @@ import type { Lang, MapRegion, RegionId, SkillId, VoteOption } from '../types.js
 
 /** Seated virus players required. Host alone may still start (solo). */
 export const MIN_PLAYERS = 0
-export const STARTING_CORRUPTION_POINTS = 400
-export const BASE_INCOME = 180
-export const WIN_WORLD_CORRUPTION = 72
+export const STARTING_CORRUPTION_POINTS = 520
+export const BASE_INCOME = 240
+export const WIN_WORLD_CORRUPTION = 55
 export const LOSE_CURE_PROGRESS = 100
 export const LOSE_HEART_HP = 0
 export const STARTING_HEART_HP = 100
-export const STARTING_CURE = 8
+export const STARTING_CURE = 0
+/** Soft win if the campaign times out at this blight level */
+export const TIMEOUT_VICTORY_CORRUPTION = 40
 
 export const REGION_ORDER: RegionId[] = [
   'north_kingdom',
@@ -23,12 +25,12 @@ const REGION_META: Record<
   RegionId,
   { sv: string; en: string; starting: number; incomeWeight: number }
 > = {
-  north_kingdom: { sv: 'Nordriket', en: 'North Kingdom', starting: 8, incomeWeight: 1 },
-  elf_woods: { sv: 'Alvskogarna', en: 'Elf Woods', starting: 5, incomeWeight: 1.1 },
-  eastern_wastes: { sv: 'Ödemarken', en: 'Eastern Wastes', starting: 18, incomeWeight: 0.9 },
-  southern_ports: { sv: 'Sydhamnarna', en: 'Southern Ports', starting: 10, incomeWeight: 1.2 },
-  heartlands: { sv: 'Hjärtlandet', en: 'Heartlands', starting: 4, incomeWeight: 1.3 },
-  plague_heart: { sv: 'Smittans hjärta', en: 'Plague Heart', starting: 55, incomeWeight: 0.4 },
+  north_kingdom: { sv: 'Nordriket', en: 'North Kingdom', starting: 12, incomeWeight: 1 },
+  elf_woods: { sv: 'Alvskogarna', en: 'Elf Woods', starting: 10, incomeWeight: 1.1 },
+  eastern_wastes: { sv: 'Ödemarken', en: 'Eastern Wastes', starting: 22, incomeWeight: 0.9 },
+  southern_ports: { sv: 'Sydhamnarna', en: 'Southern Ports', starting: 14, incomeWeight: 1.2 },
+  heartlands: { sv: 'Hjärtlandet', en: 'Heartlands', starting: 8, incomeWeight: 1.3 },
+  plague_heart: { sv: 'Smittans hjärta', en: 'Plague Heart', starting: 60, incomeWeight: 0.4 },
 }
 
 export const SKILL_META: Record<
@@ -52,7 +54,7 @@ export const SKILL_META: Record<
   waterborne: {
     sv: 'Vattenburen smitta',
     en: 'Waterborne',
-    cost: 320,
+    cost: 260,
     requires: ['contagion'],
     blurbSv: 'Hamnar och floder sprider pesten billigare.',
     blurbEn: 'Ports and rivers spread the plague cheaper.',
@@ -60,7 +62,7 @@ export const SKILL_META: Record<
   necromancy: {
     sv: 'Nekromanti',
     en: 'Necromancy',
-    cost: 450,
+    cost: 340,
     requires: ['contagion'],
     blurbSv: 'Döda fiender reser sig och bromsar botemedlet.',
     blurbEn: 'Fallen foes rise and slow the cure.',
@@ -68,7 +70,7 @@ export const SKILL_META: Record<
   shadow_veil: {
     sv: 'Skuggslöja',
     en: 'Shadow Veil',
-    cost: 380,
+    cost: 280,
     requires: ['contagion'],
     blurbSv: 'Forskarna tappar spår — botemedlet går långsammare.',
     blurbEn: 'Researchers lose the trail — the cure slows.',
@@ -76,7 +78,7 @@ export const SKILL_META: Record<
   blight_bloom: {
     sv: 'Pestblom',
     en: 'Blight Bloom',
-    cost: 500,
+    cost: 380,
     requires: ['waterborne'],
     blurbSv: 'Utbrott träffar hårdare i redan sjuka länder.',
     blurbEn: 'Outbreaks hit harder in already sick lands.',
@@ -84,7 +86,7 @@ export const SKILL_META: Record<
   drake_summon: {
     sv: 'Drakekallelse',
     en: 'Drake Summon',
-    cost: 600,
+    cost: 420,
     requires: ['necromancy'],
     blurbSv: 'En drake distraherar De Goda i ett drag.',
     blurbEn: 'A drake distracts The Good for one turn.',
@@ -153,17 +155,17 @@ type GenCtx = {
 }
 
 function outbreakCost(skills: SkillId[], region: MapRegion): number {
-  let cost = 220 + Math.floor(region.corruption * 1.5)
-  if (region.id === 'southern_ports' && skills.includes('waterborne')) cost = Math.floor(cost * 0.7)
-  if (region.id === 'elf_woods' && skills.includes('waterborne')) cost = Math.floor(cost * 0.85)
-  if (region.quarantined) cost += 120
+  let cost = 160 + Math.floor(region.corruption * 1.1)
+  if (region.id === 'southern_ports' && skills.includes('waterborne')) cost = Math.floor(cost * 0.65)
+  if (region.id === 'elf_woods' && skills.includes('waterborne')) cost = Math.floor(cost * 0.8)
+  if (region.quarantined) cost += 70
   return cost
 }
 
 function outbreakPower(skills: SkillId[], region: MapRegion): number {
-  let power = 18 + Math.floor(Math.random() * 8)
-  if (skills.includes('blight_bloom') && region.corruption >= 25) power += 10
-  if (region.quarantined) power = Math.floor(power * 0.55)
+  let power = 24 + Math.floor(Math.random() * 10)
+  if (skills.includes('blight_bloom') && region.corruption >= 20) power += 12
+  if (region.quarantined) power = Math.floor(power * 0.7)
   return power
 }
 
@@ -209,19 +211,19 @@ export function generateVoteOptions(ctx: GenCtx): VoteOption[] {
     })
   }
 
-  // Narrative / tactical options
-  if (cureProgress >= 40 && !skills.includes('shadow_veil')) {
+  // Narrative / tactical options — offer sabotage early so the cure can be contested
+  if (cureProgress >= 12 || turn >= 2) {
     options.push({
       id: `sabotage:research:${turn}`,
       kind: 'sabotage',
       title: lang === 'en' ? 'Sabotage their laboratories' : 'Sabotera laboratorierna',
       description:
         lang === 'en'
-          ? 'Risk a strike on the cure project (−12–18 research).'
-          : 'Slå till mot botemedelsprojektet (−12–18 forskning).',
-      cost: 280,
-      amount: 15,
-      affordable: points >= 280,
+          ? 'Strike the cure project (−18–26 research).'
+          : 'Slå till mot botemedelsprojektet (−18–26 forskning).',
+      cost: 200,
+      amount: 20,
+      affordable: points >= 200,
     })
   }
 
@@ -355,11 +357,11 @@ export function applyPlayerChoice(
       break
     }
     case 'sabotage': {
-      const cut = option.amount ?? 15
-      const actual = cut + Math.floor(Math.random() * 4)
+      const cut = option.amount ?? 20
+      const actual = cut + Math.floor(Math.random() * 7)
       cureProgress = clamp(cureProgress - actual, 0, 100)
       if (skills.includes('necromancy')) {
-        cureProgress = clamp(cureProgress - 4, 0, 100)
+        cureProgress = clamp(cureProgress - 6, 0, 100)
       }
       logSv = `Laboratorierna brinner. Botemedlet −${actual}.`
       logEn = `Laboratories burn. Cure −${actual}.`
@@ -406,10 +408,10 @@ export function applyAiTurn(
   let heartHp = state.heartHp
   const skills = state.skills
 
-  let researchGain = 7 + Math.floor(state.turn * 0.6) + Math.floor(Math.random() * 5)
-  if (skills.includes('shadow_veil')) researchGain = Math.max(3, Math.floor(researchGain * 0.55))
-  if (skills.includes('necromancy')) researchGain = Math.max(2, researchGain - 2)
-  if (state.distracted) researchGain = Math.max(1, Math.floor(researchGain * 0.4))
+  let researchGain = 3 + Math.floor(state.turn * 0.35) + Math.floor(Math.random() * 3)
+  if (skills.includes('shadow_veil')) researchGain = Math.max(1, Math.floor(researchGain * 0.45))
+  if (skills.includes('necromancy')) researchGain = Math.max(1, researchGain - 2)
+  if (state.distracted) researchGain = Math.max(0, Math.floor(researchGain * 0.3))
 
   const playable = regions.filter((r) => r.id !== 'plague_heart')
   const worst = [...playable].sort((a, b) => b.corruption - a.corruption)[0]
@@ -427,28 +429,28 @@ export function applyAiTurn(
     return { regions, cureProgress, heartHp, logSv, logEn }
   }
 
-  if (heartHp <= 45 && roll < 0.45) {
-    const dmg = 14 + Math.floor(Math.random() * 10)
+  if (heartHp <= 40 && roll < 0.35) {
+    const dmg = 10 + Math.floor(Math.random() * 8)
     heartHp = clamp(heartHp - dmg, 0, 100)
-    heart.corruption = clamp(heart.corruption - 8, 0, 100)
+    heart.corruption = clamp(heart.corruption - 5, 0, 100)
     logSv = `Paladiner anfaller Smittans hjärta (−${dmg} HP).`
     logEn = `Paladins assault the Plague Heart (−${dmg} HP).`
-  } else if (worst && worst.corruption >= 35 && roll < 0.75) {
-    const cleanse = 12 + Math.floor(Math.random() * 8)
+  } else if (worst && worst.corruption >= 45 && roll < 0.65) {
+    const cleanse = 7 + Math.floor(Math.random() * 6)
     worst.corruption = clamp(worst.corruption - cleanse, 0, 100)
     worst.quarantined = true
-    cureProgress = clamp(cureProgress + Math.floor(researchGain * 0.6), 0, 100)
+    cureProgress = clamp(cureProgress + Math.floor(researchGain * 0.5), 0, 100)
     const name = labelRegion(worst.id, 'sv')
     const nameEn = labelRegion(worst.id, 'en')
-    logSv = `De Goda sätter ${name} i karantän (−${cleanse}%) och forskar (+${Math.floor(researchGain * 0.6)}).`
-    logEn = `The Good quarantine ${nameEn} (−${cleanse}%) and research (+${Math.floor(researchGain * 0.6)}).`
+    logSv = `De Goda sätter ${name} i karantän (−${cleanse}%) och forskar (+${Math.floor(researchGain * 0.5)}).`
+    logEn = `The Good quarantine ${nameEn} (−${cleanse}%) and research (+${Math.floor(researchGain * 0.5)}).`
   } else {
     cureProgress = clamp(cureProgress + researchGain, 0, 100)
     // Light cleanse on a random sick region
-    const sick = playable.filter((r) => r.corruption >= 20)
+    const sick = playable.filter((r) => r.corruption >= 30)
     if (sick.length) {
       const t = sick[Math.floor(Math.random() * sick.length)]
-      t.corruption = clamp(t.corruption - 6, 0, 100)
+      t.corruption = clamp(t.corruption - 4, 0, 100)
     }
     logSv = `Alver och kungariken forcerar botemedlet (+${researchGain} forskning).`
     logEn = `Elves and kingdoms push the cure (+${researchGain} research).`
@@ -474,9 +476,9 @@ export function evaluateOutcome(state: {
     heartlands &&
     ports &&
     elves &&
-    heartlands.corruption >= 85 &&
-    ports.corruption >= 80 &&
-    elves.corruption >= 80
+    heartlands.corruption >= 70 &&
+    ports.corruption >= 65 &&
+    elves.corruption >= 65
   ) {
     return 'victory'
   }

@@ -94,7 +94,7 @@ describe('scourge core', () => {
       'defeat_cure',
     )
     const regions = createInitialRegions().map((r) =>
-      r.id === 'plague_heart' ? r : { ...r, corruption: 80 },
+      r.id === 'plague_heart' ? r : { ...r, corruption: 60 },
     )
     assert.equal(evaluateOutcome({ regions, cureProgress: 20, heartHp: 80 }), 'victory')
   })
