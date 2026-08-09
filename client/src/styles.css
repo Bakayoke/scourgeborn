@@ -991,28 +991,148 @@ input:focus {
   letter-spacing: 0.06em;
 }
 
-/* —— TV mode —— */
+/* —— TV mode (fullscreen + fixed fallback) —— */
 
-.play.tv .meters {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.play.tv {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: clamp(1rem, 2.5vh, 2rem) clamp(1rem, 3vw, 2.5rem) clamp(1.25rem, 3vh, 2.5rem);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% -10%, rgba(70, 110, 55, 0.22), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 85% 90%, rgba(140, 40, 30, 0.18), transparent 50%),
+    #0c100e;
+  animation: none;
+  box-sizing: border-box;
 }
 
-.play.tv .world-map {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  min-height: 280px;
+.play.tv:fullscreen,
+.play.tv:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% -10%, rgba(70, 110, 55, 0.22), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 85% 90%, rgba(140, 40, 30, 0.18), transparent 50%),
+    #0c100e;
 }
 
-.play.tv .region-tile {
-  min-height: 7rem;
-  font-size: 1.05rem;
+.play.tv .play-top {
+  margin-bottom: 0.25rem;
+  flex-shrink: 0;
 }
 
 .play.tv .phase-label {
-  font-size: 1.75rem;
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+}
+
+.play.tv .meters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+  flex-shrink: 0;
+}
+
+.play.tv .meter {
+  padding: 0.85rem 1rem;
+}
+
+.play.tv .meter span {
+  font-size: 0.85rem;
 }
 
 .play.tv .meter strong {
-  font-size: 1.55rem;
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+}
+
+.play.tv .game-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.play.tv .game-panel > h3 {
+  font-size: clamp(1.1rem, 2vw, 1.45rem);
+  margin-bottom: 0.35rem;
+}
+
+.play.tv .world-map {
+  flex: 1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: min(52vh, 560px);
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.75rem;
+  align-content: stretch;
+}
+
+.play.tv .region-tile {
+  min-height: clamp(6.5rem, 16vh, 11rem);
+  font-size: 1.15rem;
+  padding: 1rem;
+}
+
+.play.tv .region-tile strong {
+  font-size: clamp(1rem, 2vw, 1.35rem);
+}
+
+.play.tv .region-tile em {
+  font-size: 1.05rem;
+}
+
+.play.tv:not(.tv-interactive) .council .vote-options {
+  display: none;
+}
+
+.play.tv.tv-interactive .world-map {
+  min-height: min(40vh, 420px);
+}
+
+.play.tv.tv-interactive .vote-options {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.play.tv.tv-interactive .vote-card {
+  font-size: 1.05rem;
+  padding: 1rem 1.1rem;
+}
+
+.play.tv .host-controls .party-box,
+.play.tv .lobby-panel .party-box {
+  display: none;
+}
+
+.play.tv .resolve-log {
+  font-size: 1.15rem;
+}
+
+.play.tv .resolve-log h3 {
+  font-size: 1.45rem;
+}
+
+.play.tv .outcome {
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+
+.play.tv .tv-hint {
+  font-size: 1rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+  flex-shrink: 0;
+}
+
+.play.tv .room-code {
+  font-size: clamp(2.2rem, 6vw, 3.5rem);
 }
 
 .qr-placeholder {

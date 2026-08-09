@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   applyPartyToken,
   backToLobby,
@@ -770,12 +770,51 @@ function PlayView({
   const ui = t(uiLang)
   const [tv, setTv] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  const playRef = useRef<HTMLDivElement>(null)
   const joinUrl = `${APP_ORIGIN}/?join=${room.code}`
   const seated = room.players.filter((p) => !p.spectator && p.id !== room.hostId)
   const connectedSeated = seated.filter((p) => p.connected)
   const soloHost = connectedSeated.length === 0
   const canStart = room.youAreHost
   const canVote = !room.youAreSpectator && (!room.youAreHost || soloHost)
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      if (!document.fullscreenElement) setTv(false)
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
+  async function toggleTv() {
+    const el = playRef.current
+    if (tv) {
+      if (document.fullscreenElement) {
+        try {
+          await document.exitFullscreen()
+        } catch {
+          /* ignore */
+        }
+      }
+      setTv(false)
+      return
+    }
+    setTv(true)
+    if (!el) return
+    const req =
+      el.requestFullscreen?.bind(el) ??
+      (
+        el as HTMLDivElement & {
+          webkitRequestFullscreen?: () => Promise<void> | void
+        }
+      ).webkitRequestFullscreen?.bind(el)
+    if (!req) return
+    try {
+      await req()
+    } catch {
+      /* CSS fixed overlay still applies */
+    }
+  }
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string; room?: PublicRoom }>) {
     setBusy(true)
@@ -828,7 +867,10 @@ function PlayView({
             : null
 
   return (
-    <div className={`play${tv ? ' tv' : ''}`}>
+    <div
+      ref={playRef}
+      className={`play${tv ? ' tv' : ''}${tv && canVote ? ' tv-interactive' : ''}`}
+    >
       <div className="play-top">
         <div>
           <p className="phase-label">{phaseTitle}</p>
@@ -840,12 +882,14 @@ function PlayView({
           )}
         </div>
         <div className="row wrap">
-          <button type="button" className="btn btn-ghost btn-small" onClick={() => setTv(!tv)}>
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => void toggleTv()}>
             {tv ? ui.tvExit : ui.tvMode}
           </button>
-          <button type="button" className="btn btn-ghost btn-small" onClick={leave}>
-            {ui.leave}
-          </button>
+          {!tv && (
+            <button type="button" className="btn btn-ghost btn-small" onClick={leave}>
+              {ui.leave}
+            </button>
+          )}
         </div>
       </div>
 
