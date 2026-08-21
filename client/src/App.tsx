@@ -336,14 +336,12 @@ function FinaleOverlay({
   ui,
   busy,
   onLobby,
-  onEnd,
   onLeave,
 }: {
   room: PublicRoom
   ui: ReturnType<typeof t>
   busy: boolean
   onLobby: () => void
-  onEnd: () => void
   onLeave: () => void
 }) {
   const victory =
@@ -374,66 +372,52 @@ function FinaleOverlay({
       }`}
     >
       <div className="finale-card">
-        <p className="finale-kicker">
-          {victory ? ui.finaleVictoryTitle : ui.finaleDefeatTitle}
-        </p>
-        <h2 className="finale-title">{title}</h2>
-        <p className="finale-sub">{subtitle}</p>
-        <div className="finale-stats">
-          <div>
-            <span>{ui.finaleCouncils}</span>
-            <strong>{room.turnIndex}</strong>
+        <div className="finale-body">
+          <p className="finale-kicker">
+            {victory ? ui.finaleVictoryTitle : ui.finaleDefeatTitle}
+          </p>
+          <h2 className="finale-title">{title}</h2>
+          <p className="finale-sub">{subtitle}</p>
+          <div className="finale-stats">
+            <div>
+              <span>{ui.finaleCouncils}</span>
+              <strong>{room.turnIndex}</strong>
+            </div>
+            <div>
+              <span>{ui.finaleInfection}</span>
+              <strong>{room.worldInfection}%</strong>
+            </div>
+            <div>
+              <span>{ui.finaleCure}</span>
+              <strong>{room.cureProgress}%</strong>
+            </div>
+            <div>
+              <span>{ui.finaleHeart}</span>
+              <strong>{room.heartHp}</strong>
+            </div>
           </div>
-          <div>
-            <span>{ui.finaleInfection}</span>
-            <strong>{room.worldInfection}%</strong>
-          </div>
-          <div>
-            <span>{ui.finaleCure}</span>
-            <strong>{room.cureProgress}%</strong>
-          </div>
-          <div>
-            <span>{ui.finaleHeart}</span>
-            <strong>{room.heartHp}</strong>
-          </div>
-        </div>
-        {room.lastResolution && (
-          <div className="finale-log">
-            <p>
-              <strong>{ui.playerMove}:</strong> {room.lastResolution.playerLog}
-            </p>
-            {room.lastResolution.aiLog && (
+          {room.lastResolution && (
+            <div className="finale-log">
               <p>
-                <strong>{ui.aiMove}:</strong> {room.lastResolution.aiLog}
+                <strong>{ui.playerMove}:</strong> {room.lastResolution.playerLog}
               </p>
-            )}
-          </div>
-        )}
-        <p className="muted finale-roster">
-          {ui.tvRoster}:{' '}
-          {room.players
-            .filter((p) => !p.spectator)
-            .map((p) => p.name)
-            .join(', ') || '—'}
-        </p>
-        <div className="cta-row finale-cta">
-          {room.youAreHost ? (
-            <>
-              <button type="button" className="btn" disabled={busy} onClick={onLobby}>
-                {ui.backToLobby}
-              </button>
-              <button type="button" className="btn btn-ghost" disabled={busy} onClick={onEnd}>
-                {ui.endParty}
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="muted">{ui.waitingHostFinale}</p>
-              <button type="button" className="btn btn-ghost" onClick={onLeave}>
-                {ui.leave}
-              </button>
-            </>
+              {room.lastResolution.aiLog && (
+                <p>
+                  <strong>{ui.aiMove}:</strong> {room.lastResolution.aiLog}
+                </p>
+              )}
+            </div>
           )}
+        </div>
+        <div className="finale-actions">
+          {room.youAreHost && (
+            <button type="button" className="btn" disabled={busy} onClick={onLobby}>
+              {ui.backToLobby}
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={onLeave}>
+            {ui.leave}
+          </button>
         </div>
       </div>
     </div>
@@ -1146,7 +1130,6 @@ function PlayView({
           ui={ui}
           busy={busy}
           onLobby={() => void run(() => backToLobby())}
-          onEnd={() => void run(() => endParty())}
           onLeave={leave}
         />
       )}

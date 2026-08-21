@@ -891,13 +891,7 @@ input:focus {
 }
 
 .finale-cta {
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.finale-cta .muted {
-  margin: 0;
-  text-align: center;
+  justify-content: center;
 }
 
 .play.tv .outbreak-svg {
@@ -1178,9 +1172,12 @@ input:focus {
   position: fixed;
   inset: 0;
   z-index: 90;
-  display: grid;
-  place-items: center;
-  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(0.75rem, env(safe-area-inset-top)) 1rem max(0.75rem, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background:
     radial-gradient(ellipse 70% 55% at 50% 30%, rgba(70, 110, 55, 0.28), transparent 60%),
     rgba(6, 10, 8, 0.82);
@@ -1208,13 +1205,38 @@ input:focus {
 
 .finale-card {
   width: min(34rem, 100%);
-  padding: 1.75rem 1.5rem 1.5rem;
+  max-height: min(92vh, 40rem);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
   border: 1px solid rgba(212, 196, 120, 0.35);
   background:
     linear-gradient(165deg, rgba(20, 28, 22, 0.95), rgba(10, 14, 12, 0.98));
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
   text-align: center;
   animation: finaleCard 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+  overflow: hidden;
+}
+
+.finale-body {
+  padding: 1.5rem 1.35rem 0.75rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.finale-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 1.35rem 1.25rem;
+  border-top: 1px solid rgba(90, 140, 70, 0.25);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.finale-actions .btn {
+  width: 100%;
 }
 
 .finale-kicker {
