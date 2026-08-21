@@ -20,6 +20,7 @@ export type RegionId =
 export type ActionKind =
   | 'quarantine'
   | 'cleanse'
+  | 'triage'
   | 'assault'
   | 'research'
   | 'spread'

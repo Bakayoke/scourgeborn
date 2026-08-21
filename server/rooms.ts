@@ -630,6 +630,8 @@ function beginCouncil(room: Room, grantIncome: boolean) {
     points: room.resourcePoints,
     regions: room.regions,
     turn: room.turnIndex,
+    cureProgress: room.cureProgress,
+    heartHp: room.heartHp,
   })
   const now = Date.now()
   room.phaseEndsAt = now + COUNCIL_MS
@@ -794,14 +796,16 @@ function resolveCouncil(room: Room) {
 
   room.focusRegionId = focus
 
+  const provokedBy = option?.kind ?? null
   const plagueOpts = generatePlagueOptions({
     lang: room.language,
     regions: room.regions,
     cureProgress: room.cureProgress,
     heartHp: room.heartHp,
     turn: room.turnIndex,
+    provokedBy,
   })
-  const aiOpt = pickPlagueOption(plagueOpts)
+  const aiOpt = pickPlagueOption(plagueOpts, provokedBy)
   const aiApplied = applyAction(aiOpt, {
     points: room.resourcePoints,
     regions: room.regions,

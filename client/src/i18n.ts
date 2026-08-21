@@ -71,9 +71,9 @@ const sv = {
   howTo: 'Så funkar det',
   howToSteps: [
     'Dela en pool av resurspoäng',
-    'Varje råd: ett val för att begränsa smittan',
-    'Pesten (AI) svarar med sitt eget drag',
-    'Stoppa världssmittan — eller krossa hjärtat',
+    'Varje råd: en strategi (lockdown, rensning, triage, bot eller räd)',
+    'Pesten (AI) svarar hårdare om ni ignorerar kartan',
+    'Rusa botemedlet, krossa hjärtat — eller håll smittan nere',
   ],
   tableName: 'Namn',
   tableRole: 'Roll',
@@ -104,7 +104,7 @@ const sv = {
   heartHp: 'Hjärtats HP',
   mapTitle: 'Kartan',
   voteHint:
-    'Ett val: begränsa smittan. Flest röster vinner — sedan svarar pesten. Rådet har en deadline.',
+    'Välj strategi: lockdown, utrensning, världstriage, botemedel eller räd. Varje val har ett pris — pesten svarar.',
   focusLand: 'Fokus',
   castVote: 'Rösta',
   yourVote: 'Din röst',
@@ -194,9 +194,9 @@ const en: typeof sv = {
   howTo: 'How it works',
   howToSteps: [
     'Share a pool of resource points',
-    'Each council: one choice to contain the blight',
-    'The plague (AI) answers with its own move',
-    'Stop world infection — or crush the heart',
+    'Each council: one strategy (lockdown, purge, triage, cure, or raid)',
+    'The plague (AI) hits harder if you ignore the map',
+    'Race the cure, crush the heart — or keep infection down',
   ],
   tableName: 'Name',
   tableRole: 'Role',
@@ -227,7 +227,7 @@ const en: typeof sv = {
   heartHp: 'Heart HP',
   mapTitle: 'The map',
   voteHint:
-    'One choice: contain the blight. Majority wins — then the plague answers. The council has a deadline.',
+    'Pick a strategy: lockdown, purge, worldwide triage, cure, or raid. Every choice has a cost — the plague answers.',
   focusLand: 'Focus',
   castVote: 'Vote',
   yourVote: 'Your vote',

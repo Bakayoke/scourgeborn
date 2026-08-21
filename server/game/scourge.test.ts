@@ -21,17 +21,22 @@ describe('scourge defenders', () => {
     assert.ok(worldInfection(regions) < 50)
   })
 
-  it('offers one-shot player contain options', () => {
+  it('offers distinct strategy cards each council', () => {
     const options = generatePlayerOptions({
       lang: 'sv',
       points: 520,
       regions: createInitialRegions(),
       turn: 1,
+      cureProgress: 8,
+      heartHp: 100,
     })
-    assert.ok(options.length >= 3)
+    assert.ok(options.length >= 4)
+    const kinds = new Set(options.map((o) => o.kind))
+    assert.ok(kinds.has('quarantine'))
+    assert.ok(kinds.has('cleanse'))
+    assert.ok(kinds.has('triage'))
+    assert.ok(kinds.has('research') || kinds.has('assault'))
     assert.ok(options.every((o) => o.side === 'good'))
-    assert.ok(options.some((o) => o.affordable))
-    assert.ok(options.every((o) => o.targetRegionId))
   })
 
   it('lets plague AI pick from its own option cards', () => {
@@ -41,10 +46,11 @@ describe('scourge defenders', () => {
       cureProgress: 25,
       heartHp: 70,
       turn: 4,
+      provokedBy: 'research',
     })
     assert.ok(options.length >= 2)
     assert.ok(options.every((o) => o.side === 'plague'))
-    const pick = pickPlagueOption(options)
+    const pick = pickPlagueOption(options, 'research')
     assert.ok(pick.id)
     const applied = applyAction(pick, {
       points: 400,
@@ -56,7 +62,7 @@ describe('scourge defenders', () => {
     assert.ok(!('error' in applied))
   })
 
-  it('cleanses infection', () => {
+  it('cleanses infection hard', () => {
     const regions = createInitialRegions()
     const option = {
       id: 't',
@@ -80,6 +86,50 @@ describe('scourge defenders', () => {
     if ('error' in result) return
     assert.equal(result.points, 300)
     assert.equal(result.regions.find((r) => r.id === 'heartlands')!.infection, 0)
+  })
+
+  it('triage lowers infection in every kingdom', () => {
+    const regions = createInitialRegions()
+    const before = worldInfection(regions)
+    const result = applyAction(
+      {
+        id: 'triage',
+        kind: 'triage',
+        side: 'good',
+        targetRegionId: 'heartlands',
+        title: 't',
+        description: 'd',
+        cost: 170,
+        amount: 10,
+        affordable: true,
+      },
+      { points: 400, regions, cureProgress: 10, heartHp: 100, lang: 'sv' },
+    )
+    assert.ok(!('error' in result))
+    if ('error' in result) return
+    assert.ok(worldInfection(result.regions) < before)
+  })
+
+  it('heart raid damages nest but spikes soft lands', () => {
+    const regions = createInitialRegions()
+    const result = applyAction(
+      {
+        id: 'raid',
+        kind: 'assault',
+        side: 'good',
+        targetRegionId: 'plague_heart',
+        title: 't',
+        description: 'd',
+        cost: 210,
+        amount: 25,
+        affordable: true,
+      },
+      { points: 400, regions, cureProgress: 10, heartHp: 100, lang: 'sv' },
+    )
+    assert.ok(!('error' in result))
+    if ('error' in result) return
+    assert.equal(result.heartHp, 75)
+    assert.ok(result.logSv.includes('Hämnd') || result.logEn.includes('Revenge'))
   })
 
   it('picks majority and host tie-break', () => {
