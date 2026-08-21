@@ -14,7 +14,8 @@ export const TIMEOUT_VICTORY_INFECTION = 40
 /** Realtime hybrid pacing */
 export const COUNCIL_MS = 25_000
 export const RESOLVE_MS = 3_500
-export const WORLD_TICK_MS = 10_000
+export const WORLD_TICK_MS = 7_000
+export const LIVE_EVENT_CAP = 12
 
 export const REGION_ORDER: RegionId[] = [
   'north_kingdom',
@@ -76,20 +77,25 @@ function playable(regions: MapRegion[]) {
 }
 
 /** Small continuous seep while the council deliberates. */
-export function applyWorldTick(regions: MapRegion[], turn: number): MapRegion[] {
+export function applyWorldTick(
+  regions: MapRegion[],
+  turn: number,
+): { regions: MapRegion[]; targetId: RegionId; delta: number } {
   const next = regions.map((r) => ({ ...r }))
   const lands = playable(next)
   const soft = [...lands].sort((a, b) => a.infection - b.infection)
   const target = soft.find((r) => !r.quarantined)
   if (!target) {
-    // All sealed — nest still stews
     const heart = regionById(next, 'plague_heart')
+    const before = heart.infection
     heart.infection = clamp(heart.infection + 1, 0, 100)
-    return next
+    return { regions: next, targetId: 'plague_heart', delta: heart.infection - before }
   }
 
+  const before = target.infection
   let drip = 3 + Math.floor(Math.max(0, turn - 1) * 0.45) + Math.floor(Math.random() * 3)
   target.infection = clamp(target.infection + drip, 0, 100)
+  const delta = target.infection - before
 
   const heart = regionById(next, 'plague_heart')
   heart.infection = clamp(heart.infection + 1, 0, 100)
@@ -100,7 +106,7 @@ export function applyWorldTick(regions: MapRegion[], turn: number): MapRegion[] 
     }
   }
 
-  return next
+  return { regions: next, targetId: target.id, delta }
 }
 
 /**

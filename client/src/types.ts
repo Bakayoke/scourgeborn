@@ -66,6 +66,18 @@ export type TurnResolution = {
   voteCounts: Record<string, number>
 }
 
+export type LiveEventKind = 'seep' | 'breach' | 'good' | 'plague' | 'income' | 'critical'
+
+export type LiveEvent = {
+  id: string
+  at: number
+  kind: LiveEventKind
+  regionId?: RegionId
+  delta?: number
+  textSv: string
+  textEn: string
+}
+
 export type PublicRoom = {
   code: string
   hostId: string
@@ -99,6 +111,7 @@ export type PublicRoom = {
   youAreHost: boolean
   youCanVote: boolean
   maxRounds: number
+  liveEvents: LiveEvent[]
 }
 
 export type PartyInfo = {

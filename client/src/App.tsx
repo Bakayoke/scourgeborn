@@ -32,7 +32,15 @@ import {
 } from './api'
 import { loadLanguage, REGION_LABELS, rememberLanguage, t } from './i18n'
 import { JoinQr } from './qr'
-import type { Lang, MapRegion, PartyInfo, PartyPassLocal, PublicRoom, RegionId } from './types'
+import type {
+  Lang,
+  LiveEvent,
+  MapRegion,
+  PartyInfo,
+  PartyPassLocal,
+  PublicRoom,
+  RegionId,
+} from './types'
 
 const FACTOPIA_URL = 'https://factopia.net'
 const SABOTEXT_URL = 'https://sabotext.com'
@@ -122,6 +130,35 @@ function usePhaseSecondsLeft(endsAt: number) {
   return left
 }
 
+function eventText(ev: LiveEvent, lang: Lang) {
+  return lang === 'en' ? ev.textEn : ev.textSv
+}
+
+function LiveEventTicker({
+  events,
+  lang,
+  label,
+}: {
+  events: LiveEvent[]
+  lang: Lang
+  label: string
+}) {
+  const list = (events ?? []).slice(0, 6)
+  if (list.length === 0) return null
+  return (
+    <div className="live-ticker" aria-live="polite">
+      <span className="live-ticker-label">{label}</span>
+      <ul>
+        {list.map((ev) => (
+          <li key={ev.id} className={`live-item kind-${ev.kind}`}>
+            <span>{eventText(ev, lang)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function WorldMap({
   regions,
   lang,
@@ -140,37 +177,43 @@ function WorldMap({
   onSelect?: (id: RegionId) => void
 }) {
   const prevInfection = useRef<Partial<Record<RegionId, number>>>({})
-  const [seeping, setSeeping] = useState<Partial<Record<RegionId, boolean>>>({})
+  const [fx, setFx] = useState<
+    Partial<Record<RegionId, { delta: number; mode: 'seeping' | 'healing' }>>
+  >({})
 
   useEffect(() => {
-    const rose: RegionId[] = []
+    const changed: RegionId[] = []
+    const nextFx: typeof fx = {}
     for (const r of regions) {
       const prev = prevInfection.current[r.id]
-      if (prev !== undefined && r.infection > prev) rose.push(r.id)
+      if (prev !== undefined && r.infection !== prev) {
+        changed.push(r.id)
+        nextFx[r.id] = {
+          delta: r.infection - prev,
+          mode: r.infection > prev ? 'seeping' : 'healing',
+        }
+      }
       prevInfection.current[r.id] = r.infection
     }
-    if (rose.length === 0) return
-    setSeeping((s) => {
-      const next = { ...s }
-      for (const id of rose) next[id] = true
-      return next
-    })
+    if (changed.length === 0) return
+    setFx((s) => ({ ...s, ...nextFx }))
     const t = window.setTimeout(() => {
-      setSeeping((s) => {
-        const next = { ...s }
-        for (const id of rose) delete next[id]
-        return next
+      setFx((s) => {
+        const copy = { ...s }
+        for (const id of changed) delete copy[id]
+        return copy
       })
-    }, 900)
+    }, 1400)
     return () => window.clearTimeout(t)
   }, [regions])
 
   return (
-    <div className="world-map" aria-label="map">
+    <div className="world-map geo" aria-label="map">
       {regions.map((r) => {
         const isFocus = focusRegionId === r.id
         const isSelected = selectedId === r.id
-        const className = `region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}${isFocus ? ' focus' : ''}${isSelected ? ' selected' : ''}${selectable ? ' clickable' : ''}${seeping[r.id] ? ' seeping' : ''}`
+        const pulse = fx[r.id]
+        const className = `region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}${isFocus ? ' focus' : ''}${isSelected ? ' selected' : ''}${selectable ? ' clickable' : ''}${pulse ? ` ${pulse.mode}` : ''}`
         const style = { ['--infection' as string]: `${r.infection}` }
         const body = (
           <>
@@ -180,6 +223,12 @@ function WorldMap({
             </span>
             <em>{r.infection}%</em>
             {r.quarantined && <small className="quarantine-tag">{quarantineLabel}</small>}
+            {pulse && (
+              <span className={`delta-badge ${pulse.delta > 0 ? 'up' : 'down'}`}>
+                {pulse.delta > 0 ? '+' : ''}
+                {pulse.delta}%
+              </span>
+            )}
           </>
         )
         if (selectable && onSelect) {
@@ -201,6 +250,79 @@ function WorldMap({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function FinaleOverlay({
+  room,
+  ui,
+  busy,
+  onLobby,
+  onEnd,
+}: {
+  room: PublicRoom
+  ui: ReturnType<typeof t>
+  busy: boolean
+  onLobby: () => void
+  onEnd: () => void
+}) {
+  const victory =
+    room.outcome === 'victory_cure' ||
+    room.outcome === 'victory_heart' ||
+    room.outcome === 'victory_contained'
+  const title =
+    room.outcome === 'victory_cure'
+      ? ui.finaleVictoryCureTitle
+      : room.outcome === 'victory_heart'
+        ? ui.finaleVictoryHeartTitle
+        : room.outcome === 'victory_contained'
+          ? ui.finaleVictoryContainedTitle
+          : ui.finaleDefeatTitleLong
+  const subtitle =
+    room.outcome === 'victory_cure'
+      ? ui.outcomeVictoryCure
+      : room.outcome === 'victory_heart'
+        ? ui.outcomeVictoryHeart
+        : room.outcome === 'victory_contained'
+          ? ui.outcomeVictoryContained
+          : ui.outcomeDefeatPlague
+
+  return (
+    <div className={`finale-overlay ${victory ? 'victory' : 'defeat'} outcome-${room.outcome}`}>
+      <div className="finale-card">
+        <p className="finale-kicker">{victory ? ui.finaleVictoryTitle : ui.finaleDefeatTitle}</p>
+        <h2 className="finale-title">{title}</h2>
+        <p className="finale-sub">{subtitle}</p>
+        <div className="finale-stats">
+          <div>
+            <span>{ui.finaleCouncils}</span>
+            <strong>{room.turnIndex}</strong>
+          </div>
+          <div>
+            <span>{ui.finaleInfection}</span>
+            <strong>{room.worldInfection}%</strong>
+          </div>
+          <div>
+            <span>{ui.finaleCure}</span>
+            <strong>{room.cureProgress}%</strong>
+          </div>
+          <div>
+            <span>{ui.finaleHeart}</span>
+            <strong>{room.heartHp}</strong>
+          </div>
+        </div>
+        {room.youAreHost && (
+          <div className="cta-row finale-cta">
+            <button type="button" className="btn" disabled={busy} onClick={onLobby}>
+              {ui.backToLobby}
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={onEnd}>
+              {ui.endParty}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -899,22 +1021,22 @@ function PlayView({
           ? ui.phaseResolve
           : ui.phaseFinished
 
-  const outcomeText =
-    room.outcome === 'victory_cure'
-      ? ui.outcomeVictoryCure
-      : room.outcome === 'victory_heart'
-        ? ui.outcomeVictoryHeart
-        : room.outcome === 'victory_contained'
-          ? ui.outcomeVictoryContained
-          : room.outcome === 'defeat_plague'
-            ? ui.outcomeDefeatPlague
-            : null
+  const playClass = `play${tv ? ' tv' : ''}${tv && canVote ? ' tv-interactive' : ''}${
+    room.status === 'finished' ? ' finale-active' : ''
+  }`
 
   return (
-    <div
-      ref={playRef}
-      className={`play${tv ? ' tv' : ''}${tv && canVote ? ' tv-interactive' : ''}`}
-    >
+    <div ref={playRef} className={playClass}>
+      {room.status === 'finished' && (
+        <FinaleOverlay
+          room={room}
+          ui={ui}
+          busy={busy}
+          onLobby={() => void run(() => backToLobby())}
+          onEnd={() => void run(() => endParty())}
+        />
+      )}
+
       <div className="play-top">
         <div>
           <p className="phase-label">
@@ -1096,11 +1218,14 @@ function PlayView({
         </div>
       )}
 
-            {room.status !== 'lobby' && (
-        <div className="panel game-panel">
-          <h3>{ui.mapTitle}</h3>
+      {room.status !== 'lobby' && room.status !== 'finished' && (
+        <div className="panel game-panel outbreak-monitor">
+          <div className="map-header">
+            <h3>{ui.mapTitle}</h3>
+            <p className="muted map-live-hint">{ui.mapLiveHint}</p>
+          </div>
           {room.focusRegionId && (
-            <p className="muted">
+            <p className="muted focus-line">
               {ui.focusLand}: {regionName(room.focusRegionId, uiLang)}
             </p>
           )}
@@ -1122,8 +1247,10 @@ function PlayView({
             quarantineLabel={ui.quarantined}
           />
 
+          <LiveEventTicker events={room.liveEvents ?? []} lang={uiLang} label={ui.liveFeed} />
+
           {room.status === 'council' && (
-            <div className="council">
+            <div className="council compact-council">
               <p>{ui.voteHint}</p>
               <p className="muted">
                 {room.submittedCount}/{room.submitterCount} {ui.statusReady.toLowerCase()}
@@ -1160,52 +1287,19 @@ function PlayView({
             </div>
           )}
 
-          {(room.status === 'resolve' || room.status === 'finished') && room.lastResolution && (
-            <div className="resolve-log">
-              <h3>{ui.phaseResolve}</h3>
-              <p>
-                <strong>{ui.playerMove}:</strong> {room.lastResolution.playerLog}
-              </p>
-              {room.lastResolution.aiLog && (
-                <p>
-                  <strong>{ui.aiMove}:</strong> {room.lastResolution.aiLog}
-                </p>
+          {room.status === 'resolve' && (
+            <div className="resolve-banner">
+              <p className="muted">{ui.autoAdvance}</p>
+              {room.youAreHost && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-small"
+                  disabled={busy}
+                  onClick={() => void run(() => continueTurn())}
+                >
+                  {ui.continueTurn}
+                </button>
               )}
-              {room.status === 'resolve' && <p className="muted">{ui.autoAdvance}</p>}
-            </div>
-          )}
-
-          {outcomeText && <p className="outcome">{outcomeText}</p>}
-
-          {room.youAreHost && room.status === 'resolve' && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-small"
-              disabled={busy}
-              onClick={() => void run(() => continueTurn())}
-            >
-              {ui.continueTurn}
-            </button>
-          )}
-
-          {room.youAreHost && room.status === 'finished' && (
-            <div className="cta-row">
-              <button
-                type="button"
-                className="btn"
-                disabled={busy}
-                onClick={() => void run(() => backToLobby())}
-              >
-                {ui.backToLobby}
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={busy}
-                onClick={() => void run(() => endParty())}
-              >
-                {ui.endParty}
-              </button>
             </div>
           )}
 
@@ -1222,7 +1316,7 @@ function PlayView({
         </div>
       )}
 
-      {tv && room.status !== 'lobby' && (
+      {tv && room.status !== 'lobby' && room.status !== 'finished' && (
         <div className="tv-hint muted">{ui.tvPhaseHint}</div>
       )}
 

@@ -77,6 +77,18 @@ export type TurnResolution = {
   voteCounts: Record<string, number>
 }
 
+export type LiveEventKind = 'seep' | 'breach' | 'good' | 'plague' | 'income' | 'critical'
+
+export type LiveEvent = {
+  id: string
+  at: number
+  kind: LiveEventKind
+  regionId?: RegionId
+  delta?: number
+  textSv: string
+  textEn: string
+}
+
 export type Room = {
   code: string
   hostId: string
@@ -101,6 +113,7 @@ export type Room = {
   updatedAt: number
   /** Last passive plague seep (realtime) */
   lastWorldTickAt: number
+  liveEvents: LiveEvent[]
 }
 
 export type MapRegion = {
@@ -142,4 +155,5 @@ export type PublicRoom = {
   youAreHost: boolean
   youCanVote: boolean
   maxRounds: number
+  liveEvents: LiveEvent[]
 }

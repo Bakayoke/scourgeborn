@@ -1,6 +1,7 @@
 import { customAlphabet } from 'nanoid'
 import {
   COUNCIL_MS,
+  LIVE_EVENT_CAP,
   RESOLVE_MS,
   STARTING_CURE,
   STARTING_HEART_HP,
@@ -33,6 +34,8 @@ import type {
   ActionOption,
   GameOutcome,
   Lang,
+  LiveEvent,
+  LiveEventKind,
   MapRegion,
   Player,
   PublicRoom,
@@ -134,6 +137,7 @@ function emptyGameFields(): Pick<
   | 'voteOptions'
   | 'lastResolution'
   | 'outcome'
+  | 'liveEvents'
 > {
   return {
     phaseEndsAt: 0,
@@ -148,7 +152,30 @@ function emptyGameFields(): Pick<
     voteOptions: [],
     lastResolution: null,
     outcome: 'ongoing',
+    liveEvents: [],
   }
+}
+
+function pushLiveEvent(
+  room: Room,
+  partial: {
+    kind: LiveEventKind
+    regionId?: RegionId
+    delta?: number
+    textSv: string
+    textEn: string
+  },
+) {
+  const event: LiveEvent = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    at: Date.now(),
+    kind: partial.kind,
+    regionId: partial.regionId,
+    delta: partial.delta,
+    textSv: partial.textSv,
+    textEn: partial.textEn,
+  }
+  room.liveEvents = [event, ...(room.liveEvents ?? [])].slice(0, LIVE_EVENT_CAP)
 }
 
 export function allRooms() {
@@ -243,9 +270,30 @@ export function restoreRooms(list: Room[]) {
       outcome: (raw.outcome as GameOutcome) || 'ongoing',
       notice: raw.notice ?? null,
       updatedAt: raw.updatedAt ?? Date.now(),
+      liveEvents: normalizeLiveEvents(raw.liveEvents),
     }
     rooms.set(room.code, room)
   }
+}
+
+function normalizeLiveEvents(raw: unknown): LiveEvent[] {
+  if (!Array.isArray(raw)) return []
+  const out: LiveEvent[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const e = item as Partial<LiveEvent>
+    if (!e.id || !e.textSv || !e.textEn) continue
+    out.push({
+      id: String(e.id),
+      at: Number(e.at) || 0,
+      kind: (e.kind as LiveEventKind) || 'seep',
+      regionId: e.regionId,
+      delta: typeof e.delta === 'number' ? e.delta : undefined,
+      textSv: String(e.textSv),
+      textEn: String(e.textEn),
+    })
+  }
+  return out.slice(0, LIVE_EVENT_CAP)
 }
 
 function normalizeResolution(raw: unknown): TurnResolution | null {
@@ -639,6 +687,12 @@ function beginCouncil(room: Room, grantIncome: boolean) {
 
   if (grantIncome && income > 0 && room.lastResolution) {
     room.lastResolution = { ...room.lastResolution, incomeGained: income }
+    pushLiveEvent(room, {
+      kind: 'income',
+      delta: income,
+      textSv: `Resurser anländer (+${income}).`,
+      textEn: `Resources arrive (+${income}).`,
+    })
   }
 }
 
@@ -770,8 +824,13 @@ function resolveCouncil(room: Room) {
     room.voteOptions[0]
 
   let playerLog = roomMsg(room, 'Ingen giltig plan.', 'No valid plan.')
+  let playerLogSv = 'Ingen giltig plan.'
+  let playerLogEn = 'No valid plan.'
   let actionId = ''
   let focus: RegionId | null = null
+  const blightBefore = worldInfection(room.regions)
+  const cureBefore = room.cureProgress
+  const heartBefore = room.heartHp
 
   if (option) {
     const applied = applyAction(option, {
@@ -785,16 +844,26 @@ function resolveCouncil(room: Room) {
     focus = option.targetRegionId
     if ('error' in applied) {
       playerLog = applied.error
+      playerLogSv = applied.error
+      playerLogEn = applied.error
     } else {
       room.resourcePoints = applied.points
       room.regions = applied.regions
       room.cureProgress = applied.cureProgress
       room.heartHp = applied.heartHp
+      playerLogSv = applied.logSv
+      playerLogEn = applied.logEn
       playerLog = room.language === 'en' ? applied.logEn : applied.logSv
     }
   }
 
   room.focusRegionId = focus
+  pushLiveEvent(room, {
+    kind: 'good',
+    regionId: focus ?? undefined,
+    textSv: playerLogSv,
+    textEn: playerLogEn,
+  })
 
   const provokedBy = option?.kind ?? null
   const plagueOpts = generatePlagueOptions({
@@ -821,6 +890,15 @@ function resolveCouncil(room: Room) {
     room.cureProgress = aiApplied.cureProgress
     room.heartHp = aiApplied.heartHp
     aiLog = room.language === 'en' ? aiApplied.logEn : aiApplied.logSv
+    const plagueKind: LiveEventKind =
+      aiOpt.kind === 'breach' ? 'breach' : 'plague'
+    pushLiveEvent(room, {
+      kind: plagueKind,
+      regionId: aiOpt.targetRegionId,
+      delta: aiOpt.amount,
+      textSv: aiApplied.logSv,
+      textEn: aiApplied.logEn,
+    })
   }
 
   // Quarantines eventually fray
@@ -828,6 +906,32 @@ function resolveCouncil(room: Room) {
     if (r.id !== 'plague_heart' && r.quarantined && Math.random() < 0.22) {
       r.quarantined = false
     }
+  }
+
+  const blightAfter = worldInfection(room.regions)
+  if (blightAfter >= 60 && blightBefore < 60) {
+    pushLiveEvent(room, {
+      kind: 'critical',
+      delta: blightAfter,
+      textSv: `KRITISKT: världssmitta ${blightAfter}%.`,
+      textEn: `CRITICAL: world infection ${blightAfter}%.`,
+    })
+  }
+  if (room.cureProgress >= 70 && cureBefore < 70) {
+    pushLiveEvent(room, {
+      kind: 'critical',
+      delta: room.cureProgress,
+      textSv: `Botemedlet närmar sig (${room.cureProgress}%).`,
+      textEn: `The cure nears completion (${room.cureProgress}%).`,
+    })
+  }
+  if (room.heartHp <= 35 && heartBefore > 35) {
+    pushLiveEvent(room, {
+      kind: 'critical',
+      delta: room.heartHp,
+      textSv: `Smittans hjärta vacklar (${room.heartHp} HP).`,
+      textEn: `The Plague Heart falters (${room.heartHp} HP).`,
+    })
   }
 
   room.lastResolution = {
@@ -916,8 +1020,19 @@ export function onPhaseTimeout(room: Room) {
   let changed = false
 
   if (room.status === 'council' && now - (room.lastWorldTickAt || 0) >= WORLD_TICK_MS) {
-    room.regions = applyWorldTick(room.regions, room.turnIndex)
+    const tick = applyWorldTick(room.regions, room.turnIndex)
+    room.regions = tick.regions
     room.lastWorldTickAt = now
+    room.focusRegionId = tick.targetId
+    const nameSv = labelRegion(tick.targetId, 'sv')
+    const nameEn = labelRegion(tick.targetId, 'en')
+    pushLiveEvent(room, {
+      kind: 'seep',
+      regionId: tick.targetId,
+      delta: tick.delta,
+      textSv: `LIVE: pesten kryper i ${nameSv} (+${tick.delta}%).`,
+      textEn: `LIVE: plague seeps in ${nameEn} (+${tick.delta}%).`,
+    })
     room.outcome = evaluateOutcome({
       regions: room.regions,
       cureProgress: room.cureProgress,
@@ -927,6 +1042,11 @@ export function onPhaseTimeout(room: Room) {
     if (room.outcome !== 'ongoing') {
       room.status = 'finished'
       room.phaseEndsAt = 0
+      pushLiveEvent(room, {
+        kind: 'critical',
+        textSv: 'Världen kollapsar under smittan.',
+        textEn: 'The world collapses under the blight.',
+      })
       touch(room)
       return
     }
@@ -1055,6 +1175,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     youAreHost: Boolean(viewer && viewer.id === room.hostId),
     youCanVote: Boolean(viewerId && needed.includes(viewerId)),
     maxRounds: limits.maxRounds,
+    liveEvents: room.liveEvents ?? [],
   }
 }
 

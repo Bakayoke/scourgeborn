@@ -773,6 +773,75 @@ input:focus {
   margin: 0.75rem 0 1rem;
 }
 
+.world-map.geo {
+  grid-template-columns: 1fr 1.15fr 1fr;
+  grid-template-rows: minmax(5.2rem, auto) minmax(6.2rem, auto) minmax(5.2rem, auto);
+  gap: 0.5rem;
+  margin: 0.35rem 0 0.85rem;
+  padding: 0.65rem;
+  border-radius: calc(var(--radius) + 4px);
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 48%, rgba(120, 40, 30, 0.22), transparent 70%),
+    radial-gradient(ellipse 80% 60% at 50% 20%, rgba(40, 70, 45, 0.18), transparent 65%),
+    rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(90, 140, 70, 0.22);
+  min-height: 18rem;
+}
+
+.world-map.geo .region-north_kingdom {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.world-map.geo .region-elf_woods {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.world-map.geo .region-plague_heart {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 6.5rem;
+  z-index: 1;
+}
+
+.world-map.geo .region-eastern_wastes {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.world-map.geo .region-southern_ports {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.world-map.geo .region-heartlands {
+  grid-column: 2 / 4;
+  grid-row: 3;
+}
+
+.map-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  margin-bottom: 0.15rem;
+}
+
+.map-header h3 {
+  margin: 0;
+}
+
+.map-live-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.focus-line {
+  margin: 0 0 0.35rem;
+}
+
 .region-tile {
   position: relative;
   min-height: 5.5rem;
@@ -796,7 +865,7 @@ input:focus {
   font: inherit;
   width: 100%;
   cursor: default;
-  transition: background 0.85s ease, box-shadow 0.4s ease;
+  transition: background 0.85s ease, box-shadow 0.4s ease, transform 0.35s ease;
 }
 
 .region-tile.seeping {
@@ -804,6 +873,63 @@ input:focus {
   box-shadow:
     inset 0 0 30px rgba(0, 0, 0, 0.28),
     0 0 0 1px rgba(180, 58, 44, 0.55);
+}
+
+.region-tile.healing {
+  animation: healPulse 0.9s ease;
+  box-shadow:
+    inset 0 0 30px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(90, 180, 100, 0.55);
+}
+
+.region-tile.focus {
+  transform: scale(1.03);
+  box-shadow:
+    inset 0 0 30px rgba(0, 0, 0, 0.28),
+    0 0 0 2px rgba(212, 196, 120, 0.85),
+    0 0 28px rgba(184, 74, 50, 0.35);
+  z-index: 2;
+}
+
+.delta-badge {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  font-family: var(--font-stamp);
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 2px;
+  animation: deltaPop 1.4s ease both;
+  pointer-events: none;
+}
+
+.delta-badge.up {
+  background: rgba(140, 30, 24, 0.92);
+  color: #ffd6cf;
+}
+
+.delta-badge.down {
+  background: rgba(35, 90, 48, 0.92);
+  color: #d7f0c8;
+}
+
+@keyframes deltaPop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.85);
+  }
+  18% {
+    opacity: 1;
+    transform: translateY(0) scale(1.05);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
 }
 
 @keyframes seepPulse {
@@ -818,6 +944,257 @@ input:focus {
   }
 }
 
+@keyframes healPulse {
+  0% {
+    filter: brightness(1);
+  }
+  35% {
+    filter: brightness(1.2) saturate(1.15);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+.live-ticker {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(184, 74, 50, 0.35);
+  border-left: 3px solid #b84a32;
+  background: rgba(8, 12, 10, 0.55);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.live-ticker-label {
+  display: inline-block;
+  font-family: var(--font-stamp);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #e8a090;
+  margin-bottom: 0.35rem;
+  animation: liveBlink 1.4s ease infinite;
+}
+
+@keyframes liveBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.live-ticker ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.live-item {
+  font-family: var(--font-stamp);
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+  animation: tickerIn 0.45s ease both;
+  color: var(--ink);
+}
+
+.live-item.kind-seep,
+.live-item.kind-plague,
+.live-item.kind-breach {
+  color: #e8b4a8;
+}
+
+.live-item.kind-good,
+.live-item.kind-income {
+  color: #c5e0a8;
+}
+
+.live-item.kind-critical {
+  color: #f0d060;
+  font-weight: 600;
+}
+
+@keyframes tickerIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.compact-council .vote-options {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.compact-council .vote-card {
+  padding: 0.7rem 0.8rem;
+  min-height: 0;
+}
+
+.compact-council .vote-card span {
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.resolve-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.play.finale-active .meters,
+.play.finale-active .play-top {
+  opacity: 0.35;
+  filter: saturate(0.7);
+}
+
+.finale-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 30%, rgba(70, 110, 55, 0.28), transparent 60%),
+    rgba(6, 10, 8, 0.82);
+  animation: finaleRise 0.55s ease both;
+  box-sizing: border-box;
+}
+
+.finale-overlay.defeat {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 35%, rgba(120, 30, 24, 0.4), transparent 60%),
+    rgba(8, 6, 6, 0.88);
+}
+
+.finale-overlay.victory.outcome-victory_cure {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 28%, rgba(180, 200, 90, 0.32), transparent 58%),
+    rgba(6, 10, 8, 0.82);
+}
+
+.finale-overlay.victory.outcome-victory_heart {
+  background:
+    radial-gradient(ellipse 65% 50% at 50% 40%, rgba(184, 74, 50, 0.35), transparent 55%),
+    rgba(6, 10, 8, 0.82);
+}
+
+.finale-card {
+  width: min(34rem, 100%);
+  padding: 1.75rem 1.5rem 1.5rem;
+  border: 1px solid rgba(212, 196, 120, 0.35);
+  background:
+    linear-gradient(165deg, rgba(20, 28, 22, 0.95), rgba(10, 14, 12, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  animation: finaleCard 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+
+.finale-kicker {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-stamp);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  color: var(--blight);
+  animation: titleSting 0.8s ease both;
+}
+
+.finale-overlay.defeat .finale-kicker {
+  color: #e8a090;
+}
+
+.finale-title {
+  margin: 0 0 0.65rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 5vw, 2.4rem);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  text-shadow: 0 0 28px var(--blight-glow);
+  animation: titleSting 0.9s ease 0.08s both;
+}
+
+.finale-sub {
+  margin: 0 0 1.25rem;
+  font-family: var(--font-stamp);
+  font-size: 1.05rem;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+.finale-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.finale-stats div {
+  padding: 0.55rem 0.35rem;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(90, 140, 70, 0.2);
+}
+
+.finale-stats span {
+  display: block;
+  font-family: var(--font-stamp);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 0.2rem;
+}
+
+.finale-stats strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.finale-cta {
+  justify-content: center;
+}
+
+@keyframes finaleRise {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes finaleCard {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes titleSting {
+  from {
+    opacity: 0;
+    letter-spacing: 0.35em;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+
 .region-tile.clickable {
   cursor: pointer;
 }
@@ -831,13 +1208,6 @@ input:focus {
 .region-tile.selected {
   outline: 2px solid rgba(232, 210, 120, 0.95);
   outline-offset: 2px;
-}
-
-.region-tile.focus {
-  box-shadow:
-    inset 0 0 30px rgba(0, 0, 0, 0.28),
-    0 0 0 2px rgba(120, 190, 140, 0.85),
-    0 0 18px rgba(90, 160, 110, 0.35);
 }
 
 .region-tile:nth-child(1) {
@@ -1154,11 +1524,23 @@ input:focus {
 
 .play.tv .world-map {
   flex: 1;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   min-height: min(52vh, 560px);
   gap: 0.75rem;
   margin: 0.35rem 0 0.75rem;
   align-content: stretch;
+}
+
+.play.tv .world-map.geo {
+  grid-template-columns: 1fr 1.2fr 1fr;
+  grid-template-rows: minmax(7rem, 1fr) minmax(9rem, 1.2fr) minmax(7rem, 1fr);
+}
+
+.play.tv .live-ticker {
+  font-size: 1.05rem;
+}
+
+.play.tv .live-item {
+  font-size: 1.1rem;
 }
 
 .play.tv .region-tile {
@@ -1247,6 +1629,30 @@ input:focus {
   }
 
   .world-map {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .world-map.geo {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+    min-height: 0;
+  }
+
+  .world-map.geo .region-north_kingdom,
+  .world-map.geo .region-elf_woods,
+  .world-map.geo .region-plague_heart,
+  .world-map.geo .region-eastern_wastes,
+  .world-map.geo .region-southern_ports,
+  .world-map.geo .region-heartlands {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .world-map.geo .region-plague_heart {
+    grid-column: 1 / -1;
+  }
+
+  .finale-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

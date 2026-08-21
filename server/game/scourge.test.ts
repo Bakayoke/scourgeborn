@@ -156,9 +156,11 @@ describe('scourge defenders', () => {
     const regions = createInitialRegions()
     const before = worldInfection(regions)
     const next = applyWorldTick(regions, 4)
-    assert.ok(worldInfection(next) >= before)
-    const heart = next.find((r) => r.id === 'plague_heart')!
+    assert.ok(worldInfection(next.regions) >= before)
+    const heart = next.regions.find((r) => r.id === 'plague_heart')!
     const heartBefore = regions.find((r) => r.id === 'plague_heart')!.infection
     assert.ok(heart.infection >= heartBefore)
+    assert.ok(next.delta >= 1)
+    assert.ok(next.targetId)
   })
 })

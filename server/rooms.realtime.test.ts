@@ -73,6 +73,21 @@ describe('realtime hybrid pacing', () => {
     onPhaseTimeout(room)
     assert.equal(room.status, 'council')
     assert.ok(worldSum(room.regions) > before)
+    assert.ok(room.liveEvents.some((e) => e.kind === 'seep'))
+  })
+
+  it('records live events on council resolve', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-rt-events', 'sv')
+    const started = startGame(room.code, hostId)
+    assert.ok(!('error' in started))
+    if ('error' in started) return
+
+    room.phaseEndsAt = Date.now() - 1
+    onPhaseTimeout(room)
+    assert.ok(room.liveEvents.some((e) => e.kind === 'good'))
+    assert.ok(room.liveEvents.some((e) => e.kind === 'plague' || e.kind === 'breach'))
+    const pub = toPublicRoom(room, hostId)
+    assert.ok(pub.liveEvents.length >= 2)
   })
 })
 
