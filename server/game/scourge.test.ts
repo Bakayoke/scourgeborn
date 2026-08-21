@@ -21,22 +21,54 @@ describe('scourge defenders', () => {
     assert.ok(worldInfection(regions) < 50)
   })
 
-  it('offers distinct strategy cards each council', () => {
-    const options = generatePlayerOptions({
+  it('offers rotating distinct strategy cards', () => {
+    const a = generatePlayerOptions({
       lang: 'sv',
       points: 520,
       regions: createInitialRegions(),
       turn: 1,
-      cureProgress: 8,
+      cureProgress: 0,
       heartHp: 100,
     })
-    assert.ok(options.length >= 4)
-    const kinds = new Set(options.map((o) => o.kind))
-    assert.ok(kinds.has('quarantine'))
-    assert.ok(kinds.has('cleanse'))
-    assert.ok(kinds.has('triage'))
-    assert.ok(kinds.has('research') || kinds.has('assault'))
-    assert.ok(options.every((o) => o.side === 'good'))
+    const b = generatePlayerOptions({
+      lang: 'sv',
+      points: 520,
+      regions: createInitialRegions(),
+      turn: 2,
+      cureProgress: 0,
+      heartHp: 100,
+    })
+    assert.ok(a.length === 4)
+    assert.ok(b.length === 4)
+    assert.ok(a.every((o) => o.side === 'good'))
+    const titlesA = a.map((o) => o.title).join('|')
+    const titlesB = b.map((o) => o.title).join('|')
+    assert.notEqual(titlesA, titlesB)
+    const research = a.find((o) => o.kind === 'research') ?? b.find((o) => o.kind === 'research')
+    if (research) assert.ok((research.amount ?? 0) <= 12)
+  })
+
+  it('research is a slow grind under blight pressure', () => {
+    const regions = createInitialRegions().map((r) =>
+      r.id === 'plague_heart' ? r : { ...r, infection: 62 },
+    )
+    const result = applyAction(
+      {
+        id: 'r',
+        kind: 'research',
+        side: 'good',
+        targetRegionId: 'heartlands',
+        title: 't',
+        description: 'd',
+        cost: 170,
+        amount: 8,
+        affordable: true,
+      },
+      { points: 400, regions, cureProgress: 20, heartHp: 100, lang: 'sv' },
+    )
+    assert.ok(!('error' in result))
+    if ('error' in result) return
+    assert.ok(result.cureProgress - 20 <= 5)
   })
 
   it('lets plague AI pick from its own option cards', () => {

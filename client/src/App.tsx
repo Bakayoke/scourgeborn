@@ -159,6 +159,24 @@ function LiveEventTicker({
   )
 }
 
+const REGION_PATHS: Record<RegionId, string> = {
+  north_kingdom:
+    'M150 18 L210 28 L245 55 L230 95 L175 105 L125 88 L118 48 Z',
+  elf_woods: 'M28 95 L95 78 L118 120 L105 175 L55 190 L22 155 L18 118 Z',
+  eastern_wastes: 'M275 85 L355 70 L382 115 L370 175 L310 195 L265 155 L270 110 Z',
+  southern_ports: 'M55 210 L130 198 L155 245 L125 295 L60 285 L35 240 Z',
+  heartlands: 'M165 215 L255 205 L290 250 L250 300 L170 305 L140 260 Z',
+  plague_heart: 'M175 125 L225 118 L250 155 L220 195 L170 190 L155 155 Z',
+}
+
+function landFill(infection: number) {
+  const t = Math.max(0, Math.min(100, infection)) / 100
+  const r = Math.round(45 + t * 140)
+  const g = Math.round(110 - t * 80)
+  const b = Math.round(55 - t * 30)
+  return `rgb(${r},${g},${b})`
+}
+
 function WorldMap({
   regions,
   lang,
@@ -197,59 +215,118 @@ function WorldMap({
     }
     if (changed.length === 0) return
     setFx((s) => ({ ...s, ...nextFx }))
-    const t = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setFx((s) => {
         const copy = { ...s }
         for (const id of changed) delete copy[id]
         return copy
       })
     }, 1400)
-    return () => window.clearTimeout(t)
+    return () => window.clearTimeout(timer)
   }, [regions])
 
+  const byId = Object.fromEntries(regions.map((r) => [r.id, r])) as Record<
+    RegionId,
+    MapRegion
+  >
+  const order: RegionId[] = [
+    'north_kingdom',
+    'elf_woods',
+    'eastern_wastes',
+    'southern_ports',
+    'heartlands',
+    'plague_heart',
+  ]
+  const centers: Record<RegionId, [number, number]> = {
+    north_kingdom: [178, 58],
+    elf_woods: [68, 135],
+    eastern_wastes: [322, 130],
+    southern_ports: [95, 248],
+    heartlands: [215, 255],
+    plague_heart: [200, 155],
+  }
+
   return (
-    <div className="world-map geo" aria-label="map">
-      {regions.map((r) => {
-        const isFocus = focusRegionId === r.id
-        const isSelected = selectedId === r.id
-        const pulse = fx[r.id]
-        const className = `region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}${isFocus ? ' focus' : ''}${isSelected ? ' selected' : ''}${selectable ? ' clickable' : ''}${pulse ? ` ${pulse.mode}` : ''}`
-        const style = { ['--infection' as string]: `${r.infection}` }
-        const body = (
-          <>
-            <strong>{regionName(r.id, lang)}</strong>
-            <span className="blight-meter">
-              <i style={{ width: `${r.infection}%` }} />
-            </span>
-            <em>{r.infection}%</em>
-            {r.quarantined && <small className="quarantine-tag">{quarantineLabel}</small>}
-            {pulse && (
-              <span className={`delta-badge ${pulse.delta > 0 ? 'up' : 'down'}`}>
-                {pulse.delta > 0 ? '+' : ''}
-                {pulse.delta}%
-              </span>
-            )}
-          </>
-        )
-        if (selectable && onSelect) {
+    <div className="world-map svg-map" aria-label="map">
+      <svg viewBox="0 0 400 320" role="img" className="outbreak-svg">
+        <defs>
+          <radialGradient id="nestGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(184,74,50,0.55)" />
+            <stop offset="100%" stopColor="rgba(184,74,50,0)" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="200" cy="160" rx="55" ry="48" fill="url(#nestGlow)" />
+        {order.map((id) => {
+          const r = byId[id]
+          if (!r) return null
+          const isFocus = focusRegionId === id
+          const isSelected = selectedId === id
+          const pulse = fx[id]
+          const className = `land-path${r.quarantined ? ' quarantined' : ''}${
+            isFocus ? ' focus' : ''
+          }${isSelected ? ' selected' : ''}${pulse ? ` ${pulse.mode}` : ''}${
+            id === 'plague_heart' ? ' nest' : ''
+          }`
+          if (selectable && onSelect) {
+            return (
+              <path
+                key={id}
+                d={REGION_PATHS[id]}
+                className={className}
+                fill={landFill(r.infection)}
+                strokeWidth={isFocus || isSelected ? 2.5 : 1.25}
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelect(id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onSelect(id)
+                }}
+              />
+            )
+          }
           return (
-            <button
-              key={r.id}
-              type="button"
+            <path
+              key={id}
+              d={REGION_PATHS[id]}
               className={className}
-              style={style}
-              onClick={() => onSelect(r.id)}
-            >
-              {body}
-            </button>
+              fill={landFill(r.infection)}
+              strokeWidth={isFocus || isSelected ? 2.5 : 1.25}
+            />
           )
-        }
-        return (
-          <div key={r.id} className={className} style={style}>
-            {body}
-          </div>
-        )
-      })}
+        })}
+        {order.map((id) => {
+          const r = byId[id]
+          if (!r) return null
+          const pulse = fx[id]
+          const [x, y] = centers[id]
+          return (
+            <g key={`label-${id}`} className="land-label" pointerEvents="none">
+              <text x={x} y={y - 6} textAnchor="middle" className="land-name">
+                {regionName(id, lang)}
+              </text>
+              <text x={x} y={y + 10} textAnchor="middle" className="land-pct">
+                {r.infection}%
+              </text>
+              {r.quarantined && (
+                <text x={x} y={y + 24} textAnchor="middle" className="land-q">
+                  {quarantineLabel}
+                </text>
+              )}
+              {pulse && (
+                <text
+                  x={x + 28}
+                  y={y - 18}
+                  textAnchor="middle"
+                  className={`land-delta ${pulse.delta > 0 ? 'up' : 'down'}`}
+                >
+                  {pulse.delta > 0 ? '+' : ''}
+                  {pulse.delta}%
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
     </div>
   )
 }
@@ -260,12 +337,14 @@ function FinaleOverlay({
   busy,
   onLobby,
   onEnd,
+  onLeave,
 }: {
   room: PublicRoom
   ui: ReturnType<typeof t>
   busy: boolean
   onLobby: () => void
   onEnd: () => void
+  onLeave: () => void
 }) {
   const victory =
     room.outcome === 'victory_cure' ||
@@ -289,9 +368,15 @@ function FinaleOverlay({
           : ui.outcomeDefeatPlague
 
   return (
-    <div className={`finale-overlay ${victory ? 'victory' : 'defeat'} outcome-${room.outcome}`}>
+    <div
+      className={`finale-overlay ${victory ? 'victory' : 'defeat'} outcome-${
+        room.outcome || 'defeat_plague'
+      }`}
+    >
       <div className="finale-card">
-        <p className="finale-kicker">{victory ? ui.finaleVictoryTitle : ui.finaleDefeatTitle}</p>
+        <p className="finale-kicker">
+          {victory ? ui.finaleVictoryTitle : ui.finaleDefeatTitle}
+        </p>
         <h2 className="finale-title">{title}</h2>
         <p className="finale-sub">{subtitle}</p>
         <div className="finale-stats">
@@ -312,16 +397,44 @@ function FinaleOverlay({
             <strong>{room.heartHp}</strong>
           </div>
         </div>
-        {room.youAreHost && (
-          <div className="cta-row finale-cta">
-            <button type="button" className="btn" disabled={busy} onClick={onLobby}>
-              {ui.backToLobby}
-            </button>
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={onEnd}>
-              {ui.endParty}
-            </button>
+        {room.lastResolution && (
+          <div className="finale-log">
+            <p>
+              <strong>{ui.playerMove}:</strong> {room.lastResolution.playerLog}
+            </p>
+            {room.lastResolution.aiLog && (
+              <p>
+                <strong>{ui.aiMove}:</strong> {room.lastResolution.aiLog}
+              </p>
+            )}
           </div>
         )}
+        <p className="muted finale-roster">
+          {ui.tvRoster}:{' '}
+          {room.players
+            .filter((p) => !p.spectator)
+            .map((p) => p.name)
+            .join(', ') || '—'}
+        </p>
+        <div className="cta-row finale-cta">
+          {room.youAreHost ? (
+            <>
+              <button type="button" className="btn" disabled={busy} onClick={onLobby}>
+                {ui.backToLobby}
+              </button>
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={onEnd}>
+                {ui.endParty}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="muted">{ui.waitingHostFinale}</p>
+              <button type="button" className="btn btn-ghost" onClick={onLeave}>
+                {ui.leave}
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -1034,6 +1147,7 @@ function PlayView({
           busy={busy}
           onLobby={() => void run(() => backToLobby())}
           onEnd={() => void run(() => endParty())}
+          onLeave={leave}
         />
       )}
 

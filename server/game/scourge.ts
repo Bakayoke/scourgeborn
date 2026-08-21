@@ -1,15 +1,15 @@
 import type { ActionKind, ActionOption, Lang, MapRegion, RegionId } from '../types.js'
 
 export const MIN_PLAYERS = 0
-export const STARTING_RESOURCE_POINTS = 520
-export const BASE_INCOME = 220
+export const STARTING_RESOURCE_POINTS = 480
+export const BASE_INCOME = 180
 export const WIN_CURE_PROGRESS = 100
-export const WIN_CONTAINED_INFECTION = 22
-export const LOSE_WORLD_INFECTION = 78
+export const WIN_CONTAINED_INFECTION = 18
+export const LOSE_WORLD_INFECTION = 72
 export const LOSE_HEART_HP = 0
 export const STARTING_HEART_HP = 100
-export const STARTING_CURE = 8
-export const TIMEOUT_VICTORY_INFECTION = 40
+export const STARTING_CURE = 0
+export const TIMEOUT_VICTORY_INFECTION = 35
 
 /** Realtime hybrid pacing */
 export const COUNCIL_MS = 25_000
@@ -93,7 +93,7 @@ export function applyWorldTick(
   }
 
   const before = target.infection
-  let drip = 3 + Math.floor(Math.max(0, turn - 1) * 0.45) + Math.floor(Math.random() * 3)
+  let drip = 4 + Math.floor(Math.max(0, turn - 1) * 0.55) + Math.floor(Math.random() * 3)
   target.infection = clamp(target.infection + drip, 0, 100)
   const delta = target.infection - before
 
@@ -110,8 +110,7 @@ export function applyWorldTick(
 }
 
 /**
- * Four sharp strategies each council (Plague Inc, but you are the cure):
- * lockdown · purge · worldwide triage · research OR strike the nest.
+ * Rotating strategy deck — each council feels different; cure is a long grind.
  */
 export function generatePlayerOptions(opts: {
   lang: Lang
@@ -124,88 +123,135 @@ export function generatePlayerOptions(opts: {
   const { lang, points, regions, turn } = opts
   const cureProgress = opts.cureProgress ?? 0
   const heartHp = opts.heartHp ?? STARTING_HEART_HP
+  const blight = worldInfection(regions)
   const lands = [...playable(regions)].sort((a, b) => b.infection - a.infection)
   const hottest = lands[0]!
-  const hotName = labelRegion(hottest.id, lang)
-  const options: ActionOption[] = []
+  const second = lands[1] ?? lands[0]!
+  const softest = [...playable(regions)].sort((a, b) => a.infection - b.infection)[0]!
+  const sealed = lands.find((r) => r.quarantined)
+  const pool: ActionOption[] = []
 
-  // 1) LOCKDOWN — buys time, does not heal much
-  const qCost = hottest.quarantined ? 90 : 150
-  options.push({
-    id: `quarantine:${hottest.id}:${turn}`,
-    kind: 'quarantine',
-    side: 'good',
-    targetRegionId: hottest.id,
-    title: lang === 'en' ? `Total lockdown: ${hotName}` : `Total lockdown i ${hotName}`,
-    description:
-      lang === 'en'
-        ? 'Seal borders. Blocks plague seep there; light cleanse (−8%). Time, not a cure.'
-        : 'Stäng gränserna. Blockerar sipprande där; lätt rensning (−8%). Tid, inte bot.',
-    cost: qCost,
-    amount: 8,
-    affordable: points >= qCost,
-  })
+  {
+    const target = sealed && turn % 3 === 0 ? sealed : hottest
+    const name = labelRegion(target.id, lang)
+    const qCost = target.quarantined ? 110 : 155
+    pool.push({
+      id: `quarantine:${target.id}:${turn}`,
+      kind: 'quarantine',
+      side: 'good',
+      targetRegionId: target.id,
+      title:
+        lang === 'en'
+          ? target.quarantined
+            ? `Reinforce lockdown: ${name}`
+            : `Lockdown ${name}`
+          : target.quarantined
+            ? `Förstärk lockdown: ${name}`
+            : `Lockdown ${name}`,
+      description:
+        lang === 'en'
+          ? 'Buy time. Blocks seep there (−6%). Does not win the war.'
+          : 'Köp tid. Blockerar sipprande (−6%). Vinner inte kriget.',
+      cost: qCost,
+      amount: 6,
+      affordable: points >= qCost,
+    })
+  }
 
-  // 2) PURGE — huge local swing
-  const purgeAmt = 28 + Math.floor(Math.random() * 10) + Math.min(8, Math.floor(hottest.infection / 12))
-  const purgeCost = 130 + Math.floor(hottest.infection * 0.35)
-  options.push({
-    id: `cleanse:${hottest.id}:${turn}`,
-    kind: 'cleanse',
-    side: 'good',
-    targetRegionId: hottest.id,
-    title: lang === 'en' ? `Purge ${hotName}` : `Rensa ut ${hotName}`,
-    description:
-      lang === 'en'
-        ? `Aggressive treatment (−${purgeAmt}% infection). Leaves other lands bleeding.`
-        : `Aggressiv behandling (−${purgeAmt}% smitta). Andra länder blöder vidare.`,
-    cost: purgeCost,
-    amount: purgeAmt,
-    affordable: points >= purgeCost,
-  })
+  {
+    const target = turn % 2 === 0 ? hottest : softest.infection < 40 ? softest : hottest
+    const name = labelRegion(target.id, lang)
+    const purgeAmt =
+      18 + Math.floor(Math.random() * 7) + Math.min(6, Math.floor(target.infection / 15))
+    const purgeCost = 140 + Math.floor(target.infection * 0.4)
+    pool.push({
+      id: `cleanse:${target.id}:${turn}`,
+      kind: 'cleanse',
+      side: 'good',
+      targetRegionId: target.id,
+      title:
+        lang === 'en'
+          ? target.id === hottest.id
+            ? `Purge ${name}`
+            : `Stabilize ${name}`
+          : target.id === hottest.id
+            ? `Rensa ut ${name}`
+            : `Stabilisera ${name}`,
+      description:
+        lang === 'en'
+          ? `Field treatment (−${purgeAmt}%). One land only.`
+          : `Fältbehandling (−${purgeAmt}%). Ett land bara.`,
+      cost: purgeCost,
+      amount: purgeAmt,
+      affordable: points >= purgeCost,
+    })
+  }
 
-  // 3) WORLDWIDE TRIAGE — shallow everywhere
-  const triageAmt = 9 + Math.floor(Math.min(4, turn / 2))
-  const triageCost = 170
-  options.push({
-    id: `triage:heartlands:${turn}`,
-    kind: 'triage',
-    side: 'good',
-    targetRegionId: 'heartlands',
-    title: lang === 'en' ? 'Worldwide field hospitals' : 'Världsomfattande fältsjukhus',
-    description:
-      lang === 'en'
-        ? `Treat every kingdom (−${triageAmt}% each). Broad, not deep.`
-        : `Behandla varje rike (−${triageAmt}% var). Brett, inte djupt.`,
-    cost: triageCost,
-    amount: triageAmt,
-    affordable: points >= triageCost,
-  })
+  {
+    const triageAmt = 6 + Math.min(3, Math.floor(turn / 3))
+    pool.push({
+      id: `triage:heartlands:${turn}`,
+      kind: 'triage',
+      side: 'good',
+      targetRegionId: 'heartlands',
+      title: lang === 'en' ? 'Worldwide triage' : 'Världstriage',
+      description:
+        lang === 'en'
+          ? `Every kingdom −${triageAmt}%. Stops collapse, not a cure.`
+          : `Varje rike −${triageAmt}%. Stoppar kollaps, inte ett bot.`,
+      cost: 185,
+      amount: triageAmt,
+      affordable: points >= 185,
+    })
+  }
 
-  // 4) Win-path: cure race OR nest strike — pick the more dramatic one
-  const preferCure =
-    cureProgress < 55 || heartHp > 55 || (turn % 2 === 1 && cureProgress < 80)
-  if (preferCure) {
-    const gain = 18 + Math.floor(Math.random() * 8) + Math.floor(Math.min(6, turn))
-    const rCost = 175
-    options.push({
+  if (second.id !== hottest.id) {
+    const name = labelRegion(second.id, lang)
+    const amt = 12 + Math.floor(Math.random() * 5)
+    pool.push({
+      id: `aid:${second.id}:${turn}`,
+      kind: 'cleanse',
+      side: 'good',
+      targetRegionId: second.id,
+      title: lang === 'en' ? `Aid convoy to ${name}` : `Hjälpkonvoj till ${name}`,
+      description:
+        lang === 'en'
+          ? `Relief (−${amt}%). A different front.`
+          : `Nödhjälp (−${amt}%). En annan front.`,
+      cost: 125,
+      amount: amt,
+      affordable: points >= 125,
+    })
+  }
+
+  {
+    const baseGain = 5 + Math.floor(Math.random() * 3) + Math.min(3, Math.floor(turn / 4))
+    const pressureCut = blight >= 55 ? Math.ceil(baseGain * 0.45) : 0
+    const gain = Math.max(2, baseGain - pressureCut)
+    const rCost = 170 + Math.floor(cureProgress * 0.9)
+    pool.push({
       id: `research:heartlands:${turn}`,
       kind: 'research',
       side: 'good',
       targetRegionId: 'heartlands',
-      title: lang === 'en' ? 'All-in on the cure' : 'All-in på botemedlet',
+      title: lang === 'en' ? 'Fund the cure' : 'Finansiera botemedlet',
       description:
         lang === 'en'
-          ? `Lab surge (+${gain} cure). The map is undefended — the plague will answer.`
-          : `Labbsatsning (+${gain} bot). Kartan oförsvarad — pesten kommer svara.`,
+          ? blight >= 55
+            ? `Labs under pressure (+${gain} cure). High infection slows research.`
+            : `Slow lab work (+${gain} cure). Map stays undefended.`
+          : blight >= 55
+            ? `Labben pressade (+${gain} bot). Hög smitta bromsar.`
+            : `Långsamt labbjobb (+${gain} bot). Kartan oförsvarad.`,
       cost: rCost,
       amount: gain,
       affordable: points >= rCost,
     })
-  } else {
-    const dmg = 22 + Math.floor(Math.random() * 10)
-    const aCost = 210
-    options.push({
+  }
+
+  {
+    const dmg = 14 + Math.floor(Math.random() * 6) + Math.min(4, Math.floor((100 - heartHp) / 20))
+    pool.push({
       id: `assault:plague_heart:${turn}`,
       kind: 'assault',
       side: 'good',
@@ -213,51 +259,57 @@ export function generatePlayerOptions(opts: {
       title: lang === 'en' ? 'Raid the Plague Heart' : 'Räd mot Smittans hjärta',
       description:
         lang === 'en'
-          ? `Heavy strike (−${dmg} HP). Expect revenge outbreaks across soft lands.`
-          : `Hårt slag (−${dmg} HP). Räkna med hämndutbrott i mjuka länder.`,
-      cost: aCost,
+          ? `Strike (−${dmg} HP). Soft lands take revenge outbreaks.`
+          : `Slå (−${dmg} HP). Mjuka länder får hämndutbrott.`,
+      cost: 220,
       amount: dmg,
-      affordable: points >= aCost,
+      affordable: points >= 220,
     })
   }
 
-  // Late game: always surface the missing win path as a 5th high-stakes card
-  if (turn >= 4 && preferCure && heartHp <= 70) {
-    const dmg = 18 + Math.floor(Math.random() * 8)
-    options.push({
-      id: `assault:plague_heart:${turn}`,
-      kind: 'assault',
-      side: 'good',
-      targetRegionId: 'plague_heart',
-      title: lang === 'en' ? 'Desperate raid on the nest' : 'Desperat räd mot nästet',
-      description:
-        lang === 'en'
-          ? `Strike for −${dmg} HP. Risky — plague rage follows.`
-          : `Slå för −${dmg} HP. Riskabelt — pestvrede följer.`,
-      cost: 190,
-      amount: dmg,
-      affordable: points >= 190,
-    })
-  }
-  if (turn >= 4 && !preferCure && cureProgress < 90) {
-    const gain = 16 + Math.floor(Math.random() * 7)
-    options.push({
-      id: `research:heartlands:${turn}`,
-      kind: 'research',
-      side: 'good',
-      targetRegionId: 'heartlands',
-      title: lang === 'en' ? 'Emergency cure funding' : 'Nödfinansiering av botemedlet',
-      description:
-        lang === 'en'
-          ? `Labs surge (+${gain} cure). Boots stay off the map.`
-          : `Labben rusar (+${gain} bot). Stövlarna stannar hemma.`,
-      cost: 165,
-      amount: gain,
-      affordable: points >= 165,
-    })
+  const rotations: (ActionKind | 'aid')[][] = [
+    ['quarantine', 'cleanse', 'research', 'triage'],
+    ['cleanse', 'assault', 'quarantine', 'research'],
+    ['triage', 'research', 'cleanse', 'quarantine'],
+    ['assault', 'quarantine', 'aid', 'triage'],
+    ['research', 'cleanse', 'assault', 'quarantine'],
+    ['quarantine', 'triage', 'assault', 'research'],
+  ]
+  // 'aid' is cleanse with id prefix aid — treat specially
+  const wanted = rotations[(Math.max(1, turn) - 1) % rotations.length]!
+  const picked: ActionOption[] = []
+  const used = new Set<string>()
+
+  for (const slot of wanted) {
+    let match: ActionOption | undefined
+    if (slot === 'aid') {
+      match = pool.find((o) => o.id.startsWith('aid:') && !used.has(o.id))
+    } else {
+      match = pool.find((o) => o.kind === slot && !o.id.startsWith('aid:') && !used.has(o.id))
+    }
+    if (match) {
+      picked.push(match)
+      used.add(match.id)
+    }
   }
 
-  return options.map((o) => ({ ...o, affordable: points >= o.cost }))
+  for (const o of pool) {
+    if (picked.length >= 4) break
+    if (used.has(o.id)) continue
+    picked.push(o)
+    used.add(o.id)
+  }
+
+  if (cureProgress >= 60 && !picked.some((p) => p.kind === 'research')) {
+    const research = pool.find((o) => o.kind === 'research')
+    if (research) picked[3] = research
+  }
+  if (heartHp <= 40 && !picked.some((p) => p.kind === 'assault')) {
+    const assault = pool.find((o) => o.kind === 'assault')
+    if (assault) picked[3] = assault
+  }
+
+  return picked.slice(0, 4).map((o) => ({ ...o, affordable: points >= o.cost }))
 }
 
 /** Plague AI picks counters — especially when provoked by the council's last move. */
@@ -278,13 +330,13 @@ export function generatePlagueOptions(opts: {
 
   const rage =
     provokedBy === 'research' || provokedBy === 'assault'
-      ? 1.45
+      ? 1.55
       : provokedBy === 'triage' || provokedBy === 'cleanse'
-        ? 1.15
+        ? 1.2
         : 1
 
   const spreadAmt = Math.round(
-    (9 + Math.floor(Math.max(0, turn - 1) * 1.1) + Math.floor(Math.random() * 6)) * rage,
+    (10 + Math.floor(Math.max(0, turn - 1) * 1.25) + Math.floor(Math.random() * 6)) * rage,
   )
   const softName = labelRegion(soft.id, lang)
   options.push({
@@ -349,9 +401,9 @@ export function generatePlagueOptions(opts: {
     })
   }
 
-  if (cureProgress >= 15) {
+  if (cureProgress >= 12) {
     const cut =
-      (provokedBy === 'research' ? 9 : 5) + Math.floor(Math.random() * 5)
+      (provokedBy === 'research' ? 11 : 6) + Math.floor(Math.random() * 6)
     options.push({
       id: `sabotage:heartlands:${turn}`,
       kind: 'sabotage',
@@ -439,39 +491,37 @@ export function applyAction(
   switch (option.kind) {
     case 'quarantine': {
       region.quarantined = true
-      const light = option.amount ?? 8
+      const light = option.amount ?? 6
       region.infection = clamp(region.infection - light, 0, 100)
-      logSv = `Total lockdown i ${nameSv} (−${light}%, förseglad).`
-      logEn = `Total lockdown in ${nameEn} (−${light}%, sealed).`
+      logSv = `Lockdown i ${nameSv} (−${light}%, förseglad).`
+      logEn = `Lockdown in ${nameEn} (−${light}%, sealed).`
       break
     }
     case 'cleanse': {
-      const amt = option.amount ?? 28
+      const amt = option.amount ?? 18
       region.infection = clamp(region.infection - amt, 0, 100)
       if (region.infection < 20) region.quarantined = false
-      cureProgress = clamp(cureProgress + 1, 0, 100)
-      logSv = `Utrensning i ${nameSv} (−${amt}%).`
-      logEn = `Purge in ${nameEn} (−${amt}%).`
+      logSv = `Behandling i ${nameSv} (−${amt}%).`
+      logEn = `Treatment in ${nameEn} (−${amt}%).`
       break
     }
     case 'triage': {
-      const amt = option.amount ?? 9
+      const amt = option.amount ?? 6
       for (const r of playable(regions)) {
         r.infection = clamp(r.infection - amt, 0, 100)
       }
-      logSv = `Fältsjukhus världen över (−${amt}% i varje rike).`
-      logEn = `Field hospitals worldwide (−${amt}% in every kingdom).`
+      logSv = `Världstriage (−${amt}% i varje rike).`
+      logEn = `Worldwide triage (−${amt}% in every kingdom).`
       break
     }
     case 'assault': {
-      const dmg = option.amount ?? 22
+      const dmg = option.amount ?? 14
       heartHp = clamp(heartHp - dmg, 0, 100)
-      region.infection = clamp(region.infection - 10, 0, 100)
-      // Revenge: softest open lands spike
+      region.infection = clamp(region.infection - 8, 0, 100)
       const soft = [...playable(regions)]
         .filter((r) => !r.quarantined)
         .sort((a, b) => a.infection - b.infection)
-      const revenge = 10 + Math.floor(Math.random() * 6)
+      const revenge = 12 + Math.floor(Math.random() * 7)
       for (const r of soft.slice(0, 2)) {
         r.infection = clamp(r.infection + revenge, 0, 100)
       }
@@ -488,10 +538,21 @@ export function applyAction(
       break
     }
     case 'research': {
-      const gain = option.amount ?? 18
+      let gain = option.amount ?? 5
+      const blight = worldInfection(regions)
+      if (blight >= 70) gain = Math.max(1, Math.floor(gain * 0.35))
+      else if (blight >= 55) gain = Math.max(2, Math.floor(gain * 0.55))
+      // Diminishing returns as the cure nears completion
+      gain = Math.max(1, Math.floor(gain * (1 - cureProgress / 180)))
       cureProgress = clamp(cureProgress + gain, 0, 100)
-      logSv = `All-in på botemedlet (+${gain}). Kartan lämnas öppen.`
-      logEn = `All-in on the cure (+${gain}). The map is left open.`
+      logSv =
+        blight >= 55
+          ? `Botemedlet kryper fram (+${gain}) under smitttryck.`
+          : `Botemedlet avancerar (+${gain}). Kartan lämnas öppen.`
+      logEn =
+        blight >= 55
+          ? `The cure inches forward (+${gain}) under blight pressure.`
+          : `The cure advances (+${gain}). The map is left open.`
       break
     }
     case 'spread': {
@@ -547,7 +608,7 @@ export function evaluateOutcome(state: {
   if (state.cureProgress >= WIN_CURE_PROGRESS) return 'victory_cure'
   const blight = worldInfection(state.regions)
   if (blight >= LOSE_WORLD_INFECTION) return 'defeat_plague'
-  if (blight <= WIN_CONTAINED_INFECTION && state.cureProgress >= 40) return 'victory_contained'
+  if (blight <= WIN_CONTAINED_INFECTION && state.cureProgress >= 50) return 'victory_contained'
   return 'ongoing'
 }
 
