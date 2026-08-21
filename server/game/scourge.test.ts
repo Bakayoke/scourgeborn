@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   applyAction,
+  applyWorldTick,
   createInitialRegions,
   evaluateOutcome,
   generatePlagueOptions,
@@ -99,5 +100,15 @@ describe('scourge defenders', () => {
       r.id === 'plague_heart' ? r : { ...r, infection: 85 },
     )
     assert.equal(evaluateOutcome({ regions, cureProgress: 20, heartHp: 80 }), 'defeat_plague')
+  })
+
+  it('seeps infection on world ticks', () => {
+    const regions = createInitialRegions()
+    const before = worldInfection(regions)
+    const next = applyWorldTick(regions, 4)
+    assert.ok(worldInfection(next) >= before)
+    const heart = next.find((r) => r.id === 'plague_heart')!
+    const heartBefore = regions.find((r) => r.id === 'plague_heart')!.infection
+    assert.ok(heart.infection >= heartBefore)
   })
 })

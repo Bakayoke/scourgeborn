@@ -107,6 +107,21 @@ function regionName(id: RegionId, lang: Lang) {
   return REGION_LABELS[id][lang]
 }
 
+function usePhaseSecondsLeft(endsAt: number) {
+  const [left, setLeft] = useState(0)
+  useEffect(() => {
+    if (!endsAt) {
+      setLeft(0)
+      return
+    }
+    const tick = () => setLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)))
+    tick()
+    const id = setInterval(tick, 200)
+    return () => clearInterval(id)
+  }, [endsAt])
+  return left
+}
+
 function WorldMap({
   regions,
   lang,
@@ -124,12 +139,38 @@ function WorldMap({
   quarantineLabel: string
   onSelect?: (id: RegionId) => void
 }) {
+  const prevInfection = useRef<Partial<Record<RegionId, number>>>({})
+  const [seeping, setSeeping] = useState<Partial<Record<RegionId, boolean>>>({})
+
+  useEffect(() => {
+    const rose: RegionId[] = []
+    for (const r of regions) {
+      const prev = prevInfection.current[r.id]
+      if (prev !== undefined && r.infection > prev) rose.push(r.id)
+      prevInfection.current[r.id] = r.infection
+    }
+    if (rose.length === 0) return
+    setSeeping((s) => {
+      const next = { ...s }
+      for (const id of rose) next[id] = true
+      return next
+    })
+    const t = window.setTimeout(() => {
+      setSeeping((s) => {
+        const next = { ...s }
+        for (const id of rose) delete next[id]
+        return next
+      })
+    }, 900)
+    return () => window.clearTimeout(t)
+  }, [regions])
+
   return (
     <div className="world-map" aria-label="map">
       {regions.map((r) => {
         const isFocus = focusRegionId === r.id
         const isSelected = selectedId === r.id
-        const className = `region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}${isFocus ? ' focus' : ''}${isSelected ? ' selected' : ''}${selectable ? ' clickable' : ''}`
+        const className = `region-tile region-${r.id}${r.quarantined ? ' quarantined' : ''}${isFocus ? ' focus' : ''}${isSelected ? ' selected' : ''}${selectable ? ' clickable' : ''}${seeping[r.id] ? ' seeping' : ''}`
         const style = { ['--infection' as string]: `${r.infection}` }
         const body = (
           <>
@@ -779,6 +820,9 @@ function PlayView({
     typeof room.youCanVote === 'boolean'
       ? room.youCanVote && !room.youAreSpectator
       : !room.youAreSpectator && (!room.youAreHost || soloHost)
+  const secondsLeft = usePhaseSecondsLeft(
+    room.status === 'council' || room.status === 'resolve' ? room.phaseEndsAt : 0,
+  )
 
   useEffect(() => {
     function onFullscreenChange() {
@@ -873,7 +917,14 @@ function PlayView({
     >
       <div className="play-top">
         <div>
-          <p className="phase-label">{phaseTitle}</p>
+          <p className="phase-label">
+            {phaseTitle}
+            {secondsLeft > 0 && (
+              <span className={`phase-timer${secondsLeft <= 5 ? ' urgent' : ''}`}>
+                {secondsLeft} {ui.timerLeft}
+              </span>
+            )}
+          </p>
           {room.status !== 'lobby' && (
             <p className="muted">
               {ui.turnOf} {room.turnIndex}
@@ -1120,7 +1171,7 @@ function PlayView({
                   <strong>{ui.aiMove}:</strong> {room.lastResolution.aiLog}
                 </p>
               )}
-              {room.status === 'resolve' && <p className="muted">{ui.incomeNext}</p>}
+              {room.status === 'resolve' && <p className="muted">{ui.autoAdvance}</p>}
             </div>
           )}
 
@@ -1129,7 +1180,7 @@ function PlayView({
           {room.youAreHost && room.status === 'resolve' && (
             <button
               type="button"
-              className="btn"
+              className="btn btn-ghost btn-small"
               disabled={busy}
               onClick={() => void run(() => continueTurn())}
             >

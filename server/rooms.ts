@@ -1,10 +1,14 @@
 import { customAlphabet } from 'nanoid'
 import {
+  COUNCIL_MS,
+  RESOLVE_MS,
   STARTING_CURE,
   STARTING_HEART_HP,
   STARTING_RESOURCE_POINTS,
   TIMEOUT_VICTORY_INFECTION,
+  WORLD_TICK_MS,
   applyAction,
+  applyWorldTick,
   createInitialRegions,
   evaluateOutcome,
   generatePlagueOptions,
@@ -119,6 +123,7 @@ function midGame(status: RoomStatus): boolean {
 function emptyGameFields(): Pick<
   Room,
   | 'phaseEndsAt'
+  | 'lastWorldTickAt'
   | 'turnIndex'
   | 'resourcePoints'
   | 'regions'
@@ -132,6 +137,7 @@ function emptyGameFields(): Pick<
 > {
   return {
     phaseEndsAt: 0,
+    lastWorldTickAt: 0,
     turnIndex: 0,
     resourcePoints: STARTING_RESOURCE_POINTS,
     regions: createInitialRegions(),
@@ -221,6 +227,7 @@ export function restoreRooms(list: Room[]) {
       isPublic: Boolean(raw.isPublic),
       waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
       phaseEndsAt: Number(raw.phaseEndsAt) || 0,
+      lastWorldTickAt: Number(raw.lastWorldTickAt) || 0,
       turnIndex: Number(raw.turnIndex) || 0,
       resourcePoints:
         Number(raw.resourcePoints) ||
@@ -624,7 +631,9 @@ function beginCouncil(room: Room, grantIncome: boolean) {
     regions: room.regions,
     turn: room.turnIndex,
   })
-  room.phaseEndsAt = 0
+  const now = Date.now()
+  room.phaseEndsAt = now + COUNCIL_MS
+  room.lastWorldTickAt = now
 
   if (grantIncome && income > 0 && room.lastResolution) {
     room.lastResolution = { ...room.lastResolution, incomeGained: income }
@@ -671,26 +680,30 @@ export function continueTurn(code: string, playerId: string): Room | { error: st
   if (room.status !== 'resolve') {
     return { error: roomMsg(room, 'Vänta till resolven', 'Wait for the resolve phase') }
   }
+  advanceFromResolve(room)
+  touch(room)
+  return room
+}
+
+function advanceFromResolve(room: Room) {
   if (room.outcome !== 'ongoing') {
     room.status = 'finished'
-    touch(room)
-    return room
+    room.phaseEndsAt = 0
+    return
   }
 
   const limits = roomLimits(room)
   if (limits.maxRounds > 0 && room.turnIndex >= limits.maxRounds) {
     room.status = 'finished'
+    room.phaseEndsAt = 0
     room.outcome =
       worldInfection(room.regions) <= TIMEOUT_VICTORY_INFECTION
         ? 'victory_contained'
         : 'defeat_plague'
-    touch(room)
-    return room
+    return
   }
 
   beginCouncil(room, true)
-  touch(room)
-  return room
 }
 
 export function endParty(code: string, playerId: string): Room | { error: string } {
@@ -830,7 +843,7 @@ function resolveCouncil(room: Room) {
   })
   room.status = room.outcome === 'ongoing' ? 'resolve' : 'finished'
   room.votes = {}
-  room.phaseEndsAt = 0
+  room.phaseEndsAt = room.status === 'resolve' ? Date.now() + RESOLVE_MS : 0
   touch(room)
 }
 
@@ -892,10 +905,55 @@ export function castActionVote(code: string, playerId: string, optionId: string)
   return castVote(code, playerId, optionId)
 }
 
-export function onPhaseTimeout(_room: Room) {}
+export function onPhaseTimeout(room: Room) {
+  if (!midGame(room.status) || room.outcome !== 'ongoing') return
+
+  const now = Date.now()
+  let changed = false
+
+  if (room.status === 'council' && now - (room.lastWorldTickAt || 0) >= WORLD_TICK_MS) {
+    room.regions = applyWorldTick(room.regions, room.turnIndex)
+    room.lastWorldTickAt = now
+    room.outcome = evaluateOutcome({
+      regions: room.regions,
+      cureProgress: room.cureProgress,
+      heartHp: room.heartHp,
+    })
+    changed = true
+    if (room.outcome !== 'ongoing') {
+      room.status = 'finished'
+      room.phaseEndsAt = 0
+      touch(room)
+      return
+    }
+  }
+
+  if (room.phaseEndsAt > 0 && now >= room.phaseEndsAt) {
+    if (room.status === 'council') {
+      resolveCouncil(room)
+      return
+    }
+    if (room.status === 'resolve') {
+      advanceFromResolve(room)
+      touch(room)
+      return
+    }
+  }
+
+  if (changed) touch(room)
+}
 
 export function roomsNeedingTick(): Room[] {
-  return []
+  const now = Date.now()
+  const out: Room[] = []
+  for (const room of rooms.values()) {
+    if (!midGame(room.status) || room.outcome !== 'ongoing') continue
+    const phaseDue = room.phaseEndsAt > 0 && now >= room.phaseEndsAt
+    const worldDue =
+      room.status === 'council' && now - (room.lastWorldTickAt || 0) >= WORLD_TICK_MS
+    if (phaseDue || worldDue) out.push(room)
+  }
+  return out
 }
 
 export function pruneIdleRooms() {

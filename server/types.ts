@@ -98,6 +98,8 @@ export type Room = {
   outcome: GameOutcome
   notice: RoomNotice | null
   updatedAt: number
+  /** Last passive plague seep (realtime) */
+  lastWorldTickAt: number
 }
 
 export type MapRegion = {

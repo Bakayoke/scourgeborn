@@ -11,6 +11,11 @@ export const STARTING_HEART_HP = 100
 export const STARTING_CURE = 8
 export const TIMEOUT_VICTORY_INFECTION = 40
 
+/** Realtime hybrid pacing */
+export const COUNCIL_MS = 25_000
+export const RESOLVE_MS = 3_500
+export const WORLD_TICK_MS = 10_000
+
 export const REGION_ORDER: RegionId[] = [
   'north_kingdom',
   'elf_woods',
@@ -68,6 +73,30 @@ function regionById(regions: MapRegion[], id: RegionId): MapRegion {
 
 function playable(regions: MapRegion[]) {
   return regions.filter((r) => r.id !== 'plague_heart')
+}
+
+/** Small continuous seep while the council deliberates. */
+export function applyWorldTick(regions: MapRegion[], turn: number): MapRegion[] {
+  const next = regions.map((r) => ({ ...r }))
+  const lands = playable(next)
+  const soft = [...lands].sort((a, b) => a.infection - b.infection)
+  const target = soft.find((r) => !r.quarantined) ?? soft[0]
+  if (!target) return next
+
+  let drip = 2 + Math.floor(Math.max(0, turn - 2) * 0.35) + Math.floor(Math.random() * 2)
+  if (target.quarantined) drip = Math.max(1, Math.floor(drip * 0.4))
+  target.infection = clamp(target.infection + drip, 0, 100)
+
+  const heart = regionById(next, 'plague_heart')
+  heart.infection = clamp(heart.infection + 1, 0, 100)
+
+  if (Math.random() < 0.12) {
+    for (const r of lands) {
+      if (r.quarantined && Math.random() < 0.35) r.quarantined = false
+    }
+  }
+
+  return next
 }
 
 /** One card = one complete choice (land + contain action). Players pick exactly one. */
