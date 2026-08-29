@@ -1,5 +1,5 @@
 import { ROOM_UPDATE_CHANNEL } from '../persist.js'
-import type { Player, RitualTask, Room } from '../types.js'
+import type { Patient, Player, Room } from '../types.js'
 
 const ROOM_TTL_SEC = 60 * 60 * 24
 
@@ -12,11 +12,11 @@ function playersKey(code: string) {
 function playerKey(code: string, id: string) {
   return `scourgeborn:room:${code}:player:${id}`
 }
-function tasksKey(code: string) {
-  return `scourgeborn:room:${code}:tasks`
+function patientsKey(code: string) {
+  return `scourgeborn:room:${code}:patients`
 }
-function toolsKey(code: string) {
-  return `scourgeborn:room:${code}:tools`
+function labKey(code: string) {
+  return `scourgeborn:room:${code}:lab`
 }
 function blobKey(code: string) {
   return `scourgeborn:room:${code}:blob`
@@ -38,17 +38,10 @@ export async function saveRoomToRedis(redis: RedisClient, room: Room): Promise<v
     language: room.language,
     status: room.status,
     mode: room.mode,
-    matrixHealth: String(room.matrixHealth),
-    cycle: String(room.cycle),
-    maxCycles: String(room.maxCycles),
-    gameStartedAt: String(room.gameStartedAt),
-    afflictionAt: String(room.afflictionAt),
-    afflictionTriggered: room.afflictionTriggered ? '1' : '0',
-    scourgeMeter: String(room.scourgeMeter),
-    miasmaUntil: String(room.miasmaUntil),
-    soloSurvivalMs: String(room.soloSurvivalMs),
-    outcome: room.outcome,
-    phaseEndsAt: String(room.phaseEndsAt),
+    score: String(room.score),
+    misses: String(room.misses),
+    lastTickAt: String(room.lastTickAt),
+    lastSpawnAt: String(room.lastSpawnAt),
     updatedAt: String(room.updatedAt),
     premiumExpiresAt: String(room.premiumExpiresAt ?? 0),
     isPublic: room.isPublic ? '1' : '0',
@@ -59,24 +52,23 @@ export async function saveRoomToRedis(redis: RedisClient, room: Room): Promise<v
   pipeline.del(playersKey(code))
   for (const p of room.players) {
     pipeline.sAdd(playersKey(code), p.id)
+    const ls = room.lab[p.id]
     pipeline.hSet(playerKey(code, p.id), {
       id: p.id,
       name: p.name,
       connected: p.connected ? '1' : '0',
       spectator: p.spectator ? '1' : '0',
-      role: room.roles[p.id] ?? 'keeper',
+      assignedStation: ls?.assignedStation ?? 'extractor',
+      itemInHand: ls?.itemInHand ?? '',
     })
   }
 
-  pipeline.del(tasksKey(code))
-  for (const task of room.tasks) {
-    pipeline.rPush(tasksKey(code), JSON.stringify(task))
+  pipeline.del(patientsKey(code))
+  for (const patient of room.patients) {
+    pipeline.rPush(patientsKey(code), JSON.stringify(patient))
   }
 
-  pipeline.del(toolsKey(code))
-  for (const [playerId, tools] of Object.entries(room.playerTools)) {
-    pipeline.hSet(toolsKey(code), playerId, JSON.stringify(tools))
-  }
+  pipeline.set(labKey(code), JSON.stringify(room.lab), { EX: ROOM_TTL_SEC })
 
   const blob = JSON.stringify({
     ...room,
@@ -86,8 +78,7 @@ export async function saveRoomToRedis(redis: RedisClient, room: Room): Promise<v
   pipeline.sAdd(roomIndexKey(), code)
   pipeline.expire(metaKey(code), ROOM_TTL_SEC)
   pipeline.expire(playersKey(code), ROOM_TTL_SEC)
-  pipeline.expire(tasksKey(code), ROOM_TTL_SEC)
-  pipeline.expire(toolsKey(code), ROOM_TTL_SEC)
+  pipeline.expire(patientsKey(code), ROOM_TTL_SEC)
 
   await pipeline.exec()
   await redis.publish(ROOM_UPDATE_CHANNEL, code)
@@ -97,7 +88,9 @@ export async function loadRoomFromRedis(redis: RedisClient, code: string): Promi
   const c = code.toUpperCase().trim()
   const raw = await redis.get(blobKey(c))
   if (!raw) return null
-  return JSON.parse(typeof raw === 'string' ? raw : raw.toString()) as Room
+  const parsed = JSON.parse(typeof raw === 'string' ? raw : String(raw)) as Room
+  if (!parsed?.lab && !parsed?.patients) return null
+  return parsed
 }
 
 export async function loadRoomMetaFromRedis(
@@ -116,12 +109,12 @@ export async function loadConnectedPlayerIds(
   return redis.sMembers(playersKey(code.toUpperCase()))
 }
 
-export async function loadTasksFromRedis(
+export async function loadPatientsFromRedis(
   redis: RedisClient,
   code: string,
-): Promise<RitualTask[]> {
-  const list: string[] = await redis.lRange(tasksKey(code.toUpperCase()), 0, -1)
-  return list.map((s) => JSON.parse(s) as RitualTask)
+): Promise<Patient[]> {
+  const list: string[] = await redis.lRange(patientsKey(code.toUpperCase()), 0, -1)
+  return list.map((s) => JSON.parse(s) as Patient)
 }
 
 export async function deleteRoomFromRedis(redis: RedisClient, code: string): Promise<void> {
@@ -130,8 +123,8 @@ export async function deleteRoomFromRedis(redis: RedisClient, code: string): Pro
   const keys = [
     metaKey(c),
     playersKey(c),
-    tasksKey(c),
-    toolsKey(c),
+    patientsKey(c),
+    labKey(c),
     blobKey(c),
     ...ids.map((id) => playerKey(c, id)),
   ]

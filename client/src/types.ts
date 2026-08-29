@@ -1,49 +1,29 @@
 export type Lang = 'sv' | 'en'
-export type RoomStatus = 'lobby' | 'ritual' | 'affliction' | 'cleansing' | 'cycle_end' | 'finished'
+export type RoomStatus = 'lobby' | 'playing' | 'gameover'
 export type GameMode = 'solo' | 'multi'
-export type KeeperRole = 'keeper' | 'scourgeborn'
-export type GameOutcome = 'ongoing' | 'keepers_win' | 'scourgeborn_win'
-export type TaskKind = 'crystal' | 'glyphs' | 'essence'
-export type ToolId =
-  | 'crystal_slider'
-  | 'glyph_board'
-  | 'essence_valve'
-  | 'miasma_cloud'
-  | 'sabotage_pulse'
+export type Station = 'extractor' | 'synthesizer' | 'incubator'
+
+export type ItemId =
+  | 'red_rna'
+  | 'blue_rna'
+  | 'purple_rna'
+  | 'heated_purple_rna'
+  | 'cooled_blue_rna'
+
+export type Patient = {
+  id: string
+  requiredVaccine: ItemId
+  timeRemaining: number
+  maxTime: number
+}
 
 export type Player = {
   id: string
   name: string
   connected: boolean
   spectator?: boolean
-  role?: KeeperRole
-}
-
-export type PublicTask = {
-  id: string
-  kind: TaskKind
-  titleSv: string
-  titleEn: string
-  deadlineAt: number
-  targetCrystal: number
-  glyphSequence: string[]
-  glyphProgress: number
-  glyphHint: string
-  essenceMin: number
-  essenceMax: number
-  essenceValue: number
-  assignedPlayerIds: string[]
-  completed: boolean
-  failed: boolean
-}
-
-export type CleansingVoteState = {
-  initiatedBy: string
-  votes: Record<string, string>
-  deadlineAt: number
-  resolved: boolean
-  result: 'sealed_scourge' | 'sealed_innocent' | 'skipped' | 'no_majority' | null
-  sealedId: string | null
+  assignedStation?: Station
+  itemInHand?: ItemId | null
 }
 
 export type PublicRoom = {
@@ -58,38 +38,20 @@ export type PublicRoom = {
   limits: { maxPlayers: number; maxRounds: number; freePack: boolean }
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  phaseEndsAt: number
-  matrixHealth: number
-  cycle: number
-  maxCycles: number
-  afflictionAt: number
-  afflictionTriggered: boolean
-  tasks: PublicTask[]
-  yourTools: ToolId[]
-  yourRole: KeeperRole | null
-  showAffliction: boolean
-  scourgeMeter: number
-  miasmaActive: boolean
-  cleansing: CleansingVoteState | null
-  youCleansingVoted: boolean
-  soloSurvivalMs: number
-  outcome: GameOutcome
+  score: number
+  misses: number
+  maxMisses: number
+  patients: Patient[]
+  yourStation: Station
+  yourActiveStation: Station
+  itemInHand: ItemId | null
+  synthSlot: ItemId | null
   lastEvent: string | null
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
+  canStartSolo: boolean
   minPlayersMulti: number
-}
-
-export type PartyInfo = {
-  enabled: boolean
-  amountLabel: string
-  weekAmountLabel: string
-  durationHours: number
-  weekDurationHours: number
-  firstPartyPercentOff: number
-  firstPartyDayLabel: string
-  firstPartyWeekLabel: string
 }
 
 export type Session = {

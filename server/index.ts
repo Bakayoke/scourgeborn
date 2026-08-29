@@ -20,12 +20,9 @@ import {
   subscribeRoomUpdates,
 } from './persist.js'
 import {
-  acknowledgeAffliction,
   applyPartyToken,
   allRooms,
   backToLobby,
-  callCleansingRite,
-  cleansingVote,
   createRoom,
   endParty,
   getBinding,
@@ -33,6 +30,7 @@ import {
   handleDisconnect,
   hydrateRoom,
   joinRoom,
+  labAction,
   onPhaseTimeout,
   previewRoom,
   pruneIdleRooms,
@@ -40,7 +38,6 @@ import {
   redeemParty,
   reloadRoomFromStore,
   restoreRooms,
-  ritualToolAction,
   roomsNeedingTick,
   setLanguage,
   setBroadcastHook,
@@ -320,42 +317,15 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('ritualTool', (payload, ack) => {
+  socket.on('labAction', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = ritualToolAction(
+    const result = labAction(
       binding.code,
       binding.playerId,
-      String(payload?.tool ?? '') as never,
+      String(payload?.action ?? ''),
       (payload?.data as Record<string, unknown>) ?? {},
     )
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('acknowledgeAffliction', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = acknowledgeAffliction(binding.code, binding.playerId)
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('callCleansingRite', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = callCleansingRite(binding.code, binding.playerId)
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('cleansingVote', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = cleansingVote(binding.code, binding.playerId, String(payload?.targetId ?? 'skip'))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

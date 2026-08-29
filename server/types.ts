@@ -23,51 +23,32 @@ export type RoomNotice = {
 
 export type GameMode = 'solo' | 'multi'
 
-export type RoomStatus =
-  | 'lobby'
-  | 'ritual'
-  | 'affliction'
-  | 'cleansing'
-  | 'cycle_end'
-  | 'finished'
+export type RoomStatus = 'lobby' | 'playing' | 'gameover'
 
-export type KeeperRole = 'keeper' | 'scourgeborn'
+export type Station = 'extractor' | 'synthesizer' | 'incubator'
 
-export type TaskKind = 'crystal' | 'glyphs' | 'essence'
+/** Craftable / deliverable items */
+export type ItemId =
+  | 'red_rna'
+  | 'blue_rna'
+  | 'purple_rna'
+  | 'heated_purple_rna'
+  | 'cooled_blue_rna'
 
-export type ToolId =
-  | 'crystal_slider'
-  | 'glyph_board'
-  | 'essence_valve'
-  | 'miasma_cloud'
-  | 'sabotage_pulse'
-
-export type GameOutcome = 'ongoing' | 'keepers_win' | 'scourgeborn_win'
-
-export type RitualTask = {
+export type Patient = {
   id: string
-  kind: TaskKind
-  titleSv: string
-  titleEn: string
-  deadlineAt: number
-  targetCrystal: number
-  glyphSequence: string[]
-  glyphProgress: number
-  essenceMin: number
-  essenceMax: number
-  essenceValue: number
-  assignedPlayerIds: string[]
-  completed: boolean
-  failed: boolean
+  requiredVaccine: ItemId
+  timeRemaining: number
+  maxTime: number
 }
 
-export type CleansingVoteState = {
-  initiatedBy: string
-  votes: Record<string, string>
-  deadlineAt: number
-  resolved: boolean
-  result: 'sealed_scourge' | 'sealed_innocent' | 'skipped' | 'no_majority' | null
-  sealedId: string | null
+export type LabPlayerState = {
+  assignedStation: Station
+  /** Solo: which station tab is active */
+  activeStation: Station
+  itemInHand: ItemId | null
+  /** Synthesizer holds one input while waiting for the second */
+  synthSlot: ItemId | null
 }
 
 export type Room = {
@@ -82,34 +63,25 @@ export type Room = {
   waitlist: { id: string; name: string; at: number }[]
   notice: RoomNotice | null
   updatedAt: number
-  phaseEndsAt: number
-  matrixHealth: number
-  cycle: number
-  maxCycles: number
-  gameStartedAt: number
-  afflictionAt: number
-  afflictionTriggered: boolean
-  roles: Record<string, KeeperRole>
-  afflictionSeen: Record<string, boolean>
-  tasks: RitualTask[]
-  playerTools: Record<string, ToolId[]>
-  scourgeMeter: number
-  miasmaUntil: number
-  cleansing: CleansingVoteState | null
-  soloSurvivalMs: number
-  outcome: GameOutcome
+  score: number
+  misses: number
+  patients: Patient[]
+  lab: Record<string, LabPlayerState>
+  lastTickAt: number
+  lastSpawnAt: number
   lastEventSv: string | null
   lastEventEn: string | null
 }
 
-export type PublicTask = Omit<RitualTask, 'glyphSequence'> & {
-  glyphHint: string
+export type PublicLabPlayer = Player & {
+  assignedStation: Station
+  itemInHand: ItemId | null
 }
 
 export type PublicRoom = {
   code: string
   hostId: string
-  players: (Player & { role?: KeeperRole })[]
+  players: PublicLabPlayer[]
   language: Lang
   status: RoomStatus
   mode: GameMode
@@ -118,25 +90,18 @@ export type PublicRoom = {
   limits: PremiumLimits
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  phaseEndsAt: number
-  matrixHealth: number
-  cycle: number
-  maxCycles: number
-  afflictionAt: number
-  afflictionTriggered: boolean
-  tasks: PublicTask[]
-  yourTools: ToolId[]
-  yourRole: KeeperRole | null
-  showAffliction: boolean
-  scourgeMeter: number
-  miasmaActive: boolean
-  cleansing: CleansingVoteState | null
-  youCleansingVoted: boolean
-  soloSurvivalMs: number
-  outcome: GameOutcome
+  score: number
+  misses: number
+  maxMisses: number
+  patients: Patient[]
+  yourStation: Station
+  yourActiveStation: Station
+  itemInHand: ItemId | null
+  synthSlot: ItemId | null
   lastEvent: string | null
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
+  canStartSolo: boolean
   minPlayersMulti: number
 }

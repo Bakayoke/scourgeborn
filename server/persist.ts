@@ -79,7 +79,7 @@ async function redisBackend(url: string): Promise<Backend> {
     async load() {
       const raw = await client.get(key)
       if (!raw) return null
-      return JSON.parse(typeof raw === 'string' ? raw : raw.toString()) as PersistedSnapshot
+      return JSON.parse(typeof raw === 'string' ? raw : String(raw)) as PersistedSnapshot
     },
     async save(snapshot) {
       const now = Date.now()

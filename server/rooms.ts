@@ -1,25 +1,19 @@
 import { customAlphabet } from 'nanoid'
 import {
-  AFFLICTION_MODAL_MS,
-  CYCLE_BREAK_MS,
+  MAX_MISSES,
   MIN_MULTI_PLAYERS,
-  activePlayerIds,
-  advanceCycle,
-  allAfflictionSeen,
-  applyToolAction,
-  applyWaveResult,
-  assignAffliction,
-  castCleansingVote,
-  checkOutcome,
   connectedActiveIds,
-  evaluateTasks,
-  initGameState,
+  deliverVaccine,
+  dropItem,
+  extract,
+  incubate,
+  initLabGame,
   msg,
-  publicGlyphHint,
-  resolveCleansingVote,
-  startCleansingVote,
-  startNextWave,
-} from './game/ritual.js'
+  sendItem,
+  switchStation,
+  synthesize,
+  tickLab,
+} from './game/lab.js'
 import {
   limitsFor,
   lookupPass,
@@ -28,7 +22,7 @@ import {
   type PartyPass,
 } from './premium.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
-import type { GameOutcome, Lang, Player, PublicRoom, Room, RoomStatus, ToolId } from './types.js'
+import type { ItemId, Lang, Player, PublicRoom, Room, RoomStatus, Station } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
 const DISCONNECT_GRACE_MS = 60_000
@@ -91,51 +85,31 @@ function seatedPlayers(room: Room): Player[] {
 }
 
 function midGame(status: RoomStatus): boolean {
-  return status !== 'lobby' && status !== 'finished'
+  return status === 'playing'
 }
 
 function emptyGameFields(): Pick<
   Room,
-  | 'phaseEndsAt'
-  | 'mode'
-  | 'matrixHealth'
-  | 'cycle'
-  | 'maxCycles'
-  | 'gameStartedAt'
-  | 'afflictionAt'
-  | 'afflictionTriggered'
-  | 'roles'
-  | 'afflictionSeen'
-  | 'tasks'
-  | 'playerTools'
-  | 'scourgeMeter'
-  | 'miasmaUntil'
-  | 'cleansing'
-  | 'soloSurvivalMs'
-  | 'outcome'
+  | 'score'
+  | 'misses'
+  | 'patients'
+  | 'lab'
+  | 'lastTickAt'
+  | 'lastSpawnAt'
   | 'lastEventSv'
   | 'lastEventEn'
+  | 'mode'
 > {
   return {
-    phaseEndsAt: 0,
-    mode: 'multi',
-    matrixHealth: 100,
-    cycle: 0,
-    maxCycles: 5,
-    gameStartedAt: 0,
-    afflictionAt: 0,
-    afflictionTriggered: false,
-    roles: {},
-    afflictionSeen: {},
-    tasks: [],
-    playerTools: {},
-    scourgeMeter: 0,
-    miasmaUntil: 0,
-    cleansing: null,
-    soloSurvivalMs: 0,
-    outcome: 'ongoing',
+    score: 0,
+    misses: 0,
+    patients: [],
+    lab: {},
+    lastTickAt: 0,
+    lastSpawnAt: 0,
     lastEventSv: null,
     lastEventEn: null,
+    mode: 'multi',
   }
 }
 
@@ -144,15 +118,14 @@ export function allRooms() {
 }
 
 function normalizeStatus(raw: unknown): RoomStatus {
-  const valid: RoomStatus[] = ['lobby', 'ritual', 'affliction', 'cleansing', 'cycle_end', 'finished']
-  if (typeof raw === 'string' && valid.includes(raw as RoomStatus)) return raw as RoomStatus
+  if (raw === 'playing' || raw === 'gameover') return raw
   return 'lobby'
 }
 
 export function restoreRooms(list: Room[]) {
   for (const raw of list) {
     if (!raw?.code) continue
-    if (!('matrixHealth' in raw) && !('tasks' in raw)) continue
+    if (!('lab' in raw) && !('patients' in raw)) continue
     const room: Room = {
       code: raw.code,
       hostId: raw.hostId,
@@ -170,22 +143,12 @@ export function restoreRooms(list: Room[]) {
       waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
       notice: raw.notice ?? null,
       updatedAt: raw.updatedAt ?? Date.now(),
-      phaseEndsAt: Number(raw.phaseEndsAt) || 0,
-      matrixHealth: Number(raw.matrixHealth) || 100,
-      cycle: Number(raw.cycle) || 0,
-      maxCycles: Number(raw.maxCycles) || 5,
-      gameStartedAt: Number(raw.gameStartedAt) || 0,
-      afflictionAt: Number(raw.afflictionAt) || 0,
-      afflictionTriggered: Boolean(raw.afflictionTriggered),
-      roles: (raw.roles as Room['roles']) ?? {},
-      afflictionSeen: (raw.afflictionSeen as Room['afflictionSeen']) ?? {},
-      tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
-      playerTools: (raw.playerTools as Room['playerTools']) ?? {},
-      scourgeMeter: Number(raw.scourgeMeter) || 0,
-      miasmaUntil: Number(raw.miasmaUntil) || 0,
-      cleansing: raw.cleansing ?? null,
-      soloSurvivalMs: Number(raw.soloSurvivalMs) || 0,
-      outcome: (raw.outcome as GameOutcome) || 'ongoing',
+      score: Number(raw.score) || 0,
+      misses: Number(raw.misses) || 0,
+      patients: Array.isArray(raw.patients) ? raw.patients : [],
+      lab: (raw.lab as Room['lab']) ?? {},
+      lastTickAt: Number(raw.lastTickAt) || 0,
+      lastSpawnAt: Number(raw.lastSpawnAt) || 0,
       lastEventSv: raw.lastEventSv ?? null,
       lastEventEn: raw.lastEventEn ?? null,
     }
@@ -277,7 +240,7 @@ function releaseSocket(socketId: string) {
   if (!player || !player.connected) return
   player.connected = false
   touch(room)
-  if (room.status === 'lobby' || room.status === 'finished') {
+  if (room.status === 'lobby' || room.status === 'gameover') {
     if (player.id !== room.hostId) {
       room.players = room.players.filter((p) => p.id !== player.id)
       touch(room)
@@ -338,19 +301,10 @@ export function joinRoom(
   const maxPlayers = roomLimits(room).maxPlayers
   const connectedSeated = seatedPlayers(room).filter((p) => p.connected).length
   if (maxPlayers > 0 && connectedSeated >= maxPlayers) {
-    const existingWait = room.waitlist.find(
-      (w) => w.name.toLowerCase() === displayName.toLowerCase(),
-    )
-    if (!existingWait) {
-      room.waitlist.push({ id: crypto.randomUUID(), name: displayName, at: Date.now() })
-      room.waitlist = room.waitlist.slice(-24)
-    }
-    touch(room)
     return {
       error: roomMsg(room, 'Rummet är fullt', 'Room is full'),
       code: 'ROOM_FULL',
       roomCode: room.code,
-      waitlistCount: room.waitlist.length,
     }
   }
   const playerId = crypto.randomUUID()
@@ -409,7 +363,7 @@ export function handleDisconnect(socketId: string) {
           touch(rr)
           onBroadcast?.(rr.code)
         }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
-      } else if (r.status === 'lobby' || r.status === 'finished') {
+      } else if (r.status === 'lobby' || r.status === 'gameover') {
         r.players = r.players.filter((x) => x.id !== binding.playerId)
       }
       touch(r)
@@ -492,125 +446,60 @@ function promoteWaitlist(room: Room) {
   }
 }
 
-function finishIfNeeded(room: Room) {
-  room.outcome = checkOutcome(room)
-  if (room.outcome !== 'ongoing') {
-    room.status = 'finished'
-    room.phaseEndsAt = 0
-    if (room.mode === 'solo') {
-      room.soloSurvivalMs = Date.now() - room.gameStartedAt
-    }
-    return
-  }
-  if (room.matrixHealth <= 0) {
-    room.outcome = 'scourgeborn_win'
-    room.status = 'finished'
-    room.phaseEndsAt = 0
-    if (room.mode === 'solo') room.soloSurvivalMs = Date.now() - room.gameStartedAt
-  }
-}
-
-function maybeResolveWave(room: Room) {
-  const allDone = room.tasks.every((t) => t.completed || t.failed)
-  if (!allDone) return
-  const { completed, failed } = evaluateTasks(room)
-  applyWaveResult(room, failed, completed)
-  finishIfNeeded(room)
-  if (room.outcome !== 'ongoing') return
-  if (room.cycle >= room.maxCycles && failed === 0) {
-    room.outcome = 'keepers_win'
-    room.status = 'finished'
-    room.phaseEndsAt = 0
-    return
-  }
-  advanceCycle(room)
-}
-
 export function startGame(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden kan starta' }
-  if (room.status !== 'lobby' && room.status !== 'finished') {
-    return { error: roomMsg(room, 'Spelet pågår redan', 'Game already in progress') }
-  }
-  if (room.status === 'lobby') {
-    for (const p of room.players) p.spectator = false
-    promoteWaitlist(room)
-  }
+  if (room.status === 'playing') return { error: roomMsg(room, 'Spelet pågår', 'Game in progress') }
+  for (const p of room.players) p.spectator = false
+  promoteWaitlist(room)
   const ids = connectedActiveIds(room)
-  if (ids.length < 1) {
-    return { error: roomMsg(room, 'Ingen spelare ansluten', 'No players connected') }
-  }
+  if (ids.length < 1) return { error: roomMsg(room, 'Ingen spelare', 'No players') }
   if (ids.length >= 2 && ids.length < MIN_MULTI_PLAYERS) {
-    return {
-      error: roomMsg(
-        room,
-        `Minst ${MIN_MULTI_PLAYERS} spelare för multi`,
-        `At least ${MIN_MULTI_PLAYERS} players for multi`,
-      ),
-    }
+    return { error: roomMsg(room, `Minst ${MIN_MULTI_PLAYERS} spelare`, `At least ${MIN_MULTI_PLAYERS} players`) }
   }
   Object.assign(room, emptyGameFields())
-  initGameState(room, ids)
+  initLabGame(room, ids)
   touch(room)
   return room
 }
 
-export function acknowledgeAffliction(code: string, playerId: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'affliction') return { error: 'Inte affliction-fas' }
-  room.afflictionSeen[playerId] = true
-  touch(room)
-  if (allAfflictionSeen(room)) {
-    room.status = 'ritual'
-    room.phaseEndsAt = room.tasks[0]?.deadlineAt ?? Date.now() + 28_000
-  }
-  return room
-}
-
-export function ritualToolAction(
+export function labAction(
   code: string,
   playerId: string,
-  tool: ToolId,
-  payload: Record<string, unknown>,
+  action: string,
+  payload: Record<string, unknown> = {},
 ): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'ritual') return { error: roomMsg(room, 'Inte ritualfas', 'Not ritual phase') }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) return { error: 'Du kan inte styra' }
-  const result = applyToolAction(room, playerId, tool, payload)
-  if (result.error) return { error: result.error }
-  evaluateTasks(room)
-  maybeResolveWave(room)
-  touch(room)
-  return room
-}
 
-export function callCleansingRite(code: string, playerId: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  const err = startCleansingVote(room, playerId)
-  if (err.error) return err
-  touch(room)
-  return room
-}
-
-export function cleansingVote(
-  code: string,
-  voterId: string,
-  targetId: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  const err = castCleansingVote(room, voterId, targetId)
-  if (err.error) return err
-  const vote = room.cleansing
-  if (vote && activePlayerIds(room).every((id) => vote.votes[id] !== undefined)) {
-    resolveCleansingVote(room)
-    finishIfNeeded(room)
+  let result: { error?: string } = { error: 'Okänd action' }
+  switch (action) {
+    case 'extract':
+      result = extract(room, playerId, payload.element === 'blue_rna' ? 'blue_rna' : 'red_rna')
+      break
+    case 'synthesize':
+      result = synthesize(room, playerId)
+      break
+    case 'incubate':
+      result = incubate(room, playerId, payload.mode === 'cool' ? 'cool' : 'heat')
+      break
+    case 'send':
+      result = sendItem(room, playerId, String(payload.toPlayerId ?? ''))
+      break
+    case 'deliver':
+      result = deliverVaccine(room, playerId)
+      break
+    case 'drop':
+      result = dropItem(room, playerId)
+      break
+    case 'switch_station':
+      result = switchStation(room, playerId, String(payload.station ?? 'extractor') as Station)
+      break
+    default:
+      return { error: 'Okänd action' }
   }
+  if (result.error) return { error: result.error }
   touch(room)
   return room
 }
@@ -619,9 +508,7 @@ export function endParty(code: string, playerId: string): Room | { error: string
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden' }
-  room.status = 'finished'
-  room.phaseEndsAt = 0
-  if (room.outcome === 'ongoing') room.outcome = 'scourgeborn_win'
+  room.status = 'gameover'
   touch(room)
   return room
 }
@@ -638,92 +525,14 @@ export function backToLobby(code: string, playerId: string): Room | { error: str
   return room
 }
 
-function autoAfflictionAck(room: Room) {
-  for (const id of activePlayerIds(room)) room.afflictionSeen[id] = true
-  room.status = 'ritual'
-  room.phaseEndsAt = room.tasks[0]?.deadlineAt ?? Date.now() + 28_000
-}
-
-function autoCleansingVotes(room: Room) {
-  const vote = room.cleansing
-  if (!vote) return
-  for (const id of activePlayerIds(room)) {
-    if (vote.votes[id] === undefined) vote.votes[id] = 'skip'
-  }
-  resolveCleansingVote(room)
-  finishIfNeeded(room)
-}
-
 export function onPhaseTimeout(room: Room) {
-  if (!midGame(room.status) || room.outcome !== 'ongoing') return
-  const now = Date.now()
-  if (room.phaseEndsAt <= 0 || now < room.phaseEndsAt) {
-    if (room.status === 'ritual') {
-      evaluateTasks(room)
-      const pending = room.tasks.some((t) => !t.completed && !t.failed && now >= t.deadlineAt)
-      if (pending) {
-        for (const t of room.tasks) {
-          if (!t.completed && !t.failed && now >= t.deadlineAt) t.failed = true
-        }
-        maybeResolveWave(room)
-        touch(room)
-      }
-      if (
-        room.mode === 'multi' &&
-        !room.afflictionTriggered &&
-        room.afflictionAt > 0 &&
-        now >= room.afflictionAt
-      ) {
-        assignAffliction(room)
-        touch(room)
-      }
-    }
-    return
-  }
-
-  if (room.status === 'affliction') {
-    autoAfflictionAck(room)
-    touch(room)
-    return
-  }
-
-  if (room.status === 'cleansing') {
-    autoCleansingVotes(room)
-    touch(room)
-    return
-  }
-
-  if (room.status === 'cycle_end') {
-    startNextWave(room)
-    touch(room)
-    return
-  }
-
-  if (room.status === 'ritual') {
-    for (const t of room.tasks) {
-      if (!t.completed && !t.failed) t.failed = true
-    }
-    maybeResolveWave(room)
-    touch(room)
-  }
+  if (room.status !== 'playing') return
+  tickLab(room)
+  touch(room)
 }
 
 export function roomsNeedingTick(): Room[] {
-  const now = Date.now()
-  const out: Room[] = []
-  for (const room of rooms.values()) {
-    if (!midGame(room.status) || room.outcome !== 'ongoing') continue
-    const phaseDue = room.phaseEndsAt > 0 && now >= room.phaseEndsAt
-    const taskDue =
-      room.status === 'ritual' && room.tasks.some((t) => !t.completed && !t.failed && now >= t.deadlineAt)
-    const afflictionDue =
-      room.mode === 'multi' &&
-      !room.afflictionTriggered &&
-      room.afflictionAt > 0 &&
-      now >= room.afflictionAt
-    if (phaseDue || taskDue || afflictionDue) out.push(room)
-  }
-  return out
+  return [...rooms.values()].filter((r) => r.status === 'playing')
 }
 
 export function pruneIdleRooms() {
@@ -772,36 +581,27 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const lang = room.language
   const limits = roomLimits(room)
   const viewer = viewerId ? room.players.find((p) => p.id === viewerId) : null
+  const labState = viewerId ? room.lab[viewerId] : null
+
   let notice: string | null = null
   if (room.notice && Date.now() - room.notice.at < NOTICE_TTL_MS) {
-    notice = msg(lang, `${room.notice.hostName} är nu värd`, `${room.notice.hostName} is now the host`)
+    notice = msg(
+      lang,
+      `${room.notice.hostName} är nu värd`,
+      `${room.notice.hostName} is now the host`,
+    )
   }
 
-  const showRoles =
-    room.status === 'finished' ||
-    (room.status === 'affliction' && Boolean(viewerId && room.roles[viewerId] === 'scourgeborn'))
-
-  const yourRole =
-    viewerId && room.roles[viewerId]
-      ? room.roles[viewerId]!
-      : viewerId
-        ? 'keeper'
-        : null
-
-  const showAffliction =
-    room.status === 'affliction' &&
-    Boolean(viewerId && room.roles[viewerId] === 'scourgeborn' && !room.afflictionSeen[viewerId])
-
-  const tasks = room.tasks.map((t) => ({
-    ...t,
-    glyphSequence: viewerId && t.assignedPlayerIds.includes(viewerId) ? t.glyphSequence : [],
-    glyphHint: publicGlyphHint(t, lang),
-  }))
-
   const players = room.players.map((p) => {
-    if (showRoles && room.roles[p.id]) return { ...p, role: room.roles[p.id] }
-    return { ...p }
+    const ls = room.lab[p.id]
+    return {
+      ...p,
+      assignedStation: ls?.assignedStation ?? 'extractor',
+      itemInHand: ls?.itemInHand ?? null,
+    }
   })
+
+  const seated = seatedPlayers(room).filter((p) => p.connected).length
 
   return {
     code: room.code,
@@ -815,28 +615,22 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     limits,
     isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,
-    phaseEndsAt: room.phaseEndsAt,
-    matrixHealth: room.matrixHealth,
-    cycle: room.cycle,
-    maxCycles: room.maxCycles,
-    afflictionAt: room.afflictionAt,
-    afflictionTriggered: room.afflictionTriggered,
-    tasks,
-    yourTools: viewerId ? (room.playerTools[viewerId] ?? []) : [],
-    yourRole: showAffliction ? 'scourgeborn' : yourRole,
-    showAffliction,
-    scourgeMeter: room.scourgeMeter,
-    miasmaActive: room.miasmaUntil > Date.now(),
-    cleansing: room.cleansing,
-    youCleansingVoted: Boolean(viewerId && room.cleansing?.votes[viewerId] !== undefined),
-    soloSurvivalMs: room.soloSurvivalMs,
-    outcome: room.outcome,
+    score: room.score,
+    misses: room.misses,
+    maxMisses: MAX_MISSES,
+    patients: room.patients.map((p) => ({ ...p })),
+    yourStation: labState?.assignedStation ?? 'extractor',
+    yourActiveStation:
+      room.mode === 'solo' ? (labState?.activeStation ?? 'extractor') : (labState?.assignedStation ?? 'extractor'),
+    itemInHand: labState?.itemInHand ?? null,
+    synthSlot: labState?.synthSlot ?? null,
     lastEvent: lang === 'en' ? room.lastEventEn : room.lastEventSv,
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
     youAreHost: Boolean(viewer && viewer.id === room.hostId),
+    canStartSolo: seated === 1,
     minPlayersMulti: MIN_MULTI_PLAYERS,
   }
 }
 
-export { AFFLICTION_MODAL_MS, CYCLE_BREAK_MS }
+export { MAX_MISSES, TICK_MS } from './game/lab.js'
