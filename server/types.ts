@@ -3,9 +3,7 @@ export type Lang = 'sv' | 'en'
 export type PremiumTier = 'free' | 'party'
 
 export type PremiumLimits = {
-  /** 0 = unlimited */
   maxPlayers: number
-  /** Legacy field — unused in social-deduction mode */
   maxRounds: number
   freePack: boolean
 }
@@ -23,34 +21,54 @@ export type RoomNotice = {
   at: number
 }
 
+export type GameMode = 'solo' | 'multi'
+
 export type RoomStatus =
   | 'lobby'
-  | 'roles'
-  | 'election'
-  | 'team_vote'
-  | 'mission'
-  | 'resolution'
+  | 'ritual'
+  | 'affliction'
+  | 'cleansing'
+  | 'cycle_end'
   | 'finished'
 
-export type PlayerRole = 'innocent' | 'scourgeborn'
+export type KeeperRole = 'keeper' | 'scourgeborn'
 
-export type MissionVote = 'cleanse' | 'infect'
+export type TaskKind = 'crystal' | 'glyphs' | 'essence'
 
-export type GameOutcome = 'ongoing' | 'innocents_win' | 'scourgeborn_win'
+export type ToolId =
+  | 'crystal_slider'
+  | 'glyph_board'
+  | 'essence_valve'
+  | 'miasma_cloud'
+  | 'sabotage_pulse'
 
-export type MissionScores = {
-  cleanses: number
-  infections: number
+export type GameOutcome = 'ongoing' | 'keepers_win' | 'scourgeborn_win'
+
+export type RitualTask = {
+  id: string
+  kind: TaskKind
+  titleSv: string
+  titleEn: string
+  deadlineAt: number
+  targetCrystal: number
+  glyphSequence: string[]
+  glyphProgress: number
+  essenceMin: number
+  essenceMax: number
+  essenceValue: number
+  assignedPlayerIds: string[]
+  completed: boolean
+  failed: boolean
 }
 
-export type MissionResult = {
-  round: number
-  teamIds: string[]
-  success: boolean
-  infectCount: number
+export type CleansingVoteState = {
+  initiatedBy: string
+  votes: Record<string, string>
+  deadlineAt: number
+  resolved: boolean
+  result: 'sealed_scourge' | 'sealed_innocent' | 'skipped' | 'no_majority' | null
+  sealedId: string | null
 }
-
-export type RoleReveal = Record<string, boolean>
 
 export type Room = {
   code: string
@@ -58,69 +76,67 @@ export type Room = {
   players: Player[]
   language: Lang
   status: RoomStatus
+  mode: GameMode
   premiumExpiresAt: number | null
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   notice: RoomNotice | null
   updatedAt: number
   phaseEndsAt: number
-  /** Shuffled player order for leader rotation */
-  leaderOrder: string[]
-  leaderIndex: number
-  expeditionLeaderId: string | null
-  roles: Record<string, PlayerRole>
-  roleRevealed: RoleReveal
-  proposedTeamIds: string[]
-  teamVotes: Record<string, boolean>
-  missionVotes: Record<string, MissionVote>
-  scores: MissionScores
-  failedElectionStreak: number
-  missionRound: number
-  lastMissionResult: MissionResult | null
+  matrixHealth: number
+  cycle: number
+  maxCycles: number
+  gameStartedAt: number
+  afflictionAt: number
+  afflictionTriggered: boolean
+  roles: Record<string, KeeperRole>
+  afflictionSeen: Record<string, boolean>
+  tasks: RitualTask[]
+  playerTools: Record<string, ToolId[]>
+  scourgeMeter: number
+  miasmaUntil: number
+  cleansing: CleansingVoteState | null
+  soloSurvivalMs: number
   outcome: GameOutcome
+  lastEventSv: string | null
+  lastEventEn: string | null
 }
 
-export type PublicPlayer = Player & {
-  /** Only populated when game is finished */
-  role?: PlayerRole
+export type PublicTask = Omit<RitualTask, 'glyphSequence'> & {
+  glyphHint: string
 }
 
 export type PublicRoom = {
   code: string
   hostId: string
-  players: PublicPlayer[]
+  players: (Player & { role?: KeeperRole })[]
   language: Lang
   status: RoomStatus
+  mode: GameMode
   premiumTier: PremiumTier
   premiumExpiresAt: number | null
   limits: PremiumLimits
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   phaseEndsAt: number
-  expeditionLeaderId: string | null
-  proposedTeamIds: string[]
-  scores: MissionScores
-  failedElectionStreak: number
-  missionRound: number
-  lastMissionResult: MissionResult | null
+  matrixHealth: number
+  cycle: number
+  maxCycles: number
+  afflictionAt: number
+  afflictionTriggered: boolean
+  tasks: PublicTask[]
+  yourTools: ToolId[]
+  yourRole: KeeperRole | null
+  showAffliction: boolean
+  scourgeMeter: number
+  miasmaActive: boolean
+  cleansing: CleansingVoteState | null
+  youCleansingVoted: boolean
+  soloSurvivalMs: number
   outcome: GameOutcome
+  lastEvent: string | null
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
-  youAreLeader: boolean
-  youOnMission: boolean
-  /** Role shown only after viewer taps reveal */
-  yourRole: PlayerRole | null
-  youRoleRevealed: boolean
-  rolesRevealedCount: number
-  rolesTotal: number
-  teamVoteSubmittedCount: number
-  teamVoteTotal: number
-  youTeamVoted: boolean
-  yourTeamVote: boolean | null
-  teamVoteSubmittedIds: string[]
-  missionSubmittedCount: number
-  missionSubmittedIds: string[]
-  youMissionVoted: boolean
-  minPlayers: number
+  minPlayersMulti: number
 }

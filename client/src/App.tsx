@@ -1,327 +1,170 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ackResolution,
+  acknowledgeAffliction,
   backToLobby,
+  callCleansingRite,
+  cleansingVote,
   clearSession,
   createGame,
   endParty,
   ensureSessionBound,
-  fetchPartyInfo,
-  fetchPublicLobbies,
   joinGame,
   loadPartyPass,
   loadSession,
-  proposeTeam,
-  revealRole,
+  ritualTool,
   saveSession,
   setRoomHandler,
   startGame,
   subscribeConnection,
-  voteMission,
-  voteTeam,
   type ConnState,
-  type PublicLobbyCard,
 } from './api'
-import { loadLanguage, outcomeLabel, phaseLabel, playerName, rememberLanguage, roleLabel, t } from './i18n'
+import {
+  formatMs,
+  loadLanguage,
+  outcomeLabel,
+  phaseLabel,
+  rememberLanguage,
+  taskTitle,
+  t,
+} from './i18n'
 import { JoinQr } from './qr'
-import type { Lang, PublicRoom } from './types'
+import type { Lang, PublicRoom, ToolId } from './types'
 
-type Screen = 'home' | 'create' | 'join' | 'find' | 'game'
-
+type Screen = 'home' | 'create' | 'join' | 'game'
 const APP_ORIGIN = 'https://scourgeborn.com'
+const GLYPHS = ['void', 'arc', 'blood', 'star', 'ash']
 
 function useCountdown(endsAt: number) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 500)
+    const id = setInterval(() => setNow(Date.now()), 400)
     return () => clearInterval(id)
   }, [])
   return Math.max(0, Math.ceil((endsAt - now) / 1000))
 }
 
-function Mist() {
+function VoidBackdrop() {
   return (
-    <div className="mist" aria-hidden>
-      <div className="mist-layer mist-a" />
-      <div className="mist-layer mist-b" />
-      <div className="mist-layer mist-c" />
-      <div className="spore-field" />
+    <div className="void-backdrop" aria-hidden>
+      <div className="void-orb void-orb-a" />
+      <div className="void-orb void-orb-b" />
+      <div className="void-grid" />
     </div>
   )
 }
 
-function ScoreBoard({ room, ui }: { room: PublicRoom; ui: ReturnType<typeof t> }) {
+function MatrixHud({ room, ui }: { room: PublicRoom; ui: ReturnType<typeof t> }) {
   return (
-    <div className="score-board">
-      <div className="score-cell cleanse">
-        <span>{ui.scoreCleanse}</span>
-        <strong>{room.scores.cleanses}/3</strong>
+    <div className="matrix-hud">
+      <div className="hud-cell">
+        <span>{ui.matrixHealth}</span>
+        <strong>{room.matrixHealth}%</strong>
+        <div className="bar">
+          <div className="bar-fill health" style={{ width: `${room.matrixHealth}%` }} />
+        </div>
       </div>
-      <div className="score-cell infect">
-        <span>{ui.scoreInfect}</span>
-        <strong>{room.scores.infections}/3</strong>
+      <div className="hud-cell">
+        <span>{ui.cycle}</span>
+        <strong>
+          {room.cycle}/{room.maxCycles}
+        </strong>
       </div>
-      {room.failedElectionStreak > 0 && (
-        <div className="score-cell fail">
-          <span>{ui.failedElections}</span>
-          <strong>{room.failedElectionStreak}/3</strong>
+      {room.mode === 'multi' && (
+        <div className="hud-cell">
+          <span>{ui.scourgeMeter}</span>
+          <strong>{room.scourgeMeter}%</strong>
+          <div className="bar">
+            <div className="bar-fill scourge" style={{ width: `${room.scourgeMeter}%` }} />
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-function PlayerList({ room, ui }: { room: PublicRoom; ui: ReturnType<typeof t> }) {
+function TaskList({ room, lang }: { room: PublicRoom; lang: Lang }) {
   return (
-    <ul className="player-list">
-      {room.players
-        .filter((p) => !p.spectator)
-        .map((p) => {
-          const isLeader = p.id === room.expeditionLeaderId
-          const onMission = room.proposedTeamIds.includes(p.id)
-          const teamVoted = room.teamVoteSubmittedIds.includes(p.id)
-          const missionVoted = room.missionSubmittedIds.includes(p.id)
-          return (
-            <li key={p.id} className={p.connected ? 'online' : 'offline'}>
-              <span className="player-name">
-                {p.name}
-                {p.id === room.hostId && <em className="badge">{ui.host}</em>}
-                {isLeader && room.status !== 'lobby' && (
-                  <em className="badge leader">{ui.leaderIs}</em>
-                )}
-                {onMission && room.status !== 'lobby' && (
-                  <em className="badge mission">{ui.onMission}</em>
-                )}
-              </span>
-              <span className="player-meta">
-                {!p.connected && ui.statusOffline}
-                {p.connected && teamVoted && room.status === 'team_vote' && ui.voted}
-                {p.connected && missionVoted && room.status === 'mission' && ui.voted}
-                {p.connected &&
-                  !teamVoted &&
-                  !missionVoted &&
-                  (p.connected ? ui.statusOnline : ui.statusOffline)}
-                {room.status === 'finished' && p.role && (
-                  <em className={`role-tag ${p.role}`}>{roleLabel(p.role, room.language)}</em>
-                )}
-              </span>
-            </li>
-          )
-        })}
+    <ul className="task-list">
+      {room.tasks.map((task) => (
+        <li key={task.id} className={task.completed ? 'done' : task.failed ? 'fail' : 'live'}>
+          <span>{taskTitle(task, lang)}</span>
+          {task.kind === 'crystal' && <em>{task.targetCrystal}% → 75%</em>}
+          {task.kind === 'glyphs' && <em>{task.glyphHint}</em>}
+          {task.kind === 'essence' && (
+            <em>
+              {task.essenceValue}% ({task.essenceMin}–{task.essenceMax})
+            </em>
+          )}
+        </li>
+      ))}
     </ul>
   )
 }
 
-function RoleRevealView({
+function RitualTools({
   room,
   ui,
-  onReveal,
+  onTool,
 }: {
   room: PublicRoom
   ui: ReturnType<typeof t>
-  onReveal: () => void
+  onTool: (tool: ToolId, data: Record<string, unknown>) => void
 }) {
-  if (!room.youRoleRevealed) {
-    return (
-      <div className="phase-panel secret">
-        <p className="phase-title">{ui.phaseRoles}</p>
-        <button type="button" className="btn reveal-btn" onClick={onReveal}>
-          {ui.tapReveal}
-        </button>
-        <p className="hint">
-          {room.rolesRevealedCount}/{room.rolesTotal} {ui.rolesWaiting}
-        </p>
-      </div>
-    )
-  }
-
-  const role = room.yourRole!
-  const isTraitor = role === 'scourgeborn'
-  return (
-    <div className={`phase-panel role-card ${role}`}>
-      <p className="phase-title">{roleLabel(role, room.language)}</p>
-      <p className="role-desc">{isTraitor ? ui.roleScourgebornDesc : ui.roleInnocentDesc}</p>
-      <p className="hint">
-        {room.rolesRevealedCount}/{room.rolesTotal} {ui.rolesWaiting}
-      </p>
-    </div>
-  )
-}
-
-function ElectionView({
-  room,
-  ui,
-  onPick,
-}: {
-  room: PublicRoom
-  ui: ReturnType<typeof t>
-  onPick: (id: string) => void
-}) {
-  const candidates = room.players.filter(
-    (p) => !p.spectator && p.id !== room.expeditionLeaderId,
-  )
-
-  if (!room.youAreLeader) {
-    return (
-      <div className="phase-panel">
-        <p className="phase-title">{ui.phaseElection}</p>
-        <p className="hint">
-          {ui.leaderIs}: <strong>{playerName(room, room.expeditionLeaderId)}</strong>
-        </p>
-        <p className="hint">{ui.teamWaiting}</p>
-      </div>
-    )
-  }
+  const crystalTask = room.tasks.find((t) => t.kind === 'crystal' && !t.completed && !t.failed)
+  const glyphTask = room.tasks.find((t) => t.kind === 'glyphs' && !t.completed && !t.failed)
+  const essenceTask = room.tasks.find((t) => t.kind === 'essence' && !t.completed && !t.failed)
 
   return (
-    <div className="phase-panel">
-      <p className="phase-title">{ui.leaderPick}</p>
-      <div className="pick-grid">
-        {candidates.map((p) => (
-          <button key={p.id} type="button" className="btn pick-btn" onClick={() => onPick(p.id)}>
-            {p.name}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function TeamVoteView({
-  room,
-  ui,
-  onVote,
-}: {
-  room: PublicRoom
-  ui: ReturnType<typeof t>
-  onVote: (yes: boolean) => void
-}) {
-  const team = room.proposedTeamIds.map((id) => playerName(room, id)).join(' + ')
-
-  if (room.youTeamVoted) {
-    return (
-      <div className="phase-panel">
-        <p className="phase-title">{ui.phaseTeamVote}</p>
-        <p className="hint">{team}</p>
-        <p className="hint">
-          {room.teamVoteSubmittedCount}/{room.teamVoteTotal} {ui.teamWaiting}
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="phase-panel">
-      <p className="phase-title">{ui.teamVoteHint}</p>
-      <p className="team-line">{team}</p>
-      <div className="vote-row">
-        <button type="button" className="btn vote-yes" onClick={() => onVote(true)}>
-          {ui.voteYes}
-        </button>
-        <button type="button" className="btn vote-no" onClick={() => onVote(false)}>
-          {ui.voteNo}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function MissionView({
-  room,
-  ui,
-  onVote,
-}: {
-  room: PublicRoom
-  ui: ReturnType<typeof t>
-  onVote: (v: 'cleanse' | 'infect') => void
-}) {
-  if (!room.youOnMission) {
-    return (
-      <div className="phase-panel">
-        <p className="phase-title">{ui.phaseMission}</p>
-        <p className="hint">
-          {room.proposedTeamIds.map((id) => playerName(room, id)).join(' + ')}
-        </p>
-        <p className="hint">{ui.missionWaiting}</p>
-      </div>
-    )
-  }
-
-  if (room.youMissionVoted) {
-    return (
-      <div className="phase-panel">
-        <p className="phase-title">{ui.phaseMission}</p>
-        <p className="hint">{ui.missionWaiting}</p>
-      </div>
-    )
-  }
-
-  const canInfect = room.yourRole === 'scourgeborn'
-  return (
-    <div className="phase-panel secret">
-      <p className="phase-title">{ui.phaseMission}</p>
-      <p className="hint">{ui.missionHint}</p>
-      <div className="vote-row">
-        <button type="button" className="btn mission-cleanse" onClick={() => onVote('cleanse')}>
-          {ui.missionCleanse}
-        </button>
-        {canInfect && (
-          <button type="button" className="btn mission-infect" onClick={() => onVote('infect')}>
-            {ui.missionInfect}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ResolutionView({ room, ui }: { room: PublicRoom; ui: ReturnType<typeof t> }) {
-  const result = room.lastMissionResult
-  const success = result?.success
-  return (
-    <div className={`phase-panel resolution ${success ? 'success' : 'fail'}`}>
-      <p className="phase-title">{success ? ui.missionSuccess : ui.missionFail}</p>
-      {result && (
-        <p className="hint">
-          {result.teamIds.map((id) => playerName(room, id)).join(' + ')}
-        </p>
+    <div className="ritual-tools">
+      {room.yourTools.includes('crystal_slider') && crystalTask && (
+        <div className="tool-panel">
+          <h3>{ui.toolCrystal}</h3>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={crystalTask.targetCrystal}
+            onChange={(e) => onTool('crystal_slider', { value: Number(e.target.value) })}
+          />
+          <p>{crystalTask.targetCrystal}%</p>
+        </div>
       )}
-      <p className="hint dim">{ui.autoAdvance}</p>
-    </div>
-  )
-}
-
-function FinaleView({
-  room,
-  ui,
-  onLeave,
-  onBackLobby,
-}: {
-  room: PublicRoom
-  ui: ReturnType<typeof t>
-  onLeave: () => void
-  onBackLobby: () => void
-}) {
-  const won = room.outcome === 'innocents_win'
-  return (
-    <div className={`finale ${won ? 'innocents' : 'scourgeborn'}`}>
-      <div className="finale-body">
-        <h2>{outcomeLabel(room.outcome, room.language)}</h2>
-        <p>{won ? ui.outcomeInnocentsDesc : ui.outcomeScourgebornDesc}</p>
-        <ScoreBoard room={room} ui={ui} />
-        <PlayerList room={room} ui={ui} />
-      </div>
-      <div className="finale-footer">
-        <button type="button" className="btn" onClick={onLeave}>
-          {ui.leave}
+      {room.yourTools.includes('glyph_board') && glyphTask && (
+        <div className="tool-panel">
+          <h3>{ui.toolGlyphs}</h3>
+          <div className="glyph-grid">
+            {GLYPHS.map((g) => (
+              <button key={g} type="button" className="glyph-btn" onClick={() => onTool('glyph_board', { symbol: g })}>
+                {g}
+              </button>
+            ))}
+          </div>
+          <p>{glyphTask.glyphHint}</p>
+        </div>
+      )}
+      {room.yourTools.includes('essence_valve') && essenceTask && (
+        <div className="tool-panel">
+          <h3>{ui.toolEssence}</h3>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={essenceTask.essenceValue}
+            onChange={(e) => onTool('essence_valve', { value: Number(e.target.value) })}
+          />
+          <p>{essenceTask.essenceValue}%</p>
+        </div>
+      )}
+      {room.yourTools.includes('miasma_cloud') && (
+        <button type="button" className="btn scourge-btn" onClick={() => onTool('miasma_cloud', {})}>
+          {ui.toolMiasma}
         </button>
-        {room.youAreHost && (
-          <button type="button" className="btn primary" onClick={onBackLobby}>
-            {ui.backToLobby}
-          </button>
-        )}
-        {!room.youAreHost && <p className="hint">{ui.waitingHostFinale}</p>}
-      </div>
+      )}
+      {room.yourTools.includes('sabotage_pulse') && (
+        <button type="button" className="btn scourge-btn" onClick={() => onTool('sabotage_pulse', {})}>
+          {ui.toolSabotage}
+        </button>
+      )}
     </div>
   )
 }
@@ -337,13 +180,13 @@ function GameView({
   lang: Lang
   tvMode: boolean
   onLeave: () => void
-  onError: (msg: string) => void
+  onError: (m: string) => void
 }) {
   const ui = t(lang)
   const seconds = useCountdown(room.phaseEndsAt)
   const seated = room.players.filter((p) => !p.spectator && p.connected).length
 
-  async function act(fn: () => Promise<{ ok: boolean; error?: string; room?: PublicRoom }>) {
+  async function act(fn: () => Promise<{ ok: boolean; error?: string }>) {
     try {
       const res = await fn()
       if (!res.ok) onError(res.error ?? ui.error)
@@ -353,77 +196,107 @@ function GameView({
   }
 
   if (room.status === 'finished') {
+    const won = room.outcome === 'keepers_win'
     return (
-      <FinaleView
-        room={room}
-        ui={ui}
-        onLeave={onLeave}
-        onBackLobby={() => void act(backToLobby)}
-      />
+      <div className={`finale ${won ? 'win' : 'loss'}`}>
+        <h2>{outcomeLabel(room.outcome, lang)}</h2>
+        {room.mode === 'solo' && room.soloSurvivalMs > 0 && (
+          <p>
+            {ui.soloTime}: {formatMs(room.soloSurvivalMs)}
+          </p>
+        )}
+        <MatrixHud room={room} ui={ui} />
+        <div className="finale-actions">
+          <button type="button" className="btn" onClick={onLeave}>
+            {ui.leave}
+          </button>
+          {room.youAreHost && (
+            <button type="button" className="btn primary" onClick={() => void act(backToLobby)}>
+              {ui.backToLobby}
+            </button>
+          )}
+        </div>
+      </div>
     )
   }
 
   return (
-    <div className={`game-view${tvMode ? ' tv' : ''}`}>
+    <div className={`game-view${tvMode ? ' tv' : ''}${room.miasmaActive ? ' miasma' : ''}`}>
       <header className="game-header">
         <div>
           <span className="code-stamp">{room.code}</span>
           <span className="phase-stamp">{phaseLabel(room.status, lang)}</span>
+          {room.mode === 'solo' && <span className="mode-tag">SOLO</span>}
         </div>
-        {room.phaseEndsAt > 0 && (
-          <span className="timer">{seconds}{ui.timerLeft}</span>
-        )}
+        {room.phaseEndsAt > 0 && <span className="timer">{seconds}s</span>}
       </header>
 
-      <ScoreBoard room={room} ui={ui} />
+      {room.miasmaActive && !tvMode && <p className="miasma-banner">{ui.miasma}</p>}
+
+      <MatrixHud room={room} ui={ui} />
+
+      {room.lastEvent && (
+        <p className="event-line">
+          {ui.lastEvent}: {room.lastEvent}
+        </p>
+      )}
 
       {room.status === 'lobby' && (
-        <div className="phase-panel">
+        <div className="panel">
           <p className="hint">{ui.shareHint}</p>
-          <PlayerList room={room} ui={ui} />
           <p className="hint">
-            {seated}/{room.minPlayers} {ui.players.toLowerCase()}
+            {seated} {ui.lobby.toLowerCase()} · {room.mode === 'solo' ? 'solo OK' : ui.minMulti}
           </p>
           {room.youAreHost ? (
-            <>
-              <p className="hint">{seated >= room.minPlayers ? ui.hostHint : ui.needPlayers}</p>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={seated < room.minPlayers}
-                onClick={() => void act(startGame)}
-              >
-                {ui.startGame}
-              </button>
-            </>
+            <button type="button" className="btn primary" onClick={() => void act(startGame)}>
+              {seated === 1 ? ui.startSolo : ui.startGame}
+            </button>
           ) : (
             <p className="hint">{ui.waitingHost}</p>
           )}
         </div>
       )}
 
-      {room.status === 'roles' && (
-        <RoleRevealView room={room} ui={ui} onReveal={() => void act(revealRole)} />
+      {room.showAffliction && (
+        <div className="affliction-modal">
+          <h2>{ui.afflictionTitle}</h2>
+          <p>{ui.afflictionBody}</p>
+          <button type="button" className="btn scourge-btn" onClick={() => void act(acknowledgeAffliction)}>
+            {ui.afflictionAck}
+          </button>
+        </div>
       )}
 
-      {room.status === 'election' && (
-        <ElectionView room={room} ui={ui} onPick={(id) => void act(() => proposeTeam(id))} />
+      {room.status === 'cleansing' && room.cleansing && !room.youCleansingVoted && (
+        <div className="panel cleansing">
+          <h3>{ui.cleansingHint}</h3>
+          <div className="vote-grid">
+            {room.players
+              .filter((p) => !p.spectator)
+              .map((p) => (
+                <button key={p.id} type="button" className="btn" onClick={() => void act(() => cleansingVote(p.id))}>
+                  {p.name}
+                </button>
+              ))}
+            <button type="button" className="btn ghost" onClick={() => void act(() => cleansingVote('skip'))}>
+              {ui.voteSkip}
+            </button>
+          </div>
+        </div>
       )}
 
-      {room.status === 'team_vote' && (
-        <TeamVoteView room={room} ui={ui} onVote={(yes) => void act(() => voteTeam(yes))} />
-      )}
-
-      {room.status === 'mission' && (
-        <MissionView room={room} ui={ui} onVote={(v) => void act(() => voteMission(v))} />
-      )}
-
-      {room.status === 'resolution' && <ResolutionView room={room} ui={ui} />}
-
-      {room.status !== 'lobby' && (
-        <section className="roster-panel">
-          <PlayerList room={room} ui={ui} />
-        </section>
+      {(room.status === 'ritual' || room.status === 'cycle_end') && (
+        <>
+          {!tvMode && room.status === 'ritual' && (
+            <RitualTools room={room} ui={ui} onTool={(tool, data) => void act(() => ritualTool(tool, data))} />
+          )}
+          <TaskList room={room} lang={lang} />
+          {room.mode === 'multi' && room.status === 'ritual' && !room.youAreSpectator && (
+            <button type="button" className="btn ghost" onClick={() => void act(callCleansingRite)}>
+              {ui.callCleansing}
+            </button>
+          )}
+        </>
       )}
 
       <footer className="game-footer">
@@ -450,56 +323,26 @@ export default function App() {
   const [conn, setConn] = useState<ConnState>('connecting')
   const [tvMode, setTvMode] = useState(false)
   const [showQr, setShowQr] = useState(false)
-  const [lobbies, setLobbies] = useState<PublicLobbyCard[]>([])
-  const [partyEnabled, setPartyEnabled] = useState(false)
-
   const ui = useMemo(() => t(lang), [lang])
 
+  useEffect(() => rememberLanguage(lang), [lang])
+  useEffect(() => subscribeConnection(setConn), [])
   useEffect(() => {
-    rememberLanguage(lang)
-  }, [lang])
-
-  useEffect(() => {
-    return subscribeConnection(setConn)
-  }, [])
-
-  useEffect(() => {
-    setRoomHandler((r) => setRoom(r))
+    setRoomHandler(setRoom)
     return () => setRoomHandler(null)
   }, [])
-
-  useEffect(() => {
-    if (room?.status === 'resolution') {
-      const tId = setTimeout(() => void ackResolution(), 6000)
-      return () => clearTimeout(tId)
-    }
-  }, [room?.status, room?.missionRound])
-
-  useEffect(() => {
-    void fetchPartyInfo()
-      .then((info) => setPartyEnabled(info.enabled))
-      .catch(() => {})
-  }, [])
-
   useEffect(() => {
     const session = loadSession()
-    if (session) {
-      setName(session.name)
-      setCode(session.code)
-      void ensureSessionBound().then((res) => {
-        if (res?.ok && res.room && res.playerId) {
-          setRoom(res.room)
-          setScreen('game')
-        }
-      })
-    }
+    if (!session) return
+    setName(session.name)
+    setCode(session.code)
+    void ensureSessionBound().then((res) => {
+      if (res?.ok && res.room) {
+        setRoom(res.room)
+        setScreen('game')
+      }
+    })
   }, [])
-
-  function bindSession(r: PublicRoom, pid: string, playerName: string) {
-    saveSession({ code: r.code, playerId: pid, name: playerName })
-    setRoom(r)
-    setScreen('game')
-  }
 
   function leaveGame() {
     clearSession()
@@ -510,49 +353,29 @@ export default function App() {
   async function handleCreate() {
     setError(null)
     const pass = loadPartyPass()
-    const res = await createGame(name, lang, pass?.token ?? null, false)
-    if (!res.ok) {
-      setError(res.error)
-      return
-    }
-    bindSession(res.room, res.playerId, name)
+    const res = await createGame(name, lang, pass?.token ?? null)
+    if (!res.ok) return setError(res.error)
+    saveSession({ code: res.room.code, playerId: res.playerId, name })
+    setRoom(res.room)
+    setScreen('game')
   }
 
-  async function handleJoin(joinCode?: string) {
+  async function handleJoin() {
     setError(null)
-    const c = (joinCode ?? code).trim().toUpperCase()
-    const res = await joinGame(c, name)
-    if (!res.ok) {
-      setError(res.error)
-      return
-    }
-    bindSession(res.room, res.playerId, name)
+    const res = await joinGame(code.trim().toUpperCase(), name)
+    if (!res.ok) return setError(res.error)
+    saveSession({ code: res.room.code, playerId: res.playerId, name })
+    setRoom(res.room)
+    setScreen('game')
   }
-
-  async function loadLobbies() {
-    try {
-      setLobbies(await fetchPublicLobbies(lang))
-    } catch {
-      setLobbies([])
-    }
-  }
-
-  const joinUrl = `${APP_ORIGIN}/?join=${room?.code ?? ''}`
 
   if (room && screen === 'game') {
     return (
       <>
-        <Mist />
-        <main className={`app${tvMode ? ' tv-app' : ''}`}>
-          {room.notice && <p className="notice">{room.notice}</p>}
+        <VoidBackdrop />
+        <main className={`app ritual-app${tvMode ? ' tv-app' : ''}`}>
           {error && <p className="error-banner">{error}</p>}
-          <GameView
-            room={room}
-            lang={lang}
-            tvMode={tvMode}
-            onLeave={leaveGame}
-            onError={setError}
-          />
+          <GameView room={room} lang={lang} tvMode={tvMode} onLeave={leaveGame} onError={setError} />
           {room.status === 'lobby' && room.youAreHost && (
             <div className="host-tools">
               <button type="button" className="btn ghost" onClick={() => setShowQr((v) => !v)}>
@@ -563,15 +386,12 @@ export default function App() {
               </button>
               {showQr && (
                 <div className="qr-wrap">
-                  <JoinQr url={joinUrl} alt={ui.joinUrl} />
-                  <p className="hint">{ui.joinOnPhone}</p>
+                  <JoinQr url={`${APP_ORIGIN}/?join=${room.code}`} alt={ui.joinOnPhone} />
                 </div>
               )}
             </div>
           )}
-          <p className={`conn ${conn}`}>
-            {conn === 'connected' ? ui.connected : conn === 'connecting' ? ui.connecting : ui.disconnected}
-          </p>
+          <p className={`conn ${conn}`}>{conn === 'connected' ? ui.connected : ui.connecting}</p>
         </main>
       </>
     )
@@ -579,17 +399,15 @@ export default function App() {
 
   return (
     <>
-      <Mist />
-      <main className="app home">
+      <VoidBackdrop />
+      <main className="app home ritual-home">
         <header className="hero">
-          <p className="stamp">{ui.outbreakStamp}</p>
+          <p className="stamp">{ui.stamp}</p>
           <h1>{ui.brand}</h1>
           <p className="tagline">{ui.tagline}</p>
           <p className="support">{ui.heroSupport}</p>
         </header>
-
         {error && <p className="error-banner">{error}</p>}
-
         {screen === 'home' && (
           <div className="home-actions">
             <button type="button" className="btn primary" onClick={() => setScreen('create')}>
@@ -598,18 +416,7 @@ export default function App() {
             <button type="button" className="btn" onClick={() => setScreen('join')}>
               {ui.join}
             </button>
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => {
-                setScreen('find')
-                void loadLobbies()
-              }}
-            >
-              {ui.findGame}
-            </button>
             <div className="lang-toggle">
-              <span>{ui.language}</span>
               <button type="button" className={lang === 'sv' ? 'active' : ''} onClick={() => setLang('sv')}>
                 SV
               </button>
@@ -619,7 +426,6 @@ export default function App() {
             </div>
           </div>
         )}
-
         {(screen === 'create' || screen === 'join') && (
           <form
             className="join-form"
@@ -643,59 +449,22 @@ export default function App() {
                 />
               </label>
             )}
+            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>
+              ←
+            </button>
             <button type="submit" className="btn primary">
               {screen === 'create' ? ui.create : ui.join}
             </button>
-            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>
-              {ui.back}
-            </button>
           </form>
         )}
-
-        {screen === 'find' && (
-          <div className="lobby-find">
-            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>
-              {ui.back}
-            </button>
-            <ul>
-              {lobbies.map((l) => (
-                <li key={l.code}>
-                  <button
-                    type="button"
-                    className="lobby-card"
-                    onClick={() => {
-                      setCode(l.code)
-                      setScreen('join')
-                    }}
-                  >
-                    <strong>{l.code}</strong>
-                    <span>
-                      {l.playerCount} · {l.hostName}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {lobbies.length === 0 && <p className="hint">{ui.error}</p>}
-          </div>
-        )}
-
         <section className="how-to">
           <h2>{ui.howTo}</h2>
           <ol>
-            {ui.howToSteps.map((step) => (
-              <li key={step}>{step}</li>
+            {ui.howToSteps.map((s) => (
+              <li key={s}>{s}</li>
             ))}
           </ol>
         </section>
-
-        {partyEnabled && (
-          <p className="hint tier">{ui.freeTier}</p>
-        )}
-
-        <p className={`conn ${conn}`}>
-          {conn === 'connected' ? ui.connected : conn === 'connecting' ? ui.connecting : ui.disconnected}
-        </p>
       </main>
     </>
   )

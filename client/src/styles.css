@@ -1,22 +1,23 @@
 :root {
-  --bg-0: #070c09;
-  --bg-1: #0e1712;
-  --bg-2: #15241a;
-  --ash: #2a3228;
-  --rot: #1a2e1c;
-  --fog: rgba(110, 140, 90, 0.14);
-  --ink: #d9d4c4;
-  --ink-dim: #8f9788;
-  --blight: #c6de3a;
-  --blight-deep: #7a9420;
-  --blight-glow: rgba(198, 222, 58, 0.35);
-  --danger: #b84a32;
-  --danger-glow: rgba(184, 74, 50, 0.4);
-  --hazard: #d4a017;
-  --hazard-dim: rgba(212, 160, 23, 0.55);
-  --line: rgba(198, 222, 58, 0.14);
-  --panel: rgba(10, 18, 13, 0.88);
-  --radius: 3px;
+  --bg-0: #050508;
+  --bg-1: #0a0812;
+  --bg-2: #120f1c;
+  --ash: #2a2438;
+  --rot: #1a1528;
+  --fog: rgba(120, 80, 200, 0.12);
+  --ink: #e8e4f0;
+  --ink-dim: #8a8498;
+  --blight: #9d7cff;
+  --blight-deep: #6b4fd4;
+  --blight-glow: rgba(157, 124, 255, 0.35);
+  --danger: #e0456a;
+  --danger-glow: rgba(224, 69, 106, 0.4);
+  --hazard: #c9a227;
+  --hazard-dim: rgba(201, 162, 39, 0.55);
+  --void-accent: #4fd1c5;
+  --line: rgba(157, 124, 255, 0.16);
+  --panel: rgba(8, 6, 16, 0.92);
+  --radius: 4px;
   --font-display: 'Cinzel', 'Palatino Linotype', serif;
   --font-body: 'Literata', 'Georgia', serif;
   --font-stamp: 'Share Tech Mono', 'Courier New', monospace;
@@ -38,10 +39,10 @@ body {
   font-family: var(--font-body);
   color: var(--ink);
   background:
-    radial-gradient(1100px 640px at 18% -8%, rgba(198, 222, 58, 0.1), transparent 55%),
-    radial-gradient(900px 560px at 92% 8%, rgba(42, 70, 48, 0.45), transparent 52%),
-    radial-gradient(700px 480px at 50% 110%, rgba(184, 74, 50, 0.12), transparent 50%),
-    linear-gradient(168deg, var(--bg-0) 0%, var(--bg-1) 42%, #0a110d 100%);
+    radial-gradient(1100px 640px at 18% -8%, rgba(157, 124, 255, 0.12), transparent 55%),
+    radial-gradient(900px 560px at 92% 8%, rgba(80, 40, 120, 0.35), transparent 52%),
+    radial-gradient(700px 480px at 50% 110%, rgba(224, 69, 106, 0.1), transparent 50%),
+    linear-gradient(168deg, var(--bg-0) 0%, var(--bg-1) 42%, #08060f 100%);
   line-height: 1.45;
   position: relative;
   isolation: isolate;
@@ -2308,4 +2309,260 @@ input:focus {
   .code-stamp {
     font-size: 2rem;
   }
+}
+
+/* —— Ritual Matrix / cosmic horror —— */
+
+.void-backdrop {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.void-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.45;
+  animation: void-pulse 12s ease-in-out infinite alternate;
+}
+
+.void-orb-a {
+  width: 420px;
+  height: 420px;
+  top: -8%;
+  left: -6%;
+  background: radial-gradient(circle, rgba(157, 124, 255, 0.5), transparent 70%);
+}
+
+.void-orb-b {
+  width: 360px;
+  height: 360px;
+  bottom: -10%;
+  right: -8%;
+  background: radial-gradient(circle, rgba(224, 69, 106, 0.35), transparent 70%);
+  animation-delay: -4s;
+}
+
+.void-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(157, 124, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(157, 124, 255, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+}
+
+@keyframes void-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  to {
+    transform: scale(1.08);
+    opacity: 0.55;
+  }
+}
+
+.ritual-app,
+.ritual-home {
+  position: relative;
+  z-index: 1;
+}
+
+.matrix-hud {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.hud-cell {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.hud-cell span {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.hud-cell strong {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+}
+
+.bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  margin-top: 0.35rem;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar-fill.health {
+  height: 100%;
+  background: linear-gradient(90deg, var(--void-accent), var(--blight));
+}
+
+.bar-fill.scourge {
+  height: 100%;
+  background: linear-gradient(90deg, var(--danger), var(--hazard));
+}
+
+.ritual-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.tool-panel {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: inset 0 0 30px rgba(157, 124, 255, 0.06);
+}
+
+.tool-panel h3 {
+  margin: 0 0 0.65rem;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--blight);
+}
+
+.tool-panel input[type='range'] {
+  width: 100%;
+  accent-color: var(--blight);
+}
+
+.glyph-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+}
+
+.glyph-btn {
+  padding: 0.55rem 0.25rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  background: rgba(157, 124, 255, 0.08);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0;
+}
+
+.task-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+}
+
+.task-list li.live {
+  border-left: 3px solid var(--blight);
+}
+
+.task-list li.done {
+  opacity: 0.55;
+  border-left: 3px solid var(--void-accent);
+}
+
+.task-list li.fail {
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+}
+
+.affliction-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(5, 5, 8, 0.92);
+  text-align: center;
+}
+
+.affliction-modal h2 {
+  color: var(--danger);
+  font-family: var(--font-display);
+  text-shadow: 0 0 24px var(--danger-glow);
+}
+
+.scourge-btn {
+  border-color: var(--danger) !important;
+  background: rgba(224, 69, 106, 0.15) !important;
+  color: #ffb3c6 !important;
+}
+
+.miasma-banner {
+  text-align: center;
+  color: var(--danger);
+  font-family: var(--font-stamp);
+  letter-spacing: 0.1em;
+  animation: miasma-flicker 1.2s infinite alternate;
+}
+
+.game-view.miasma .task-list {
+  filter: blur(4px) opacity(0.45);
+}
+
+@keyframes miasma-flicker {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.mode-tag {
+  font-family: var(--font-stamp);
+  font-size: 0.65rem;
+  color: var(--void-accent);
+  margin-left: 0.5rem;
+}
+
+.event-line {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+  border-left: 2px solid var(--blight-deep);
+  padding-left: 0.65rem;
+  margin: 0.5rem 0;
+}
+
+.vote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: 0.45rem;
+}
+
+.panel.cleansing {
+  border-color: rgba(224, 69, 106, 0.35);
+}
+
+.finale.win h2 {
+  color: var(--void-accent);
+}
+
+.finale.loss h2 {
+  color: var(--danger);
 }

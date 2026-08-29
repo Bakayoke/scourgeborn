@@ -1,34 +1,49 @@
 export type Lang = 'sv' | 'en'
-export type RoomStatus =
-  | 'lobby'
-  | 'roles'
-  | 'election'
-  | 'team_vote'
-  | 'mission'
-  | 'resolution'
-  | 'finished'
-export type PremiumTier = 'free' | 'party'
-export type PlayerRole = 'innocent' | 'scourgeborn'
-export type GameOutcome = 'ongoing' | 'innocents_win' | 'scourgeborn_win'
+export type RoomStatus = 'lobby' | 'ritual' | 'affliction' | 'cleansing' | 'cycle_end' | 'finished'
+export type GameMode = 'solo' | 'multi'
+export type KeeperRole = 'keeper' | 'scourgeborn'
+export type GameOutcome = 'ongoing' | 'keepers_win' | 'scourgeborn_win'
+export type TaskKind = 'crystal' | 'glyphs' | 'essence'
+export type ToolId =
+  | 'crystal_slider'
+  | 'glyph_board'
+  | 'essence_valve'
+  | 'miasma_cloud'
+  | 'sabotage_pulse'
 
 export type Player = {
   id: string
   name: string
   connected: boolean
   spectator?: boolean
-  role?: PlayerRole
+  role?: KeeperRole
 }
 
-export type MissionScores = {
-  cleanses: number
-  infections: number
+export type PublicTask = {
+  id: string
+  kind: TaskKind
+  titleSv: string
+  titleEn: string
+  deadlineAt: number
+  targetCrystal: number
+  glyphSequence: string[]
+  glyphProgress: number
+  glyphHint: string
+  essenceMin: number
+  essenceMax: number
+  essenceValue: number
+  assignedPlayerIds: string[]
+  completed: boolean
+  failed: boolean
 }
 
-export type MissionResult = {
-  round: number
-  teamIds: string[]
-  success: boolean
-  infectCount: number
+export type CleansingVoteState = {
+  initiatedBy: string
+  votes: Record<string, string>
+  deadlineAt: number
+  resolved: boolean
+  result: 'sealed_scourge' | 'sealed_innocent' | 'skipped' | 'no_majority' | null
+  sealedId: string | null
 }
 
 export type PublicRoom = {
@@ -37,37 +52,33 @@ export type PublicRoom = {
   players: Player[]
   language: Lang
   status: RoomStatus
-  premiumTier: PremiumTier
+  mode: GameMode
+  premiumTier: 'free' | 'party'
   premiumExpiresAt: number | null
   limits: { maxPlayers: number; maxRounds: number; freePack: boolean }
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   phaseEndsAt: number
-  expeditionLeaderId: string | null
-  proposedTeamIds: string[]
-  scores: MissionScores
-  failedElectionStreak: number
-  missionRound: number
-  lastMissionResult: MissionResult | null
+  matrixHealth: number
+  cycle: number
+  maxCycles: number
+  afflictionAt: number
+  afflictionTriggered: boolean
+  tasks: PublicTask[]
+  yourTools: ToolId[]
+  yourRole: KeeperRole | null
+  showAffliction: boolean
+  scourgeMeter: number
+  miasmaActive: boolean
+  cleansing: CleansingVoteState | null
+  youCleansingVoted: boolean
+  soloSurvivalMs: number
   outcome: GameOutcome
+  lastEvent: string | null
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
-  youAreLeader: boolean
-  youOnMission: boolean
-  yourRole: PlayerRole | null
-  youRoleRevealed: boolean
-  rolesRevealedCount: number
-  rolesTotal: number
-  teamVoteSubmittedCount: number
-  teamVoteTotal: number
-  youTeamVoted: boolean
-  yourTeamVote: boolean | null
-  teamVoteSubmittedIds: string[]
-  missionSubmittedCount: number
-  missionSubmittedIds: string[]
-  youMissionVoted: boolean
-  minPlayers: number
+  minPlayersMulti: number
 }
 
 export type PartyInfo = {

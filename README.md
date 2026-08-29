@@ -1,35 +1,28 @@
 # Scourgeborn
 
-Mobil-first social deduction i mörk fantasy — några bär pesten i blodet. Tre lyckade expeditioner eller tre sabotage avgör allt.
+Real-time ritual chaos + social deduction — håll matrisen vid liv medan smittan väljer sina förrädare.
 
 **Domän:** [scourgeborn.com](https://scourgeborn.com)
 
-## Funktioner
+## Spel
 
-- Skapa spel → fyrabokstavs **sessionskod**
-- 5+ spelare, hemliga roller (Oskuldig / Scourgeborn)
-- Expeditionsledare väljer partner → alla röstar Ja/Nej
-- Uppdragsteam röstar Rensa/Smitta i hemlighet
-- Party-pass via Stripe (fler spelare)
-
-## Kom igång
-
-```bash
-npm install
-npm install --prefix client
-npm run dev
-```
-
-Öppna [http://localhost:5173](http://localhost:5173) — API/socket körs på port `3001`.
+- **Solo:** Hantera alla ritualverktyg själv — överlev så länge som möjligt
+- **Multi:** Synka tidskritiska uppgifter på mobilen; efter ~2 min utses Scourgeborn
+- **Nödröstning:** Försegl misstänkt eller hoppa över
+- **Seger:** 5 cykler (multi) · **Förlust:** matrishälsa = 0
 
 ## Stack
 
-- React + Vite (klient)
-- Express + Socket.io (realtid)
-- Redis (persistens)
-- Stripe Checkout (Party-pass)
-- TypeScript
+- React + Vite (mobil-first klient)
+- Express + Socket.io (realtid, Redis adapter)
+- Redis HASH / SET / LIST per rum + pub/sub
+- Railway (API) · Cloudflare (statisk frontend)
 
-## Produktion
+## Utveckling
 
-Se tidigare README-sektioner för Railway + Cloudflare deploy. Socket-händelser: `create`, `join`, `startGame`, `revealRole`, `proposeTeam`, `voteTeam`, `voteMission`, `ackResolution`.
+```bash
+npm install && npm install --prefix client
+npm run dev
+```
+
+Socket-events: `create`, `join`, `startGame`, `ritualTool`, `acknowledgeAffliction`, `callCleansingRite`, `cleansingVote`

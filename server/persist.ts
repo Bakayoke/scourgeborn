@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises'
 import path from 'node:path'
 import type { PartyPass } from './premium.js'
+import { deleteRoomFromRedis, loadRoomFromRedis, saveRoomToRedis } from './redis/roomStore.js'
 import type { Room } from './types.js'
 
 export type PersistedSnapshot = {
@@ -236,21 +237,31 @@ export function buildSnapshot(passes: Iterable<PartyPass>, rooms: Iterable<Room>
 }
 
 /** Live per-room write so other Railway instances can join immediately. */
+export function getRedisClient(): RedisClient | null {
+  return redis
+}
+
 export async function saveRoomRecord(room: Room): Promise<void> {
   if (!redis) return
   try {
-    const payload = JSON.stringify({
-      ...room,
-      players: room.players.map((p) => ({ ...p, connected: false })),
-    })
-    await redis.set(ROOM_KEY(room.code), payload, { EX: ROOM_TTL_SEC })
-    await redis.sAdd(ROOM_INDEX, room.code)
-    await redis.publish(ROOM_UPDATE_CHANNEL, room.code)
+    await saveRoomToRedis(redis, room)
     lastSaveAt = Date.now()
     lastError = null
   } catch (e) {
     lastError = e instanceof Error ? e.message : 'room save failed'
     console.error('saveRoomRecord failed', e)
+    // fallback to legacy blob
+    try {
+      const payload = JSON.stringify({
+        ...room,
+        players: room.players.map((p) => ({ ...p, connected: false })),
+      })
+      await redis.set(ROOM_KEY(room.code), payload, { EX: ROOM_TTL_SEC })
+      await redis.sAdd(ROOM_INDEX, room.code)
+      await redis.publish(ROOM_UPDATE_CHANNEL, room.code)
+    } catch (err) {
+      console.error('saveRoomRecord legacy fallback failed', err)
+    }
   }
 }
 
@@ -259,6 +270,8 @@ export async function loadRoomRecord(code: string): Promise<Room | null> {
   const c = code.toUpperCase().trim()
   if (!c) return null
   try {
+    const structured = await loadRoomFromRedis(redis, c)
+    if (structured) return structured
     const raw = await redis.get(ROOM_KEY(c))
     if (!raw) return null
     return JSON.parse(typeof raw === 'string' ? raw : raw.toString()) as Room
@@ -273,6 +286,7 @@ export async function deleteRoomRecord(code: string): Promise<void> {
   if (!redis) return
   const c = code.toUpperCase().trim()
   try {
+    await deleteRoomFromRedis(redis, c)
     await redis.del(ROOM_KEY(c))
     await redis.sRem(ROOM_INDEX, c)
     await redis.publish(ROOM_UPDATE_CHANNEL, c)

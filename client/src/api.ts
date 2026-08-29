@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
-import type { Lang, PartyInfo, PartyPassLocal, PublicRoom, Session } from './types'
+import type { Lang, PartyInfo, PartyPassLocal, PublicRoom, Session, ToolId } from './types'
 
 const API_BASE = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
 
@@ -27,17 +27,11 @@ export function getSocket() {
       timeout: 20_000,
     })
   }
-
   if (!connectionListenersAttached) {
     connectionListenersAttached = true
-    socket.on('connect', () => {
-      void ensureSessionBound()
-    })
-    socket.on('room', (room: PublicRoom) => {
-      onRoomHandler?.(room)
-    })
+    socket.on('connect', () => void ensureSessionBound())
+    socket.on('room', (room: PublicRoom) => onRoomHandler?.(room))
   }
-
   return socket
 }
 
@@ -50,19 +44,14 @@ export function subscribeConnection(handler: (state: ConnState) => void): () => 
     else if (s.active) handler('connecting')
     else handler('disconnected')
   }
-  const onConnect = () => handler('connected')
-  const onDisconnect = () => handler('disconnected')
-  const onAttempt = () => handler('connecting')
-  s.on('connect', onConnect)
-  s.on('disconnect', onDisconnect)
-  s.on('reconnect_attempt', onAttempt)
-  s.on('reconnect', onConnect)
+  s.on('connect', () => handler('connected'))
+  s.on('disconnect', () => handler('disconnected'))
+  s.on('reconnect_attempt', () => handler('connecting'))
   emit()
   return () => {
-    s.off('connect', onConnect)
-    s.off('disconnect', onDisconnect)
-    s.off('reconnect_attempt', onAttempt)
-    s.off('reconnect', onConnect)
+    s.off('connect')
+    s.off('disconnect')
+    s.off('reconnect_attempt')
   }
 }
 
@@ -81,38 +70,22 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     return JSON.parse(text) as T
   } catch {
-    throw new Error(
-      res.ok
-        ? 'Invalid API response / Ogiltigt API-svar'
-        : `API error ${res.status}. Check VITE_SOCKET_URL / Railway.`,
-    )
+    throw new Error(res.ok ? 'Invalid API response' : `API error ${res.status}`)
   }
 }
 
-export async function ensureSessionBound(
-  retries = 4,
-): Promise<{ ok: boolean; playerId?: string; room?: PublicRoom; error?: string } | null> {
+export async function ensureSessionBound(retries = 4) {
   const session = loadSession()
   if (!session) return null
   if (rejoinInFlight) return rejoinInFlight
-
   rejoinInFlight = (async () => {
-    let last: { ok: boolean; playerId?: string; room?: PublicRoom; error?: string } = {
-      ok: false,
-      error: 'rejoin failed',
-    }
     for (let i = 0; i < retries; i++) {
-      last = await rejoinGame(session.code, session.playerId)
+      const last = await rejoinGame(session.code, session.playerId)
       if (last.ok && last.room) return last
-      const err = last.error ?? ''
-      if (err.includes('finns inte') || err.includes('hittades inte') || err.includes('not found')) {
-        break
-      }
       await new Promise((r) => setTimeout(r, 700 * (i + 1)))
     }
-    return last
+    return { ok: false, error: 'rejoin failed' }
   })()
-
   try {
     return await rejoinInFlight
   } finally {
@@ -124,33 +97,21 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
   const s = getSocket()
   if (!s.connected) {
     await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(
-        () => reject(new Error('Could not reach server / Kunde inte ansluta till servern')),
-        12_000,
-      )
+      const t = setTimeout(() => reject(new Error('Could not reach server')), 12_000)
       s.once('connect', () => {
         clearTimeout(t)
         resolve()
       })
     })
   }
-
-  if (event !== 'create' && event !== 'join' && event !== 'rejoin') {
-    await ensureSessionBound(2)
-  }
-
+  if (event !== 'create' && event !== 'join' && event !== 'rejoin') await ensureSessionBound(2)
   const session = loadSession()
   const raw =
     payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>) } : {}
-  const isIdentityEvent = event === 'create' || event === 'join' || event === 'rejoin'
-  const body = isIdentityEvent
+  const isIdentity = event === 'create' || event === 'join' || event === 'rejoin'
+  const body = isIdentity
     ? raw
-    : {
-        ...raw,
-        playerId: raw.playerId ?? session?.playerId,
-        roomCode: raw.roomCode ?? session?.code,
-      }
-
+    : { ...raw, playerId: raw.playerId ?? session?.playerId, roomCode: raw.roomCode ?? session?.code }
   return new Promise((resolve, reject) => {
     s.timeout(12000).emit(event, body, (err: Error | null, res: T) => {
       if (err) reject(err)
@@ -160,7 +121,7 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
 }
 
 type OkRoom = { ok: true; playerId: string; room: PublicRoom }
-type Err = { ok: false; error: string; code?: string }
+type Err = { ok: false; error: string }
 
 export async function createGame(
   name: string,
@@ -183,24 +144,20 @@ export async function startGame() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('startGame', {})
 }
 
-export async function revealRole() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('revealRole', {})
+export async function ritualTool(tool: ToolId, data: Record<string, unknown>) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('ritualTool', { tool, data })
 }
 
-export async function proposeTeam(partnerId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('proposeTeam', { partnerId })
+export async function acknowledgeAffliction() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('acknowledgeAffliction', {})
 }
 
-export async function voteTeam(approve: boolean) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteTeam', { approve })
+export async function callCleansingRite() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('callCleansingRite', {})
 }
 
-export async function voteMission(vote: 'cleanse' | 'infect') {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteMission', { vote })
-}
-
-export async function ackResolution() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('ackResolution', {})
+export async function cleansingVote(targetId: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('cleansingVote', { targetId })
 }
 
 export async function endParty() {
@@ -211,105 +168,14 @@ export async function backToLobby() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('backToLobby', {})
 }
 
-export async function setLanguage(language: Lang) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setLanguage', { language })
-}
-
-export async function setPublicLobby(isPublic: boolean) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setPublicLobby', { isPublic })
-}
-
-export async function redeemParty(code: string) {
-  return ack<{
-    ok: boolean
-    error?: string
-    room?: PublicRoom
-    token?: string
-    expiresAt?: number
-  }>('redeemParty', { code })
-}
-
-export async function applyPartyToken(token: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('applyPartyToken', { token })
-}
-
 export async function fetchPartyInfo(): Promise<PartyInfo> {
   return apiJson<PartyInfo>('/api/party/info')
 }
 
-export type HealthInfo = {
-  ok: boolean
-  rooms?: number
-  persist?: {
-    configured: boolean
-    backend: string | null
-    redis?: boolean
-    hint?: string | null
-  }
-}
-
-export async function fetchHealth(): Promise<HealthInfo> {
-  return apiJson<HealthInfo>('/api/health')
-}
-
-export type RoomPreview = {
-  code: string
-  language: Lang
-  status: string
-  playerCount: number
-  hostName: string
-  isPublic: boolean
-}
-
-export async function fetchRoomPreview(code: string): Promise<RoomPreview> {
-  const path = `/api/room/${encodeURIComponent(code.trim().toUpperCase())}/preview`
-  const res = await fetch(apiUrl(path), { signal: AbortSignal.timeout(8_000) })
-  const data = (await res.json().catch(() => ({}))) as RoomPreview & { error?: string }
-  if (!res.ok) {
-    throw new Error(data.error || `API error ${res.status}`)
-  }
-  return data
-}
-
-export type PublicLobbyCard = {
-  code: string
-  language: Lang
-  playerCount: number
-  hostName: string
-  updatedAt: number
-  ageMs: number
-}
-
-export async function fetchPublicLobbies(lang?: Lang): Promise<PublicLobbyCard[]> {
+export async function fetchPublicLobbies(lang?: Lang) {
   const q = lang ? `?lang=${lang}` : ''
-  const data = await apiJson<{ lobbies: PublicLobbyCard[] }>(`/api/lobbies${q}`)
+  const data = await apiJson<{ lobbies: unknown[] }>(`/api/lobbies${q}`)
   return data.lobbies ?? []
-}
-
-export async function startCheckout(opts: {
-  locale: Lang
-  roomCode?: string
-  plan: 'day' | 'week'
-  firstTime?: boolean
-}) {
-  return apiJson<{ url?: string; error?: string }>('/api/party/checkout', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(opts),
-  })
-}
-
-export async function claimPartySession(sessionId: string) {
-  return apiJson<{
-    token?: string
-    expiresAt?: number
-    roomCode?: string
-    error?: string
-  }>('/api/party/claim', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId }),
-  })
 }
 
 const SESSION_KEY = 'scourgeborn-session'
@@ -318,8 +184,7 @@ const PASS_KEY = 'scourgeborn-party-pass'
 export function loadSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
-    if (!raw) return null
-    return JSON.parse(raw) as Session
+    return raw ? (JSON.parse(raw) as Session) : null
   } catch {
     return null
   }
