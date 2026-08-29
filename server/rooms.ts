@@ -795,7 +795,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const tasks = room.tasks.map((t) => ({
     ...t,
     glyphSequence: viewerId && t.assignedPlayerIds.includes(viewerId) ? t.glyphSequence : [],
-    glyphHint: publicGlyphHint(t),
+    glyphHint: publicGlyphHint(t, lang),
   }))
 
   const players = room.players.map((p) => {

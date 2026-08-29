@@ -75,7 +75,7 @@ export function distributeTools(playerIds: string[], solo: boolean): Record<stri
   const tools: ToolId[] = ['crystal_slider', 'glyph_board', 'essence_valve']
   const map: Record<string, ToolId[]> = {}
   if (solo) {
-    map[playerIds[0]!] = [...tools, 'miasma_cloud', 'sabotage_pulse']
+    map[playerIds[0]!] = [...tools]
     return map
   }
   for (const id of playerIds) map[id] = []
@@ -83,6 +83,18 @@ export function distributeTools(playerIds: string[], solo: boolean): Record<stri
     map[id]!.push(tools[i % tools.length]!)
   })
   return map
+}
+
+function playersForTaskKind(room: Room, kind: TaskKind): string[] {
+  const ids = activePlayerIds(room)
+  const toolByKind: Record<TaskKind, ToolId> = {
+    crystal: 'crystal_slider',
+    glyphs: 'glyph_board',
+    essence: 'essence_valve',
+  }
+  const needed = toolByKind[kind]
+  const matched = ids.filter((id) => room.playerTools[id]?.includes(needed))
+  return matched.length > 0 ? matched : ids
 }
 
 export function spawnTaskWave(room: Room): RitualTask[] {
@@ -93,10 +105,7 @@ export function spawnTaskWave(room: Room): RitualTask[] {
 
   return kinds.map((kind, idx) => {
     const title = taskTitle(kind, room.language)
-    const assigned =
-      room.mode === 'solo'
-        ? ids
-        : ids.filter((_, i) => i % kinds.length === idx % kinds.length)
+    const assigned = playersForTaskKind(room, kind)
     return {
       id: `${room.cycle}-${kind}-${now}-${idx}`,
       kind,
@@ -378,7 +387,19 @@ export function msg(lang: Lang, sv: string, en: string) {
   return lang === 'en' ? en : sv
 }
 
-export function publicGlyphHint(task: RitualTask): string {
-  const next = task.glyphSequence[task.glyphProgress]
-  return next ? `?→${next}` : 'done'
+export function publicGlyphHint(task: RitualTask, lang: Lang = 'sv'): string {
+  if (task.glyphProgress >= task.glyphSequence.length) {
+    return lang === 'en' ? 'Done!' : 'Klart!'
+  }
+  const remaining = task.glyphSequence.slice(task.glyphProgress)
+  const labels: Record<string, { sv: string; en: string }> = {
+    void: { sv: 'Tomhet', en: 'Void' },
+    arc: { sv: 'Båge', en: 'Arc' },
+    blood: { sv: 'Blod', en: 'Blood' },
+    star: { sv: 'Stjärna', en: 'Star' },
+    ash: { sv: 'Ask', en: 'Ash' },
+  }
+  return remaining
+    .map((g) => (lang === 'en' ? labels[g]?.en : labels[g]?.sv) ?? g)
+    .join(' → ')
 }

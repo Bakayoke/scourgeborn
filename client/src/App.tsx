@@ -19,7 +19,9 @@ import {
   type ConnState,
 } from './api'
 import {
+  coachForPhase,
   formatMs,
+  glyphLabel,
   loadLanguage,
   outcomeLabel,
   phaseLabel,
@@ -53,6 +55,42 @@ function VoidBackdrop() {
   )
 }
 
+function CoachBanner({
+  room,
+  lang,
+  playerId,
+  seconds,
+}: {
+  room: PublicRoom
+  lang: Lang
+  playerId: string | null
+  seconds: number
+}) {
+  const ui = t(lang)
+  const coach = coachForPhase(room, playerId ?? undefined, lang)
+  const goal = room.mode === 'solo' || (room.status === 'lobby' && room.players.filter((p) => !p.spectator).length <= 1)
+    ? ui.goalSolo
+    : ui.goalMulti
+
+  return (
+    <div className="coach-banner">
+      <p className="coach-label">{ui.yourJob}</p>
+      <p className="coach-text">{room.status === 'lobby' ? coach : coach}</p>
+      {room.status === 'ritual' && (
+        <p className="coach-sub">
+          {ui.coachTimer}: <strong>{seconds}s</strong> · {ui.coachFail}
+        </p>
+      )}
+      {(room.status === 'lobby' || room.status === 'ritual') && (
+        <details className="goal-details">
+          <summary>{ui.goalTitle}</summary>
+          <p>{goal}</p>
+        </details>
+      )}
+    </div>
+  )
+}
+
 function MatrixHud({ room, ui }: { room: PublicRoom; ui: ReturnType<typeof t> }) {
   return (
     <div className="matrix-hud">
@@ -69,56 +107,101 @@ function MatrixHud({ room, ui }: { room: PublicRoom; ui: ReturnType<typeof t> })
           {room.cycle}/{room.maxCycles}
         </strong>
       </div>
-      {room.mode === 'multi' && (
+      {room.mode === 'multi' && room.status !== 'lobby' && (
         <div className="hud-cell">
           <span>{ui.scourgeMeter}</span>
           <strong>{room.scourgeMeter}%</strong>
-          <div className="bar">
-            <div className="bar-fill scourge" style={{ width: `${room.scourgeMeter}%` }} />
-          </div>
         </div>
       )}
     </div>
   )
 }
 
-function TaskList({ room, lang }: { room: PublicRoom; lang: Lang }) {
+function TaskList({ room, lang, playerId }: { room: PublicRoom; lang: Lang; playerId: string | null }) {
+  const ui = t(lang)
   return (
-    <ul className="task-list">
-      {room.tasks.map((task) => (
-        <li key={task.id} className={task.completed ? 'done' : task.failed ? 'fail' : 'live'}>
-          <span>{taskTitle(task, lang)}</span>
-          {task.kind === 'crystal' && <em>{task.targetCrystal}% → 75%</em>}
-          {task.kind === 'glyphs' && <em>{task.glyphHint}</em>}
-          {task.kind === 'essence' && (
-            <em>
-              {task.essenceValue}% ({task.essenceMin}–{task.essenceMax})
-            </em>
-          )}
-        </li>
-      ))}
-    </ul>
+    <div className="team-tasks">
+      <h3>{ui.teamTasks}</h3>
+      <ul className="task-list">
+        {room.tasks.map((task) => {
+          const yours = playerId && task.assignedPlayerIds.includes(playerId)
+          const status = task.completed ? ui.statusDone : task.failed ? ui.statusFail : ui.statusLive
+          return (
+            <li
+              key={task.id}
+              className={`${task.completed ? 'done' : task.failed ? 'fail' : 'live'}${yours ? ' yours' : ''}`}
+            >
+              <span>
+                {yours && '★ '}
+                {taskTitle(task, lang)}
+              </span>
+              <em>{status}</em>
+              {task.kind === 'crystal' && !task.completed && !task.failed && (
+                <span className="task-detail">{task.targetCrystal}% / 75%</span>
+              )}
+              {task.kind === 'glyphs' && !task.completed && !task.failed && (
+                <span className="task-detail">{task.glyphHint}</span>
+              )}
+              {task.kind === 'essence' && !task.completed && !task.failed && (
+                <span className="task-detail">
+                  {task.essenceValue}% ({task.essenceMin}–{task.essenceMax})
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
+}
+
+function crystalFeedback(value: number, ui: ReturnType<typeof t>) {
+  const d = Math.abs(value - 75)
+  if (d <= 3) return { text: ui.crystalOk, className: 'ok' }
+  if (d <= 12) return { text: ui.crystalClose, className: 'warn' }
+  return { text: ui.crystalFar, className: 'bad' }
+}
+
+function essenceFeedback(value: number, min: number, max: number, ui: ReturnType<typeof t>) {
+  if (value >= min && value <= max) return { text: ui.essenceOk, className: 'ok' }
+  return { text: ui.essenceFar, className: 'bad' }
 }
 
 function RitualTools({
   room,
   ui,
+  lang,
   onTool,
 }: {
   room: PublicRoom
   ui: ReturnType<typeof t>
+  lang: Lang
   onTool: (tool: ToolId, data: Record<string, unknown>) => void
 }) {
   const crystalTask = room.tasks.find((t) => t.kind === 'crystal' && !t.completed && !t.failed)
   const glyphTask = room.tasks.find((t) => t.kind === 'glyphs' && !t.completed && !t.failed)
   const essenceTask = room.tasks.find((t) => t.kind === 'essence' && !t.completed && !t.failed)
 
+  const hasJob =
+    (room.yourTools.includes('crystal_slider') && crystalTask) ||
+    (room.yourTools.includes('glyph_board') && glyphTask) ||
+    (room.yourTools.includes('essence_valve') && essenceTask)
+
+  if (!hasJob && !room.yourTools.includes('miasma_cloud')) {
+    return <p className="hint panel">{ui.coachWaiting}</p>
+  }
+
+  const crystalFb = crystalTask ? crystalFeedback(crystalTask.targetCrystal, ui) : null
+  const essenceFb = essenceTask
+    ? essenceFeedback(essenceTask.essenceValue, essenceTask.essenceMin, essenceTask.essenceMax, ui)
+    : null
+
   return (
     <div className="ritual-tools">
       {room.yourTools.includes('crystal_slider') && crystalTask && (
         <div className="tool-panel">
           <h3>{ui.toolCrystal}</h3>
+          <p className="tool-instruct">{ui.coachCrystal}</p>
           <input
             type="range"
             min={0}
@@ -126,25 +209,44 @@ function RitualTools({
             value={crystalTask.targetCrystal}
             onChange={(e) => onTool('crystal_slider', { value: Number(e.target.value) })}
           />
-          <p>{crystalTask.targetCrystal}%</p>
+          <p className={`feedback ${crystalFb?.className}`}>
+            {crystalTask.targetCrystal}% — {crystalFb?.text}
+          </p>
         </div>
       )}
+
       {room.yourTools.includes('glyph_board') && glyphTask && (
         <div className="tool-panel">
           <h3>{ui.toolGlyphs}</h3>
+          <p className="tool-instruct">{ui.coachGlyphs}</p>
+          {glyphTask.glyphSequence.length > 0 ? (
+            <ol className="glyph-sequence">
+              {glyphTask.glyphSequence.map((g, i) => (
+                <li key={`${g}-${i}`} className={i < glyphTask.glyphProgress ? 'done' : i === glyphTask.glyphProgress ? 'next' : ''}>
+                  {glyphLabel(g, lang)}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="glyph-hint">{glyphTask.glyphHint}</p>
+          )}
           <div className="glyph-grid">
             {GLYPHS.map((g) => (
               <button key={g} type="button" className="glyph-btn" onClick={() => onTool('glyph_board', { symbol: g })}>
-                {g}
+                {glyphLabel(g, lang)}
               </button>
             ))}
           </div>
-          <p>{glyphTask.glyphHint}</p>
+          <p className="feedback">
+            {glyphTask.glyphProgress >= glyphTask.glyphSequence.length ? ui.glyphDone : ui.glyphNext}
+          </p>
         </div>
       )}
+
       {room.yourTools.includes('essence_valve') && essenceTask && (
         <div className="tool-panel">
           <h3>{ui.toolEssence}</h3>
+          <p className="tool-instruct">{ui.coachEssence}</p>
           <input
             type="range"
             min={0}
@@ -152,9 +254,12 @@ function RitualTools({
             value={essenceTask.essenceValue}
             onChange={(e) => onTool('essence_valve', { value: Number(e.target.value) })}
           />
-          <p>{essenceTask.essenceValue}%</p>
+          <p className={`feedback ${essenceFb?.className}`}>
+            {essenceTask.essenceValue}% — {essenceFb?.text}
+          </p>
         </div>
       )}
+
       {room.yourTools.includes('miasma_cloud') && (
         <button type="button" className="btn scourge-btn" onClick={() => onTool('miasma_cloud', {})}>
           {ui.toolMiasma}
@@ -172,12 +277,14 @@ function RitualTools({
 function GameView({
   room,
   lang,
+  playerId,
   tvMode,
   onLeave,
   onError,
 }: {
   room: PublicRoom
   lang: Lang
+  playerId: string | null
   tvMode: boolean
   onLeave: () => void
   onError: (m: string) => void
@@ -226,10 +333,13 @@ function GameView({
         <div>
           <span className="code-stamp">{room.code}</span>
           <span className="phase-stamp">{phaseLabel(room.status, lang)}</span>
-          {room.mode === 'solo' && <span className="mode-tag">SOLO</span>}
         </div>
-        {room.phaseEndsAt > 0 && <span className="timer">{seconds}s</span>}
+        {room.phaseEndsAt > 0 && room.status === 'ritual' && (
+          <span className="timer">{seconds}s</span>
+        )}
       </header>
+
+      <CoachBanner room={room} lang={lang} playerId={playerId} seconds={seconds} />
 
       {room.miasmaActive && !tvMode && <p className="miasma-banner">{ui.miasma}</p>}
 
@@ -242,10 +352,11 @@ function GameView({
       )}
 
       {room.status === 'lobby' && (
-        <div className="panel">
+        <div className="panel lobby-panel">
           <p className="hint">{ui.shareHint}</p>
           <p className="hint">
-            {seated} {ui.lobby.toLowerCase()} · {room.mode === 'solo' ? 'solo OK' : ui.minMulti}
+            {seated} {ui.players.toLowerCase()}
+            {seated === 1 ? ' · ' + ui.coachLobbySolo : ` · ${ui.minMulti}`}
           </p>
           {room.youAreHost ? (
             <button type="button" className="btn primary" onClick={() => void act(startGame)}>
@@ -270,6 +381,7 @@ function GameView({
       {room.status === 'cleansing' && room.cleansing && !room.youCleansingVoted && (
         <div className="panel cleansing">
           <h3>{ui.cleansingHint}</h3>
+          <p className="hint">{ui.coachCleansing}</p>
           <div className="vote-grid">
             {room.players
               .filter((p) => !p.spectator)
@@ -285,14 +397,25 @@ function GameView({
         </div>
       )}
 
+      {room.status === 'cycle_end' && (
+        <div className="panel cycle-panel">
+          <p className="coach-text">{ui.coachCycle}</p>
+        </div>
+      )}
+
       {(room.status === 'ritual' || room.status === 'cycle_end') && (
         <>
           {!tvMode && room.status === 'ritual' && (
-            <RitualTools room={room} ui={ui} onTool={(tool, data) => void act(() => ritualTool(tool, data))} />
+            <RitualTools
+              room={room}
+              ui={ui}
+              lang={lang}
+              onTool={(tool, data) => void act(() => ritualTool(tool, data))}
+            />
           )}
-          <TaskList room={room} lang={lang} />
+          <TaskList room={room} lang={lang} playerId={playerId} />
           {room.mode === 'multi' && room.status === 'ritual' && !room.youAreSpectator && (
-            <button type="button" className="btn ghost" onClick={() => void act(callCleansingRite)}>
+            <button type="button" className="btn ghost small" onClick={() => void act(callCleansingRite)}>
               {ui.callCleansing}
             </button>
           )}
@@ -319,6 +442,7 @@ export default function App() {
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [room, setRoom] = useState<PublicRoom | null>(null)
+  const [playerId, setPlayerId] = useState<string | null>(loadSession()?.playerId ?? null)
   const [error, setError] = useState<string | null>(null)
   const [conn, setConn] = useState<ConnState>('connecting')
   const [tvMode, setTvMode] = useState(false)
@@ -328,7 +452,7 @@ export default function App() {
   useEffect(() => rememberLanguage(lang), [lang])
   useEffect(() => subscribeConnection(setConn), [])
   useEffect(() => {
-    setRoomHandler(setRoom)
+    setRoomHandler((r) => setRoom(r))
     return () => setRoomHandler(null)
   }, [])
   useEffect(() => {
@@ -336,9 +460,11 @@ export default function App() {
     if (!session) return
     setName(session.name)
     setCode(session.code)
+    setPlayerId(session.playerId)
     void ensureSessionBound().then((res) => {
-      if (res?.ok && res.room) {
+      if (res?.ok && res.room && res.playerId) {
         setRoom(res.room)
+        setPlayerId(res.playerId)
         setScreen('game')
       }
     })
@@ -347,6 +473,7 @@ export default function App() {
   function leaveGame() {
     clearSession()
     setRoom(null)
+    setPlayerId(null)
     setScreen('home')
   }
 
@@ -356,6 +483,7 @@ export default function App() {
     const res = await createGame(name, lang, pass?.token ?? null)
     if (!res.ok) return setError(res.error)
     saveSession({ code: res.room.code, playerId: res.playerId, name })
+    setPlayerId(res.playerId)
     setRoom(res.room)
     setScreen('game')
   }
@@ -365,6 +493,7 @@ export default function App() {
     const res = await joinGame(code.trim().toUpperCase(), name)
     if (!res.ok) return setError(res.error)
     saveSession({ code: res.room.code, playerId: res.playerId, name })
+    setPlayerId(res.playerId)
     setRoom(res.room)
     setScreen('game')
   }
@@ -375,7 +504,14 @@ export default function App() {
         <VoidBackdrop />
         <main className={`app ritual-app${tvMode ? ' tv-app' : ''}`}>
           {error && <p className="error-banner">{error}</p>}
-          <GameView room={room} lang={lang} tvMode={tvMode} onLeave={leaveGame} onError={setError} />
+          <GameView
+            room={room}
+            lang={lang}
+            playerId={playerId}
+            tvMode={tvMode}
+            onLeave={leaveGame}
+            onError={setError}
+          />
           {room.status === 'lobby' && room.youAreHost && (
             <div className="host-tools">
               <button type="button" className="btn ghost" onClick={() => setShowQr((v) => !v)}>
@@ -449,9 +585,6 @@ export default function App() {
                 />
               </label>
             )}
-            <button type="button" className="btn ghost" onClick={() => setScreen('home')}>
-              ←
-            </button>
             <button type="submit" className="btn primary">
               {screen === 'create' ? ui.create : ui.join}
             </button>
