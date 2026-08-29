@@ -1843,3 +1843,469 @@ input:focus {
     animation: none !important;
   }
 }
+
+/* —— Social deduction (Scourgeborn v2) —— */
+
+.home .hero {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.home .hero h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 8vw, 2.75rem);
+  margin: 0.25rem 0;
+  letter-spacing: 0.06em;
+}
+
+.home .tagline {
+  font-size: 1.05rem;
+  color: var(--blight);
+  margin: 0.5rem 0;
+}
+
+.home .support {
+  color: var(--ink-dim);
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.stamp {
+  font-family: var(--font-stamp);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  color: var(--hazard-dim);
+}
+
+.home-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-width: 22rem;
+  margin: 0 auto 1.5rem;
+}
+
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 22rem;
+  margin: 0 auto 1.5rem;
+}
+
+.join-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.join-form input {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: var(--radius);
+}
+
+.lang-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.lang-toggle button {
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.lang-toggle button.active {
+  color: var(--blight);
+  border-color: var(--blight-deep);
+}
+
+.how-to {
+  max-width: 32rem;
+  margin: 2rem auto 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.how-to ol {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--ink-dim);
+}
+
+.error-banner {
+  background: rgba(184, 74, 50, 0.2);
+  border: 1px solid var(--danger);
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.game-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.code-stamp {
+  font-family: var(--font-stamp);
+  font-size: 1.4rem;
+  letter-spacing: 0.2em;
+  color: var(--blight);
+  display: block;
+}
+
+.phase-stamp {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.timer {
+  font-family: var(--font-stamp);
+  color: var(--hazard);
+  white-space: nowrap;
+}
+
+.score-board {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.score-cell {
+  flex: 1;
+  min-width: 5.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.score-cell span {
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.score-cell strong {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.score-cell.cleanse strong {
+  color: var(--blight);
+}
+
+.score-cell.infect strong {
+  color: var(--danger);
+}
+
+.phase-panel {
+  padding: 1.25rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  text-align: center;
+}
+
+.phase-panel.secret {
+  border-color: rgba(198, 222, 58, 0.35);
+  box-shadow: inset 0 0 40px rgba(198, 222, 58, 0.06);
+}
+
+.phase-title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  margin: 0 0 0.75rem;
+}
+
+.role-card.innocent {
+  border-color: rgba(198, 222, 58, 0.45);
+}
+
+.role-card.scourgeborn {
+  border-color: rgba(184, 74, 50, 0.55);
+  box-shadow: inset 0 0 50px rgba(184, 74, 50, 0.12);
+}
+
+.role-card.scourgeborn .phase-title {
+  color: var(--danger);
+}
+
+.role-desc {
+  color: var(--ink-dim);
+  margin: 0 0 0.75rem;
+}
+
+.reveal-btn {
+  font-size: 1.05rem;
+  padding: 1rem 1.5rem;
+  width: 100%;
+  max-width: 18rem;
+  margin: 0 auto;
+}
+
+.hint {
+  color: var(--ink-dim);
+  font-size: 0.9rem;
+  margin: 0.35rem 0;
+}
+
+.hint.dim {
+  opacity: 0.75;
+}
+
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 0.5rem;
+}
+
+.pick-btn {
+  padding: 0.85rem 0.5rem;
+}
+
+.vote-row {
+  display: flex;
+  gap: 0.65rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.vote-yes {
+  background: rgba(198, 222, 58, 0.15);
+  border-color: var(--blight-deep);
+  min-width: 6rem;
+}
+
+.vote-no {
+  background: rgba(184, 74, 50, 0.15);
+  border-color: var(--danger);
+  min-width: 6rem;
+}
+
+.mission-cleanse {
+  background: rgba(198, 222, 58, 0.12);
+  border-color: var(--blight-deep);
+  min-width: 7rem;
+}
+
+.mission-infect {
+  background: rgba(184, 74, 50, 0.18);
+  border-color: var(--danger);
+  min-width: 7rem;
+}
+
+.team-line {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  margin: 0.5rem 0;
+}
+
+.player-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.player-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.92rem;
+}
+
+.player-list li.offline {
+  opacity: 0.55;
+}
+
+.player-name .badge {
+  font-style: normal;
+  font-size: 0.65rem;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge.leader {
+  color: var(--hazard);
+  border-color: var(--hazard-dim);
+}
+
+.badge.mission {
+  color: var(--blight);
+}
+
+.role-tag.scourgeborn {
+  color: var(--danger);
+}
+
+.role-tag.innocent {
+  color: var(--blight);
+}
+
+.resolution.success {
+  border-color: rgba(198, 222, 58, 0.45);
+}
+
+.resolution.fail {
+  border-color: rgba(184, 74, 50, 0.5);
+}
+
+.finale {
+  min-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.finale-body {
+  flex: 1;
+  text-align: center;
+  padding: 1rem 0 2rem;
+}
+
+.finale-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 1rem 0;
+  background: linear-gradient(transparent, var(--bg-0) 30%);
+}
+
+.finale.innocents h2 {
+  color: var(--blight);
+}
+
+.finale.scourgeborn h2 {
+  color: var(--danger);
+}
+
+.game-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.host-tools {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.qr-wrap {
+  margin-top: 1rem;
+}
+
+.conn {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  margin-top: 1.5rem;
+}
+
+.conn.disconnected {
+  color: var(--danger);
+}
+
+.btn.primary {
+  background: rgba(198, 222, 58, 0.18);
+  border-color: var(--blight-deep);
+  color: var(--blight);
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.ghost.danger {
+  color: var(--danger);
+  border-color: rgba(184, 74, 50, 0.45);
+}
+
+.btn {
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.notice {
+  text-align: center;
+  color: var(--hazard);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.lobby-find ul {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.lobby-card {
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+}
+
+.game-view.tv .phase-panel.secret,
+.game-view.tv .mission-infect {
+  display: none;
+}
+
+.tv-app {
+  max-width: 1200px;
+}
+
+@media (min-width: 768px) {
+  .game-view.tv {
+    font-size: 1.1rem;
+  }
+
+  .code-stamp {
+    font-size: 2rem;
+  }
+}

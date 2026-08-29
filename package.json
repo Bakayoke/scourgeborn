@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Scourgeborn — collective dark-fantasy plague vs The Good",
+  "description": "Scourgeborn — mobile-first social deduction in a dark fantasy plague setting",
   "scripts": {
     "dev": "concurrently -n server,client -c coral,cyan \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "npm run dev --prefix client",
     "build": "npm install --prefix client && npm run build --prefix client",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "test": "tsx --test server/game/scourge.test.ts server/rooms.join.test.ts server/rooms.realtime.test.ts",
+    "test": "tsx --test server/game/scourgeborn.test.ts server/rooms.join.test.ts server/rooms.realtime.test.ts",
     "deploy:cf": "npm run build && npx wrangler deploy"
   },
   "dependencies": {

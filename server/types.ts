@@ -5,7 +5,7 @@ export type PremiumTier = 'free' | 'party'
 export type PremiumLimits = {
   /** 0 = unlimited */
   maxPlayers: number
-  /** Max council turns per session */
+  /** Legacy field — unused in social-deduction mode */
   maxRounds: number
   freePack: boolean
 }
@@ -23,71 +23,34 @@ export type RoomNotice = {
   at: number
 }
 
-export type RoomStatus = 'lobby' | 'council' | 'resolve' | 'finished'
+export type RoomStatus =
+  | 'lobby'
+  | 'roles'
+  | 'election'
+  | 'team_vote'
+  | 'mission'
+  | 'resolution'
+  | 'finished'
 
-export type RegionId =
-  | 'north_kingdom'
-  | 'elf_woods'
-  | 'eastern_wastes'
-  | 'southern_ports'
-  | 'heartlands'
-  | 'plague_heart'
+export type PlayerRole = 'innocent' | 'scourgeborn'
 
-/** Player contain moves + plague AI moves share this union */
-export type ActionKind =
-  | 'quarantine'
-  | 'cleanse'
-  | 'triage'
-  | 'assault'
-  | 'research'
-  | 'spread'
-  | 'breach'
-  | 'sabotage'
-  | 'pulse'
+export type MissionVote = 'cleanse' | 'infect'
 
-export type ActionSide = 'good' | 'plague'
+export type GameOutcome = 'ongoing' | 'innocents_win' | 'scourgeborn_win'
 
-export type ActionOption = {
-  id: string
-  kind: ActionKind
-  side: ActionSide
-  title: string
-  description: string
-  cost: number
-  amount?: number
-  targetRegionId: RegionId
-  affordable: boolean
+export type MissionScores = {
+  cleanses: number
+  infections: number
 }
 
-export type GameOutcome =
-  | 'ongoing'
-  | 'victory_cure'
-  | 'victory_heart'
-  | 'victory_contained'
-  | 'defeat_plague'
-
-export type TurnResolution = {
-  turn: number
-  actionId: string
-  aiActionId: string
-  focusRegionId: RegionId | null
-  playerLog: string
-  aiLog: string
-  incomeGained: number
-  voteCounts: Record<string, number>
+export type MissionResult = {
+  round: number
+  teamIds: string[]
+  success: boolean
+  infectCount: number
 }
 
-export type LiveEventKind = 'seep' | 'breach' | 'good' | 'plague' | 'income' | 'critical'
-
-export type LiveEvent = {
-  id: string
-  at: number
-  kind: LiveEventKind
-  regionId?: RegionId
-  delta?: number
-  textSv: string
-  textEn: string
-}
+export type RoleReveal = Record<string, boolean>
 
 export type Room = {
   code: string
@@ -98,34 +61,34 @@ export type Room = {
   premiumExpiresAt: number | null
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
-  phaseEndsAt: number
-  turnIndex: number
-  resourcePoints: number
-  regions: MapRegion[]
-  cureProgress: number
-  heartHp: number
-  focusRegionId: RegionId | null
-  votes: Record<string, string>
-  voteOptions: ActionOption[]
-  lastResolution: TurnResolution | null
-  outcome: GameOutcome
   notice: RoomNotice | null
   updatedAt: number
-  /** Last passive plague seep (realtime) */
-  lastWorldTickAt: number
-  liveEvents: LiveEvent[]
+  phaseEndsAt: number
+  /** Shuffled player order for leader rotation */
+  leaderOrder: string[]
+  leaderIndex: number
+  expeditionLeaderId: string | null
+  roles: Record<string, PlayerRole>
+  roleRevealed: RoleReveal
+  proposedTeamIds: string[]
+  teamVotes: Record<string, boolean>
+  missionVotes: Record<string, MissionVote>
+  scores: MissionScores
+  failedElectionStreak: number
+  missionRound: number
+  lastMissionResult: MissionResult | null
+  outcome: GameOutcome
 }
 
-export type MapRegion = {
-  id: RegionId
-  infection: number
-  quarantined: boolean
+export type PublicPlayer = Player & {
+  /** Only populated when game is finished */
+  role?: PlayerRole
 }
 
 export type PublicRoom = {
   code: string
   hostId: string
-  players: Player[]
+  players: PublicPlayer[]
   language: Lang
   status: RoomStatus
   premiumTier: PremiumTier
@@ -134,26 +97,30 @@ export type PublicRoom = {
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   phaseEndsAt: number
-  turnIndex: number
-  resourcePoints: number
-  worldInfection: number
-  regions: MapRegion[]
-  cureProgress: number
-  heartHp: number
-  focusRegionId: RegionId | null
-  voteOptions: ActionOption[]
-  submittedCount: number
-  submitterCount: number
-  submittedIds: string[]
-  youSubmitted: boolean
-  yourVote: string | null
-  voteCounts: Record<string, number> | null
-  lastResolution: TurnResolution | null
+  expeditionLeaderId: string | null
+  proposedTeamIds: string[]
+  scores: MissionScores
+  failedElectionStreak: number
+  missionRound: number
+  lastMissionResult: MissionResult | null
   outcome: GameOutcome
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
-  youCanVote: boolean
-  maxRounds: number
-  liveEvents: LiveEvent[]
+  youAreLeader: boolean
+  youOnMission: boolean
+  /** Role shown only after viewer taps reveal */
+  yourRole: PlayerRole | null
+  youRoleRevealed: boolean
+  rolesRevealedCount: number
+  rolesTotal: number
+  teamVoteSubmittedCount: number
+  teamVoteTotal: number
+  youTeamVoted: boolean
+  yourTeamVote: boolean | null
+  teamVoteSubmittedIds: string[]
+  missionSubmittedCount: number
+  missionSubmittedIds: string[]
+  youMissionVoted: boolean
+  minPlayers: number
 }

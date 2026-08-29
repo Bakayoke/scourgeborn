@@ -1,109 +1,78 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { castVote, createRoom, joinRoom, startGame, toPublicRoom } from './rooms.js'
+import {
+  createRoom,
+  joinRoom,
+  proposeTeam,
+  revealRole,
+  startGame,
+  toPublicRoom,
+  voteMission,
+  voteTeam,
+} from './rooms.js'
+
+function fillLobby(code: string, hostId: string) {
+  const names = ['Ada', 'Bo', 'Cia', 'Dan']
+  const ids: string[] = [hostId]
+  names.forEach((name, i) => {
+    const res = joinRoom(code, name, `sock-${i}`)
+    assert.ok(!('error' in res))
+    if (!('error' in res)) ids.push(res.playerId)
+  })
+  return ids
+}
 
 describe('lobby joins', () => {
-  it('lets host + three players join (start needs 2 non-host)', () => {
+  it('requires five players to start', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-host', 'sv')
-    const code = room.code
+    const startedEarly = startGame(room.code, hostId)
+    assert.ok('error' in startedEarly)
 
-    const p1 = joinRoom(code, 'Ada', 'sock-1')
-    const p2 = joinRoom(code, 'Bo', 'sock-2')
-    const p3 = joinRoom(code, 'Cia', 'sock-3')
-
-    assert.ok(!('error' in p1), 'player 1 should join')
-    assert.ok(!('error' in p2), 'player 2 should join')
-    assert.ok(!('error' in p3), `player 3 should join, got ${'error' in p3 ? p3.error : ''}`)
-
-    if ('error' in p1 || 'error' in p2 || 'error' in p3) return
-
-    const pub = toPublicRoom(p3.room, p3.playerId)
-    const seated = pub.players.filter((p) => !p.spectator && p.id !== pub.hostId)
-    assert.equal(seated.length, 3)
-
-    const started = startGame(code, hostId)
-    assert.ok(!('error' in started), `start should work with 3 players`)
-  })
-
-  it('starts with host + two players (same party size as when host played)', () => {
-    const { room, playerId: hostId } = createRoom('Host', 'sock-host-2', 'sv')
-    const code = room.code
-    assert.ok(!('error' in joinRoom(code, 'Ada', 'sock-a')))
-    assert.ok(!('error' in joinRoom(code, 'Bo', 'sock-b')))
-    const started = startGame(code, hostId)
-    assert.ok(!('error' in started), `start should work with 2 non-host players: ${'error' in started ? started.error : ''}`)
-  })
-
-  it('starts solo with only the host', () => {
-    const { room, playerId: hostId } = createRoom('Host', 'sock-host-solo', 'sv')
-    const started = startGame(room.code, hostId)
-    assert.ok(!('error' in started), `solo start failed: ${'error' in started ? started.error : ''}`)
-    if ('error' in started) return
-    assert.equal(started.status, 'council')
-    const pub = toPublicRoom(started, hostId)
-    assert.equal(pub.youAreHost, true)
-    assert.equal(pub.submitterCount, 1)
-    assert.equal(pub.youCanVote, true)
-    assert.ok(pub.voteOptions.length >= 3)
-  })
-
-  it('lets the solo host cast one vote and get a plague reply', () => {
-    const { room, playerId: hostId } = createRoom('Host', 'sock-host-flap', 'sv')
+    fillLobby(room.code, hostId)
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started))
     if ('error' in started) return
-
-    const host = room.players.find((p) => p.id === hostId)
-    assert.ok(host)
-    host!.connected = false
-
-    const pub = toPublicRoom(room, hostId)
-    assert.equal(pub.youCanVote, true)
-
-    const opt = room.voteOptions.find((o) => o.affordable) ?? room.voteOptions[0]
-    assert.ok(opt)
-    const voted = castVote(room.code, hostId, opt!.id)
-    assert.ok(!('error' in voted), `vote failed: ${'error' in voted ? voted.error : ''}`)
-    if ('error' in voted) return
-    assert.ok(voted.status === 'resolve' || voted.status === 'finished')
-    assert.ok(voted.lastResolution?.playerLog)
-    assert.ok(voted.lastResolution?.aiLog)
-    assert.ok(voted.lastResolution?.aiActionId)
+    assert.equal(started.status, 'roles')
   })
 
-  it('does not let disconnected ghosts block the third seat', () => {
-    const { room } = createRoom('Host', 'sock-host', 'sv')
-    const code = room.code
+  it('hides role until reveal', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-hide', 'sv')
+    const ids = fillLobby(room.code, hostId)
+    startGame(room.code, hostId)
 
-    assert.ok(!('error' in joinRoom(code, 'Ada', 'sock-1')))
-    const ghost = joinRoom(code, 'Ghost', 'sock-ghost')
-    assert.ok(!('error' in ghost))
-    if ('error' in ghost) return
+    const pubBefore = toPublicRoom(room, ids[1])
+    assert.equal(pubBefore.yourRole, null)
+    assert.equal(pubBefore.youRoleRevealed, false)
 
-    const g = room.players.find((p) => p.id === ghost.playerId)
-    assert.ok(g)
-    g!.connected = false
-
-    const p2 = joinRoom(code, 'Bo', 'sock-2')
-    const p3 = joinRoom(code, 'Cia', 'sock-3')
-    assert.ok(!('error' in p2))
-    assert.ok(!('error' in p3), `third join blocked: ${'error' in p3 ? p3.error : ''}`)
+    revealRole(room.code, ids[1]!)
+    const pubAfter = toPublicRoom(room, ids[1])
+    assert.ok(pubAfter.yourRole === 'innocent' || pubAfter.yourRole === 'scourgeborn')
+    assert.equal(pubAfter.youRoleRevealed, true)
   })
 
-  it('reclaims a disconnected seat by the same name', () => {
-    const { room } = createRoom('Host', 'sock-host', 'sv')
-    const code = room.code
-    const first = joinRoom(code, 'Ada', 'sock-ada-1')
-    assert.ok(!('error' in first))
-    if ('error' in first) return
+  it('runs a full mission round when all cooperate', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-full', 'sv')
+    const ids = fillLobby(room.code, hostId)
 
-    const ada = room.players.find((p) => p.id === first.playerId)!
-    ada.connected = false
+    startGame(room.code, hostId)
+    for (const id of ids) revealRole(room.code, id)
 
-    const again = joinRoom(code, 'Ada', 'sock-ada-2')
-    assert.ok(!('error' in again))
-    if ('error' in again) return
-    assert.equal(again.playerId, first.playerId)
-    assert.equal(room.players.filter((p) => p.name === 'Ada').length, 1)
+    assert.equal(room.status, 'election')
+    const leaderId = room.expeditionLeaderId!
+    const partnerId = ids.find((id) => id !== leaderId)!
+    proposeTeam(room.code, leaderId, partnerId)
+    assert.equal(room.status, 'team_vote')
+
+    for (const id of ids) voteTeam(room.code, id, true)
+    assert.equal(room.status, 'mission')
+
+    voteMission(room.code, leaderId, 'cleanse')
+    voteMission(room.code, partnerId, 'cleanse')
+
+    assert.ok(
+      room.status === 'resolution' || room.status === 'finished',
+      `expected resolution/finished got ${room.status}`,
+    )
+    assert.ok(room.scores.cleanses >= 1 || room.outcome !== 'ongoing')
   })
 })

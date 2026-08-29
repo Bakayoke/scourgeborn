@@ -20,11 +20,10 @@ import {
   subscribeRoomUpdates,
 } from './persist.js'
 import {
+  ackResolution,
   applyPartyToken,
   allRooms,
   backToLobby,
-  castVote,
-  continueTurn,
   createRoom,
   endParty,
   getBinding,
@@ -34,11 +33,13 @@ import {
   joinRoom,
   onPhaseTimeout,
   previewRoom,
+  proposeTeam,
   pruneIdleRooms,
   reconnectSocket,
   redeemParty,
   reloadRoomFromStore,
   restoreRooms,
+  revealRole,
   roomsNeedingTick,
   setLanguage,
   setBroadcastHook,
@@ -48,6 +49,8 @@ import {
   startGame,
   toPublicRoom,
   unlockRoomWithPass,
+  voteMission,
+  voteTeam,
 } from './rooms.js'
 import {
   claimPartyCheckoutSession,
@@ -318,10 +321,51 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('continueTurn', (payload, ack) => {
+  socket.on('revealRole', (payload, ack) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = continueTurn(binding.code, binding.playerId)
+    const result = revealRole(binding.code, binding.playerId)
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('proposeTeam', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = proposeTeam(
+      binding.code,
+      binding.playerId,
+      String(payload?.partnerId ?? ''),
+    )
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('voteTeam', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = voteTeam(binding.code, binding.playerId, Boolean(payload?.approve))
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('voteMission', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const vote = payload?.vote === 'infect' ? 'infect' : 'cleanse'
+    const result = voteMission(binding.code, binding.playerId, vote)
+    if ('error' in result) return ack?.({ ok: false, error: result.error })
+    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
+    broadcastRoom(result.code)
+  })
+
+  socket.on('ackResolution', (payload, ack) => {
+    const binding = bindingFrom(payload)
+    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
+    const result = ackResolution(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)
@@ -340,43 +384,6 @@ io.on('connection', (socket) => {
     const binding = bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = backToLobby(binding.code, binding.playerId)
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('castVote', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = castVote(binding.code, binding.playerId, String(payload?.optionId ?? ''))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  // Legacy event names → same single vote
-  socket.on('castContainActionVote', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = castVote(binding.code, binding.playerId, String(payload?.optionId ?? ''))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('castCureVote', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = castVote(binding.code, binding.playerId, String(payload?.optionId ?? ''))
-    if ('error' in result) return ack?.({ ok: false, error: result.error })
-    ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
-    broadcastRoom(result.code)
-  })
-
-  socket.on('castActionVote', (payload, ack) => {
-    const binding = bindingFrom(payload)
-    if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
-    const result = castVote(binding.code, binding.playerId, String(payload?.optionId ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
     ack?.({ ok: true, room: toPublicRoom(result, binding.playerId) })
     broadcastRoom(result.code)

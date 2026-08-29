@@ -183,8 +183,24 @@ export async function startGame() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('startGame', {})
 }
 
-export async function continueTurn() {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('continueTurn', {})
+export async function revealRole() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('revealRole', {})
+}
+
+export async function proposeTeam(partnerId: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('proposeTeam', { partnerId })
+}
+
+export async function voteTeam(approve: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteTeam', { approve })
+}
+
+export async function voteMission(vote: 'cleanse' | 'infect') {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('voteMission', { vote })
+}
+
+export async function ackResolution() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('ackResolution', {})
 }
 
 export async function endParty() {
@@ -193,10 +209,6 @@ export async function endParty() {
 
 export async function backToLobby() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('backToLobby', {})
-}
-
-export async function castVote(optionId: string) {
-  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('castVote', { optionId })
 }
 
 export async function setLanguage(language: Lang) {

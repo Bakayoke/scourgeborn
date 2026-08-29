@@ -1,27 +1,25 @@
 import { customAlphabet } from 'nanoid'
 import {
-  COUNCIL_MS,
-  LIVE_EVENT_CAP,
-  RESOLVE_MS,
-  STARTING_CURE,
-  STARTING_HEART_HP,
-  STARTING_RESOURCE_POINTS,
-  TIMEOUT_VICTORY_INFECTION,
-  WORLD_TICK_MS,
-  applyAction,
-  applyWorldTick,
-  createInitialRegions,
-  evaluateOutcome,
-  generatePlagueOptions,
-  generatePlayerOptions,
-  incomeFor,
-  labelRegion,
+  ELECTION_MS,
+  MISSION_MS,
   MIN_PLAYERS,
-  pickPlagueOption,
-  pickWinningId,
-  tally,
-  worldInfection,
-} from './game/scourge.js'
+  RESOLUTION_MS,
+  ROLES_MS,
+  TEAM_VOTE_MS,
+  activePlayerIds,
+  advanceLeader,
+  allRolesRevealed,
+  assignRoles,
+  beginElectionPhase,
+  beginMissionPhase,
+  beginResolutionPhase,
+  beginTeamVotePhase,
+  checkOutcome,
+  connectedActiveIds,
+  resolveMissionVotes,
+  shuffleIds,
+  teamVotePassed,
+} from './game/scourgeborn.js'
 import {
   limitsFor,
   lookupPass,
@@ -31,18 +29,14 @@ import {
 } from './premium.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
 import type {
-  ActionOption,
   GameOutcome,
   Lang,
-  LiveEvent,
-  LiveEventKind,
-  MapRegion,
+  MissionResult,
+  MissionVote,
   Player,
   PublicRoom,
-  RegionId,
   Room,
   RoomStatus,
-  TurnResolution,
 } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
@@ -105,18 +99,8 @@ function uniqueCode(): string {
   return code
 }
 
-function isActivePlayer(room: Room, p: Player): boolean {
-  if (p.spectator) return false
-  if (p.id === room.hostId) return false
-  return true
-}
-
 function seatedPlayers(room: Room): Player[] {
-  return room.players.filter((p) => isActivePlayer(room, p))
-}
-
-function connectedPlayers(room: Room): Player[] {
-  return seatedPlayers(room).filter((p) => p.connected)
+  return room.players.filter((p) => !p.spectator)
 }
 
 function midGame(status: RoomStatus): boolean {
@@ -126,119 +110,90 @@ function midGame(status: RoomStatus): boolean {
 function emptyGameFields(): Pick<
   Room,
   | 'phaseEndsAt'
-  | 'lastWorldTickAt'
-  | 'turnIndex'
-  | 'resourcePoints'
-  | 'regions'
-  | 'cureProgress'
-  | 'heartHp'
-  | 'focusRegionId'
-  | 'votes'
-  | 'voteOptions'
-  | 'lastResolution'
+  | 'leaderOrder'
+  | 'leaderIndex'
+  | 'expeditionLeaderId'
+  | 'roles'
+  | 'roleRevealed'
+  | 'proposedTeamIds'
+  | 'teamVotes'
+  | 'missionVotes'
+  | 'scores'
+  | 'failedElectionStreak'
+  | 'missionRound'
+  | 'lastMissionResult'
   | 'outcome'
-  | 'liveEvents'
 > {
   return {
     phaseEndsAt: 0,
-    lastWorldTickAt: 0,
-    turnIndex: 0,
-    resourcePoints: STARTING_RESOURCE_POINTS,
-    regions: createInitialRegions(),
-    cureProgress: STARTING_CURE,
-    heartHp: STARTING_HEART_HP,
-    focusRegionId: null,
-    votes: {},
-    voteOptions: [],
-    lastResolution: null,
+    leaderOrder: [],
+    leaderIndex: 0,
+    expeditionLeaderId: null,
+    roles: {},
+    roleRevealed: {},
+    proposedTeamIds: [],
+    teamVotes: {},
+    missionVotes: {},
+    scores: { cleanses: 0, infections: 0 },
+    failedElectionStreak: 0,
+    missionRound: 0,
+    lastMissionResult: null,
     outcome: 'ongoing',
-    liveEvents: [],
   }
 }
 
-function pushLiveEvent(
-  room: Room,
-  partial: {
-    kind: LiveEventKind
-    regionId?: RegionId
-    delta?: number
-    textSv: string
-    textEn: string
-  },
-) {
-  const event: LiveEvent = {
-    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    at: Date.now(),
-    kind: partial.kind,
-    regionId: partial.regionId,
-    delta: partial.delta,
-    textSv: partial.textSv,
-    textEn: partial.textEn,
-  }
-  room.liveEvents = [event, ...(room.liveEvents ?? [])].slice(0, LIVE_EVENT_CAP)
+function voterIds(room: Room): string[] {
+  const connected = connectedActiveIds(room)
+  if (connected.length > 0) return connected
+  return activePlayerIds(room)
 }
 
 export function allRooms() {
   return rooms
 }
 
-function normalizeRegions(raw: unknown): MapRegion[] {
-  if (!Array.isArray(raw) || raw.length === 0) return createInitialRegions()
-  return createInitialRegions().map((base) => {
-    const found = raw.find(
-      (r) => r && typeof r === 'object' && (r as MapRegion).id === base.id,
-    ) as (MapRegion & { corruption?: number }) | undefined
-    if (!found) return base
-    const infection =
-      typeof found.infection === 'number'
-        ? found.infection
-        : typeof found.corruption === 'number'
-          ? found.corruption
-          : base.infection
-    return {
-      id: base.id,
-      infection: Math.max(0, Math.min(100, Number(infection) || 0)),
-      quarantined: Boolean(found.quarantined),
-    }
-  })
+function normalizeStatus(raw: unknown): RoomStatus {
+  const valid: RoomStatus[] = [
+    'lobby',
+    'roles',
+    'election',
+    'team_vote',
+    'mission',
+    'resolution',
+    'finished',
+  ]
+  if (typeof raw === 'string' && valid.includes(raw as RoomStatus)) {
+    return raw as RoomStatus
+  }
+  return 'lobby'
+}
+
+function normalizeScores(raw: unknown): Room['scores'] {
+  if (!raw || typeof raw !== 'object') return { cleanses: 0, infections: 0 }
+  const s = raw as Partial<Room['scores']>
+  return {
+    cleanses: Number(s.cleanses) || 0,
+    infections: Number(s.infections) || 0,
+  }
+}
+
+function normalizeMissionResult(raw: unknown): MissionResult | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Partial<MissionResult>
+  if (!Array.isArray(r.teamIds)) return null
+  return {
+    round: Number(r.round) || 0,
+    teamIds: r.teamIds.map(String),
+    success: Boolean(r.success),
+    infectCount: Number(r.infectCount) || 0,
+  }
 }
 
 export function restoreRooms(list: Room[]) {
   for (const raw of list) {
     if (!raw?.code) continue
-    if (Array.isArray((raw as { paths?: unknown }).paths)) continue
-    const hasNew = 'resourcePoints' in raw || 'regions' in raw
-    if (!hasNew) continue
+    if (!('roles' in raw) && !('leaderOrder' in raw)) continue
 
-    const legacy = raw as Room & {
-      corruptionPoints?: number
-      landVotes?: Record<string, string>
-      actionVotes?: Record<string, string>
-      containLandVotes?: Record<string, string>
-      containActionVotes?: Record<string, string>
-      cureVotes?: Record<string, string>
-      actionOptions?: ActionOption[]
-      containOptions?: ActionOption[]
-      voteOptions?: ActionOption[]
-      votes?: Record<string, string>
-    }
-    const votes =
-      (raw.votes && typeof raw.votes === 'object' ? raw.votes : null) ||
-      (legacy.votes && typeof legacy.votes === 'object' ? legacy.votes : null) ||
-      (legacy.containActionVotes && typeof legacy.containActionVotes === 'object'
-        ? legacy.containActionVotes
-        : null) ||
-      (legacy.actionVotes && typeof legacy.actionVotes === 'object' ? legacy.actionVotes : null) ||
-      {}
-    const voteOptions = Array.isArray(raw.voteOptions)
-      ? (raw.voteOptions as ActionOption[])
-      : Array.isArray(legacy.voteOptions)
-        ? legacy.voteOptions
-        : Array.isArray(legacy.containOptions)
-          ? legacy.containOptions
-          : Array.isArray(legacy.actionOptions)
-            ? legacy.actionOptions
-            : []
     const room: Room = {
       code: raw.code,
       hostId: raw.hostId,
@@ -253,81 +208,27 @@ export function restoreRooms(list: Room[]) {
       premiumExpiresAt: raw.premiumExpiresAt ?? null,
       isPublic: Boolean(raw.isPublic),
       waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
-      phaseEndsAt: Number(raw.phaseEndsAt) || 0,
-      lastWorldTickAt: Number(raw.lastWorldTickAt) || 0,
-      turnIndex: Number(raw.turnIndex) || 0,
-      resourcePoints:
-        Number(raw.resourcePoints) ||
-        Number(legacy.corruptionPoints) ||
-        STARTING_RESOURCE_POINTS,
-      regions: normalizeRegions(raw.regions),
-      cureProgress: Number(raw.cureProgress) || STARTING_CURE,
-      heartHp: Number(raw.heartHp) || STARTING_HEART_HP,
-      focusRegionId: (raw.focusRegionId as RegionId) || null,
-      votes: votes as Record<string, string>,
-      voteOptions,
-      lastResolution: normalizeResolution(raw.lastResolution),
-      outcome: (raw.outcome as GameOutcome) || 'ongoing',
       notice: raw.notice ?? null,
       updatedAt: raw.updatedAt ?? Date.now(),
-      liveEvents: normalizeLiveEvents(raw.liveEvents),
+      phaseEndsAt: Number(raw.phaseEndsAt) || 0,
+      leaderOrder: Array.isArray(raw.leaderOrder) ? raw.leaderOrder.map(String) : [],
+      leaderIndex: Number(raw.leaderIndex) || 0,
+      expeditionLeaderId: raw.expeditionLeaderId ?? null,
+      roles: (raw.roles as Room['roles']) ?? {},
+      roleRevealed: (raw.roleRevealed as Room['roleRevealed']) ?? {},
+      proposedTeamIds: Array.isArray(raw.proposedTeamIds)
+        ? raw.proposedTeamIds.map(String)
+        : [],
+      teamVotes: (raw.teamVotes as Room['teamVotes']) ?? {},
+      missionVotes: (raw.missionVotes as Room['missionVotes']) ?? {},
+      scores: normalizeScores(raw.scores),
+      failedElectionStreak: Number(raw.failedElectionStreak) || 0,
+      missionRound: Number(raw.missionRound) || 0,
+      lastMissionResult: normalizeMissionResult(raw.lastMissionResult),
+      outcome: (raw.outcome as GameOutcome) || 'ongoing',
     }
     rooms.set(room.code, room)
   }
-}
-
-function normalizeLiveEvents(raw: unknown): LiveEvent[] {
-  if (!Array.isArray(raw)) return []
-  const out: LiveEvent[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const e = item as Partial<LiveEvent>
-    if (!e.id || !e.textSv || !e.textEn) continue
-    out.push({
-      id: String(e.id),
-      at: Number(e.at) || 0,
-      kind: (e.kind as LiveEventKind) || 'seep',
-      regionId: e.regionId,
-      delta: typeof e.delta === 'number' ? e.delta : undefined,
-      textSv: String(e.textSv),
-      textEn: String(e.textEn),
-    })
-  }
-  return out.slice(0, LIVE_EVENT_CAP)
-}
-
-function normalizeResolution(raw: unknown): TurnResolution | null {
-  if (!raw || typeof raw !== 'object') return null
-  const r = raw as Partial<TurnResolution> & {
-    containRegionId?: RegionId | null
-    containActionId?: string
-    actionVoteCounts?: Record<string, number>
-    containActionVoteCounts?: Record<string, number>
-  }
-  return {
-    turn: Number(r.turn) || 0,
-    actionId: String(r.actionId ?? r.containActionId ?? ''),
-    aiActionId: String(r.aiActionId ?? ''),
-    focusRegionId: (r.focusRegionId ?? r.containRegionId ?? null) as RegionId | null,
-    playerLog: String(r.playerLog ?? ''),
-    aiLog: String(r.aiLog ?? ''),
-    incomeGained: Number(r.incomeGained) || 0,
-    voteCounts: r.voteCounts ?? r.containActionVoteCounts ?? r.actionVoteCounts ?? {},
-  }
-}
-
-function normalizeStatus(raw: unknown): RoomStatus {
-  if (
-    raw === 'council' ||
-    raw === 'council_land' ||
-    raw === 'council_action' ||
-    raw === 'council_contain' ||
-    raw === 'council_cure'
-  ) {
-    return 'council'
-  }
-  if (raw === 'lobby' || raw === 'resolve' || raw === 'finished') return raw
-  return 'lobby'
 }
 
 export function getRoom(code: string) {
@@ -461,7 +362,7 @@ export function joinRoom(
     if (mine) {
       cancelDisconnectTimer(room.code, mine.id)
       mine.connected = true
-      if (!mine.spectator && mine.id !== room.hostId) mine.name = displayName
+      if (!mine.spectator) mine.name = displayName
       touch(room)
       return { room, playerId: mine.id }
     }
@@ -496,8 +397,8 @@ export function joinRoom(
   }
 
   const maxPlayers = roomLimits(room).maxPlayers
-  const connectedSeated = seatedPlayers(room).filter((p) => p.connected)
-  if (maxPlayers > 0 && connectedSeated.length >= maxPlayers) {
+  const connectedSeated = seatedPlayers(room).filter((p) => p.connected).length
+  if (maxPlayers > 0 && connectedSeated >= maxPlayers) {
     const existingWait = room.waitlist.find(
       (w) => w.name.toLowerCase() === displayName.toLowerCase(),
     )
@@ -658,59 +559,42 @@ export function setPublicLobby(
   return room
 }
 
-function hostConnected(room: Room): boolean {
-  return Boolean(room.players.find((p) => p.id === room.hostId)?.connected)
-}
-
-function beginCouncil(room: Room, grantIncome: boolean) {
-  let income = 0
-  if (grantIncome) {
-    income = incomeFor(room.regions, room.cureProgress)
-    room.resourcePoints += income
-  }
-
-  room.turnIndex += 1
-  room.status = 'council'
-  room.focusRegionId = null
-  room.votes = {}
-  room.voteOptions = generatePlayerOptions({
-    lang: room.language,
-    points: room.resourcePoints,
-    regions: room.regions,
-    turn: room.turnIndex,
-    cureProgress: room.cureProgress,
-    heartHp: room.heartHp,
-  })
-  const now = Date.now()
-  room.phaseEndsAt = now + COUNCIL_MS
-  room.lastWorldTickAt = now
-
-  if (grantIncome && income > 0 && room.lastResolution) {
-    room.lastResolution = { ...room.lastResolution, incomeGained: income }
-    pushLiveEvent(room, {
-      kind: 'income',
-      delta: income,
-      textSv: `Resurser anländer (+${income}).`,
-      textEn: `Resources arrive (+${income}).`,
+function promoteWaitlist(room: Room) {
+  const max = roomLimits(room).maxPlayers
+  while (room.waitlist.length > 0) {
+    const seated = seatedPlayers(room).filter((p) => p.connected).length
+    if (max > 0 && seated >= max) break
+    const w = room.waitlist.shift()
+    if (!w) break
+    room.players.push({
+      id: w.id,
+      name: w.name,
+      connected: false,
+      spectator: false,
     })
   }
 }
 
-function startCampaign(room: Room): Room | { error: string } {
-  const order = connectedPlayers(room)
-  if (order.length < MIN_PLAYERS && !(order.length === 0 && hostConnected(room))) {
+function startDeductionGame(room: Room): Room | { error: string } {
+  const ids = connectedActiveIds(room)
+  if (ids.length < MIN_PLAYERS) {
     return {
       error: roomMsg(
         room,
-        'Ingen ansluten spelare — starta solo som värd eller bjud in rådet',
-        'No connected player — start solo as host or invite the council',
+        `Minst ${MIN_PLAYERS} spelare krävs`,
+        `At least ${MIN_PLAYERS} players required`,
       ),
     }
   }
 
   Object.assign(room, emptyGameFields())
-  room.outcome = 'ongoing'
-  beginCouncil(room, false)
+  room.roles = assignRoles(ids)
+  room.leaderOrder = shuffleIds(ids)
+  room.leaderIndex = 0
+  room.expeditionLeaderId = room.leaderOrder[0] ?? null
+  room.status = 'roles'
+  room.roleRevealed = {}
+  room.phaseEndsAt = Date.now() + ROLES_MS
   touch(room)
   return room
 }
@@ -726,40 +610,187 @@ export function startGame(code: string, playerId: string): Room | { error: strin
     for (const p of room.players) p.spectator = false
     promoteWaitlist(room)
   }
-  return startCampaign(room)
+  return startDeductionGame(room)
 }
 
-export function continueTurn(code: string, playerId: string): Room | { error: string } {
+export function revealRole(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
-  if (room.hostId !== playerId) return { error: 'Bara värden kan fortsätta' }
-  if (room.status !== 'resolve') {
-    return { error: roomMsg(room, 'Vänta till resolven', 'Wait for the resolve phase') }
+  if (room.status !== 'roles') {
+    return { error: roomMsg(room, 'Inte röljningsfas', 'Not role reveal phase') }
   }
-  advanceFromResolve(room)
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator) {
+    return { error: roomMsg(room, 'Du kan inte avslöja', 'You cannot reveal') }
+  }
+  if (!room.roles[playerId]) {
+    return { error: roomMsg(room, 'Du är inte med i spelet', 'You are not in the game') }
+  }
+  room.roleRevealed[playerId] = true
+  touch(room)
+  if (allRolesRevealed(room)) {
+    beginElectionPhase(room)
+    touch(room)
+  }
+  return room
+}
+
+export function proposeTeam(
+  code: string,
+  playerId: string,
+  partnerId: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'election') {
+    return { error: roomMsg(room, 'Inte expeditionsfas', 'Not election phase') }
+  }
+  if (room.expeditionLeaderId !== playerId) {
+    return { error: roomMsg(room, 'Bara ledaren kan välja team', 'Only the leader can pick the team') }
+  }
+  if (partnerId === playerId) {
+    return { error: roomMsg(room, 'Välj en annan spelare', 'Pick another player') }
+  }
+  const partner = room.players.find((p) => p.id === partnerId && !p.spectator)
+  if (!partner) {
+    return { error: roomMsg(room, 'Ogiltig spelare', 'Invalid player') }
+  }
+  room.proposedTeamIds = [playerId, partnerId]
+  beginTeamVotePhase(room)
   touch(room)
   return room
 }
 
-function advanceFromResolve(room: Room) {
+function resolveTeamVote(room: Room) {
+  const voters = voterIds(room)
+  const passed = teamVotePassed(room.teamVotes, voters)
+  if (passed) {
+    room.failedElectionStreak = 0
+    beginMissionPhase(room)
+    touch(room)
+    return
+  }
+
+  room.failedElectionStreak += 1
+  room.outcome = checkOutcome(room.scores, room.failedElectionStreak)
+  if (room.outcome !== 'ongoing') {
+    room.status = 'finished'
+    room.phaseEndsAt = 0
+    touch(room)
+    return
+  }
+
+  advanceLeader(room)
+  beginElectionPhase(room)
+  touch(room)
+}
+
+export function voteTeam(
+  code: string,
+  playerId: string,
+  approve: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'team_vote') {
+    return { error: roomMsg(room, 'Inte teamomröstning', 'Not team vote phase') }
+  }
+  const player = room.players.find((p) => p.id === playerId)
+  if (!player || player.spectator) {
+    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
+  }
+  if (!voterIds(room).includes(playerId)) {
+    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
+  }
+  room.teamVotes[playerId] = approve
+  touch(room)
+
+  const voters = voterIds(room)
+  if (voters.every((id) => room.teamVotes[id] !== undefined)) {
+    resolveTeamVote(room)
+  }
+  return room
+}
+
+function resolveMission(room: Room) {
+  const teamIds = [...room.proposedTeamIds]
+  const { success, infectCount } = resolveMissionVotes(room, teamIds)
+  const result: MissionResult = {
+    round: room.missionRound + 1,
+    teamIds,
+    success,
+    infectCount,
+  }
+
+  if (result.success) room.scores.cleanses += 1
+  else room.scores.infections += 1
+  room.missionRound = result.round
+  room.outcome = checkOutcome(room.scores, room.failedElectionStreak)
+
+  if (room.outcome !== 'ongoing') {
+    room.status = 'finished'
+    room.lastMissionResult = result
+    room.phaseEndsAt = 0
+    touch(room)
+    return
+  }
+
+  beginResolutionPhase(room, result)
+  touch(room)
+}
+
+export function voteMission(
+  code: string,
+  playerId: string,
+  vote: MissionVote,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'mission') {
+    return { error: roomMsg(room, 'Inte uppdragsfas', 'Not mission phase') }
+  }
+  if (!room.proposedTeamIds.includes(playerId)) {
+    return { error: roomMsg(room, 'Du är inte på uppdraget', 'You are not on the mission') }
+  }
+  const role = room.roles[playerId]
+  if (role === 'innocent' && vote === 'infect') {
+    return {
+      error: roomMsg(
+        room,
+        'Oskuldiga måste välja Rensa',
+        'Innocents must choose Cleanse',
+      ),
+    }
+  }
+  room.missionVotes[playerId] = vote
+  touch(room)
+
+  const team = room.proposedTeamIds
+  if (team.every((id) => room.missionVotes[id] !== undefined)) {
+    resolveMission(room)
+  }
+  return room
+}
+
+function advanceFromResolution(room: Room) {
   if (room.outcome !== 'ongoing') {
     room.status = 'finished'
     room.phaseEndsAt = 0
     return
   }
+  advanceLeader(room)
+  beginElectionPhase(room)
+}
 
-  const limits = roomLimits(room)
-  if (limits.maxRounds > 0 && room.turnIndex >= limits.maxRounds) {
-    room.status = 'finished'
-    room.phaseEndsAt = 0
-    room.outcome =
-      worldInfection(room.regions) <= TIMEOUT_VICTORY_INFECTION
-        ? 'victory_contained'
-        : 'defeat_plague'
-    return
+export function ackResolution(code: string, _playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.status !== 'resolution') {
+    return { error: roomMsg(room, 'Inte resultatfas', 'Not resolution phase') }
   }
-
-  beginCouncil(room, true)
+  advanceFromResolution(room)
+  touch(room)
+  return room
 }
 
 export function endParty(code: string, playerId: string): Room | { error: string } {
@@ -770,7 +801,7 @@ export function endParty(code: string, playerId: string): Room | { error: string
   room.phaseEndsAt = 0
   room.isPublic = false
   if (room.outcome === 'ongoing') {
-    room.outcome = 'defeat_plague'
+    room.outcome = 'scourgeborn_win'
   }
   touch(room)
   return room
@@ -788,283 +819,75 @@ export function backToLobby(code: string, playerId: string): Room | { error: str
   return room
 }
 
-function promoteWaitlist(room: Room) {
-  const max = roomLimits(room).maxPlayers
-  while (room.waitlist.length > 0) {
-    const seated = seatedPlayers(room).filter((p) => p.connected).length
-    if (max > 0 && seated >= max) break
-    const w = room.waitlist.shift()
-    if (!w) break
-    room.players.push({
-      id: w.id,
-      name: w.name,
-      connected: false,
-      spectator: false,
-    })
-  }
+function autoProposeTeam(room: Room) {
+  const leaderId = room.expeditionLeaderId
+  if (!leaderId) return
+  const candidates = activePlayerIds(room).filter((id) => id !== leaderId)
+  if (candidates.length === 0) return
+  const partnerId = candidates[Math.floor(Math.random() * candidates.length)]!
+  room.proposedTeamIds = [leaderId, partnerId]
+  beginTeamVotePhase(room)
 }
 
-function voterIds(room: Room): string[] {
-  const seated = connectedPlayers(room).map((p) => p.id)
-  if (seated.length > 0) return seated
-  return room.hostId ? [room.hostId] : []
-}
-
-function canVote(room: Room, playerId: string): boolean {
-  return voterIds(room).includes(playerId)
-}
-
-function resolveCouncil(room: Room) {
-  const hostVote = room.votes[room.hostId] ?? null
-  const ids = room.voteOptions.map((o) => o.id)
-  const winningId = pickWinningId(room.votes, ids, hostVote)
-  const option =
-    room.voteOptions.find((o) => o.id === winningId) ??
-    room.voteOptions.find((o) => o.affordable) ??
-    room.voteOptions[0]
-
-  let playerLog = roomMsg(room, 'Ingen giltig plan.', 'No valid plan.')
-  let playerLogSv = 'Ingen giltig plan.'
-  let playerLogEn = 'No valid plan.'
-  let actionId = ''
-  let focus: RegionId | null = null
-  const blightBefore = worldInfection(room.regions)
-  const cureBefore = room.cureProgress
-  const heartBefore = room.heartHp
-
-  if (option) {
-    const applied = applyAction(option, {
-      points: room.resourcePoints,
-      regions: room.regions,
-      cureProgress: room.cureProgress,
-      heartHp: room.heartHp,
-      lang: room.language,
-    })
-    actionId = option.id
-    focus = option.targetRegionId
-    if ('error' in applied) {
-      playerLog = applied.error
-      playerLogSv = applied.error
-      playerLogEn = applied.error
-    } else {
-      room.resourcePoints = applied.points
-      room.regions = applied.regions
-      room.cureProgress = applied.cureProgress
-      room.heartHp = applied.heartHp
-      playerLogSv = applied.logSv
-      playerLogEn = applied.logEn
-      playerLog = room.language === 'en' ? applied.logEn : applied.logSv
+function autoFillTeamVotes(room: Room) {
+  for (const id of voterIds(room)) {
+    if (room.teamVotes[id] === undefined) {
+      room.teamVotes[id] = Math.random() < 0.65
     }
   }
-
-  room.focusRegionId = focus
-  pushLiveEvent(room, {
-    kind: 'good',
-    regionId: focus ?? undefined,
-    textSv: playerLogSv,
-    textEn: playerLogEn,
-  })
-
-  const provokedBy = option?.kind ?? null
-  const plagueOpts = generatePlagueOptions({
-    lang: room.language,
-    regions: room.regions,
-    cureProgress: room.cureProgress,
-    heartHp: room.heartHp,
-    turn: room.turnIndex,
-    provokedBy,
-  })
-  const aiOpt = pickPlagueOption(plagueOpts, provokedBy)
-  const aiApplied = applyAction(aiOpt, {
-    points: room.resourcePoints,
-    regions: room.regions,
-    cureProgress: room.cureProgress,
-    heartHp: room.heartHp,
-    lang: room.language,
-  })
-  let aiLog = ''
-  let aiActionId = aiOpt.id
-  if (!('error' in aiApplied)) {
-    room.resourcePoints = aiApplied.points
-    room.regions = aiApplied.regions
-    room.cureProgress = aiApplied.cureProgress
-    room.heartHp = aiApplied.heartHp
-    aiLog = room.language === 'en' ? aiApplied.logEn : aiApplied.logSv
-    const plagueKind: LiveEventKind =
-      aiOpt.kind === 'breach' ? 'breach' : 'plague'
-    pushLiveEvent(room, {
-      kind: plagueKind,
-      regionId: aiOpt.targetRegionId,
-      delta: aiOpt.amount,
-      textSv: aiApplied.logSv,
-      textEn: aiApplied.logEn,
-    })
-  }
-
-  // Quarantines eventually fray
-  for (const r of room.regions) {
-    if (r.id !== 'plague_heart' && r.quarantined && Math.random() < 0.22) {
-      r.quarantined = false
-    }
-  }
-
-  const blightAfter = worldInfection(room.regions)
-  if (blightAfter >= 60 && blightBefore < 60) {
-    pushLiveEvent(room, {
-      kind: 'critical',
-      delta: blightAfter,
-      textSv: `KRITISKT: världssmitta ${blightAfter}%.`,
-      textEn: `CRITICAL: world infection ${blightAfter}%.`,
-    })
-  }
-  if (room.cureProgress >= 70 && cureBefore < 70) {
-    pushLiveEvent(room, {
-      kind: 'critical',
-      delta: room.cureProgress,
-      textSv: `Botemedlet närmar sig (${room.cureProgress}%).`,
-      textEn: `The cure nears completion (${room.cureProgress}%).`,
-    })
-  }
-  if (room.heartHp <= 35 && heartBefore > 35) {
-    pushLiveEvent(room, {
-      kind: 'critical',
-      delta: room.heartHp,
-      textSv: `Smittans hjärta vacklar (${room.heartHp} HP).`,
-      textEn: `The Plague Heart falters (${room.heartHp} HP).`,
-    })
-  }
-
-  room.lastResolution = {
-    turn: room.turnIndex,
-    actionId,
-    aiActionId,
-    focusRegionId: focus,
-    playerLog,
-    aiLog,
-    incomeGained: 0,
-    voteCounts: tally(room.votes),
-  }
-  room.outcome = evaluateOutcome({
-    regions: room.regions,
-    cureProgress: room.cureProgress,
-    heartHp: room.heartHp,
-  })
-  room.status = room.outcome === 'ongoing' ? 'resolve' : 'finished'
-  room.votes = {}
-  room.phaseEndsAt = room.status === 'resolve' ? Date.now() + RESOLVE_MS : 0
-  touch(room)
+  resolveTeamVote(room)
 }
 
-function maybeAdvanceCouncil(room: Room) {
-  const needed = voterIds(room)
-  if (needed.length === 0) return
-  if (!needed.every((id) => room.votes[id] !== undefined)) return
-  resolveCouncil(room)
+function autoFillMissionVotes(room: Room) {
+  for (const id of room.proposedTeamIds) {
+    if (room.missionVotes[id] !== undefined) continue
+    const role = room.roles[id]
+    room.missionVotes[id] = role === 'scourgeborn' && Math.random() < 0.4 ? 'infect' : 'cleanse'
+  }
+  resolveMission(room)
 }
 
-export function castVote(
-  code: string,
-  playerId: string,
-  optionId: string,
-): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.status !== 'council') {
-    return { error: roomMsg(room, 'Inte omröstning', 'Not voting phase') }
+function autoRevealRoles(room: Room) {
+  for (const id of activePlayerIds(room)) {
+    room.roleRevealed[id] = true
   }
-  const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.spectator) {
-    return { error: roomMsg(room, 'Du kan inte rösta', 'You cannot vote') }
-  }
-  if (!canVote(room, playerId)) {
-    return {
-      error: roomMsg(
-        room,
-        'Värden röstar inte när rådet spelar',
-        'Host does not vote while the council plays',
-      ),
-    }
-  }
-  const option = room.voteOptions.find((o) => o.id === optionId)
-  if (!option) return { error: roomMsg(room, 'Ogiltigt val', 'Invalid option') }
-  if (!option.affordable) {
-    return { error: roomMsg(room, 'För dyrt just nu', 'Too expensive right now') }
-  }
-  room.votes[playerId] = optionId
-  touch(room)
-  maybeAdvanceCouncil(room)
-  return room
-}
-
-/** Legacy aliases */
-export function castContainLandVote(code: string, playerId: string, _regionId: string) {
-  return { error: 'Uppdatera klienten — ett val per råd' }
-}
-export function castContainActionVote(code: string, playerId: string, optionId: string) {
-  return castVote(code, playerId, optionId)
-}
-export function castCureVote(code: string, playerId: string, optionId: string) {
-  return castVote(code, playerId, optionId)
-}
-export function castLandVote(code: string, playerId: string, _regionId: string) {
-  return { error: 'Uppdatera klienten — ett val per råd' }
-}
-export function castActionVote(code: string, playerId: string, optionId: string) {
-  return castVote(code, playerId, optionId)
+  beginElectionPhase(room)
 }
 
 export function onPhaseTimeout(room: Room) {
   if (!midGame(room.status) || room.outcome !== 'ongoing') return
 
   const now = Date.now()
-  let changed = false
+  if (room.phaseEndsAt <= 0 || now < room.phaseEndsAt) return
 
-  if (room.status === 'council' && now - (room.lastWorldTickAt || 0) >= WORLD_TICK_MS) {
-    const tick = applyWorldTick(room.regions, room.turnIndex)
-    room.regions = tick.regions
-    room.lastWorldTickAt = now
-    room.focusRegionId = tick.targetId
-    const nameSv = labelRegion(tick.targetId, 'sv')
-    const nameEn = labelRegion(tick.targetId, 'en')
-    pushLiveEvent(room, {
-      kind: 'seep',
-      regionId: tick.targetId,
-      delta: tick.delta,
-      textSv: `LIVE: pesten kryper i ${nameSv} (+${tick.delta}%).`,
-      textEn: `LIVE: plague seeps in ${nameEn} (+${tick.delta}%).`,
-    })
-    room.outcome = evaluateOutcome({
-      regions: room.regions,
-      cureProgress: room.cureProgress,
-      heartHp: room.heartHp,
-    })
-    changed = true
-    if (room.outcome !== 'ongoing') {
-      room.status = 'finished'
-      room.phaseEndsAt = 0
-      pushLiveEvent(room, {
-        kind: 'critical',
-        textSv: 'Världen kollapsar under smittan.',
-        textEn: 'The world collapses under the blight.',
-      })
-      touch(room)
-      return
-    }
+  if (room.status === 'roles') {
+    autoRevealRoles(room)
+    touch(room)
+    return
   }
 
-  if (room.phaseEndsAt > 0 && now >= room.phaseEndsAt) {
-    if (room.status === 'council') {
-      resolveCouncil(room)
-      return
-    }
-    if (room.status === 'resolve') {
-      advanceFromResolve(room)
-      touch(room)
-      return
-    }
+  if (room.status === 'election') {
+    autoProposeTeam(room)
+    touch(room)
+    return
   }
 
-  if (changed) touch(room)
+  if (room.status === 'team_vote') {
+    autoFillTeamVotes(room)
+    touch(room)
+    return
+  }
+
+  if (room.status === 'mission') {
+    autoFillMissionVotes(room)
+    touch(room)
+    return
+  }
+
+  if (room.status === 'resolution') {
+    advanceFromResolution(room)
+    touch(room)
+  }
 }
 
 export function roomsNeedingTick(): Room[] {
@@ -1072,10 +895,7 @@ export function roomsNeedingTick(): Room[] {
   const out: Room[] = []
   for (const room of rooms.values()) {
     if (!midGame(room.status) || room.outcome !== 'ongoing') continue
-    const phaseDue = room.phaseEndsAt > 0 && now >= room.phaseEndsAt
-    const worldDue =
-      room.status === 'council' && now - (room.lastWorldTickAt || 0) >= WORLD_TICK_MS
-    if (phaseDue || worldDue) out.push(room)
+    if (room.phaseEndsAt > 0 && now >= room.phaseEndsAt) out.push(room)
   }
   return out
 }
@@ -1126,7 +946,10 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const lang = room.language
   const limits = roomLimits(room)
   const viewer = viewerId ? room.players.find((p) => p.id === viewerId) : null
-  const needed = voterIds(room)
+  const activeIds = activePlayerIds(room)
+  const voters = voterIds(room)
+  const teamVoteSubmittedIds = room.status === 'team_vote' ? Object.keys(room.teamVotes) : []
+  const missionSubmittedIds = room.status === 'mission' ? Object.keys(room.missionVotes) : []
 
   let notice: string | null = null
   if (room.notice && Date.now() - room.notice.at < NOTICE_TTL_MS) {
@@ -1137,15 +960,23 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     )
   }
 
-  const submittedIds = room.status === 'council' ? Object.keys(room.votes) : []
-  const submittedCount = submittedIds.length
-  const youSubmitted = Boolean(viewerId && room.votes[viewerId] !== undefined)
-  const showCounts = room.status === 'resolve' || room.status === 'finished'
+  const rolesRevealedCount = activeIds.filter((id) => room.roleRevealed[id]).length
+  const youRoleRevealed = Boolean(viewerId && room.roleRevealed[viewerId])
+  const yourRole =
+    viewerId && youRoleRevealed && room.roles[viewerId] ? room.roles[viewerId]! : null
+
+  const showAllRoles = room.status === 'finished' && room.outcome !== 'ongoing'
+  const players = room.players.map((p) => {
+    if (showAllRoles && room.roles[p.id]) {
+      return { ...p, role: room.roles[p.id] }
+    }
+    return { ...p }
+  })
 
   return {
     code: room.code,
     hostId: room.hostId,
-    players: room.players,
+    players,
     language: room.language,
     status: room.status,
     premiumTier: tierFromExpiry(room.premiumExpiresAt),
@@ -1154,30 +985,33 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,
     phaseEndsAt: room.phaseEndsAt,
-    turnIndex: room.turnIndex,
-    resourcePoints: room.resourcePoints,
-    worldInfection: worldInfection(room.regions),
-    regions: room.regions,
-    cureProgress: room.cureProgress,
-    heartHp: room.heartHp,
-    focusRegionId: room.focusRegionId,
-    voteOptions: room.voteOptions,
-    submittedCount,
-    submitterCount: needed.length,
-    submittedIds,
-    youSubmitted,
-    yourVote: viewerId ? room.votes[viewerId] ?? null : null,
-    voteCounts: showCounts ? room.lastResolution?.voteCounts ?? tally(room.votes) : null,
-    lastResolution: room.lastResolution,
+    expeditionLeaderId: room.expeditionLeaderId,
+    proposedTeamIds: room.proposedTeamIds,
+    scores: { ...room.scores },
+    failedElectionStreak: room.failedElectionStreak,
+    missionRound: room.missionRound,
+    lastMissionResult: room.lastMissionResult,
     outcome: room.outcome,
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
     youAreHost: Boolean(viewer && viewer.id === room.hostId),
-    youCanVote: Boolean(viewerId && needed.includes(viewerId)),
-    maxRounds: limits.maxRounds,
-    liveEvents: room.liveEvents ?? [],
+    youAreLeader: Boolean(viewerId && viewerId === room.expeditionLeaderId),
+    youOnMission: Boolean(viewerId && room.proposedTeamIds.includes(viewerId)),
+    yourRole,
+    youRoleRevealed,
+    rolesRevealedCount,
+    rolesTotal: activeIds.length,
+    teamVoteSubmittedCount: teamVoteSubmittedIds.length,
+    teamVoteTotal: voters.length,
+    youTeamVoted: Boolean(viewerId && room.teamVotes[viewerId] !== undefined),
+    yourTeamVote: viewerId ? (room.teamVotes[viewerId] ?? null) : null,
+    teamVoteSubmittedIds,
+    missionSubmittedCount: missionSubmittedIds.length,
+    missionSubmittedIds,
+    youMissionVoted: Boolean(viewerId && room.missionVotes[viewerId] !== undefined),
+    minPlayers: MIN_PLAYERS,
   }
 }
 
-/** Exported for tests / UI helpers */
-export { labelRegion }
+/** Phase duration constants for tests */
+export { ELECTION_MS, MISSION_MS, RESOLUTION_MS, ROLES_MS, TEAM_VOTE_MS }
