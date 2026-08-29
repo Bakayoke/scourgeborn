@@ -50,16 +50,21 @@ function Workstation({
   room,
   lang,
   playerId,
+  feedback,
   onAction,
 }: {
   room: PublicRoom
   lang: Lang
   playerId: string
+  feedback: string | null
   onAction: (action: string, data?: Record<string, unknown>) => void
 }) {
   const ui = t(lang)
   const station = room.yourActiveStation
   const others = room.players.filter((p) => !p.spectator && p.id !== playerId && p.connected)
+  const canDeliver = Boolean(
+    room.itemInHand && room.patients.some((p) => p.requiredVaccine === room.itemInHand),
+  )
 
   return (
     <div className="workstation">
@@ -70,6 +75,12 @@ function Workstation({
         {ui.inHand}:{' '}
         <strong>{room.itemInHand ? itemLabel(room.itemInHand, lang) : ui.emptyHand}</strong>
       </div>
+
+      {room.itemInHand && !canDeliver && room.patients.length > 0 && (
+        <p className="hint">{ui.wrongVaccine}</p>
+      )}
+
+      {feedback && <p className="feedback-banner">{feedback}</p>}
 
       {station === 'extractor' && (
         <div className="action-row">
@@ -106,11 +117,19 @@ function Workstation({
         </div>
       )}
 
-      {room.itemInHand && (
+      {canDeliver && (
         <div className="action-col">
           <button type="button" className="btn deliver-btn" onClick={() => onAction('deliver')}>
             {ui.deliver}
           </button>
+          <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
+            {ui.drop}
+          </button>
+        </div>
+      )}
+
+      {room.itemInHand && !canDeliver && (
+        <div className="action-col">
           <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
             {ui.drop}
           </button>
@@ -157,15 +176,21 @@ function GameView({
   lang: Lang
   playerId: string
   onLeave: () => void
-  onError: (m: string) => void
+  onError: (m: string | null) => void
 }) {
   const ui = t(lang)
   const seated = room.players.filter((p) => !p.spectator && p.connected).length
+  const [feedback, setFeedback] = useState<string | null>(null)
 
   async function act(action: string, data?: Record<string, unknown>) {
     try {
       const res = await labAction(action, data ?? {})
-      if (!res.ok) onError(res.error ?? ui.error)
+      if (!res.ok) {
+        setFeedback(res.error ?? ui.error)
+        return
+      }
+      setFeedback(null)
+      onError(null)
     } catch {
       onError(ui.error)
     }
@@ -185,10 +210,11 @@ function GameView({
           <button
             type="button"
             className="btn primary"
-            onClick={async () => {
-              const res = await backToLobby()
-              if (!res.ok) onError(res.error ?? ui.error)
-            }}
+              onClick={async () => {
+                const res = await backToLobby()
+                if (!res.ok) onError(res.error ?? ui.error)
+                else setFeedback(null)
+              }}
           >
             {ui.backToLobby}
           </button>
@@ -217,6 +243,7 @@ function GameView({
               onClick={async () => {
                 const res = await startGame()
                 if (!res.ok) onError(res.error ?? ui.error)
+                else setFeedback(null)
               }}
             >
               {seated === 1 ? ui.startSolo : ui.startMulti}
@@ -233,7 +260,13 @@ function GameView({
           </section>
           {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
           {!room.youAreSpectator && (
-            <Workstation room={room} lang={lang} playerId={playerId} onAction={(a, d) => void act(a, d)} />
+            <Workstation
+              room={room}
+              lang={lang}
+              playerId={playerId}
+              feedback={feedback}
+              onAction={(a, d) => void act(a, d)}
+            />
           )}
           <ul className="team-list">
             {room.players

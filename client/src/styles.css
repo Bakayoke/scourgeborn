@@ -1944,6 +1944,16 @@ input:focus {
   color: var(--ink-dim);
 }
 
+.feedback-banner {
+  margin: 0.5rem 0 0;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--hazard-dim);
+  background: rgba(201, 162, 39, 0.12);
+  color: var(--hazard);
+  font-size: 0.9rem;
+}
+
 .error-banner {
   background: rgba(184, 74, 50, 0.2);
   border: 1px solid var(--danger);
