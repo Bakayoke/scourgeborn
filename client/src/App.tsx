@@ -29,7 +29,62 @@ import { sfxCure, sfxMiss, sfxPing, sfxSend, sfxSpawn, sfxWave } from './sfx'
 import type { ItemId, Lang, PingKind, PublicRoom, Station, TutorialStep } from './types'
 
 type Screen = 'home' | 'create' | 'join' | 'game'
+const FACTOPIA_URL = 'https://factopia.net'
+const SABOTEXT_URL = 'https://sabotext.com'
+const PARTYPATHS_URL = 'https://partypaths.com'
+const YOURTASKIS_URL = 'https://yourtaskis.com'
 const APP_ORIGIN = 'https://scourgeborn.com'
+
+function SisterGameLink({
+  name,
+  href,
+  pitch,
+  cta,
+}: {
+  name: string
+  href: string
+  pitch: string
+  cta: string
+}) {
+  return (
+    <a className="sister-game" href={href} target="_blank" rel="noreferrer">
+      <strong>{name}</strong>
+      <span>{pitch}</span>
+      <em>{cta}</em>
+    </a>
+  )
+}
+
+function SisterGameLinks({ ui }: { ui: ReturnType<typeof t> }) {
+  return (
+    <div className="sister-games">
+      <SisterGameLink
+        name="Party Paths"
+        href={PARTYPATHS_URL}
+        pitch={ui.partypathsPitch}
+        cta={ui.partypathsCta}
+      />
+      <SisterGameLink
+        name="Your Task Is"
+        href={YOURTASKIS_URL}
+        pitch={ui.yourtaskisPitch}
+        cta={ui.yourtaskisCta}
+      />
+      <SisterGameLink
+        name="Factopia"
+        href={FACTOPIA_URL}
+        pitch={ui.factopiaPitch}
+        cta={ui.factopiaCta}
+      />
+      <SisterGameLink
+        name="Sabotext"
+        href={SABOTEXT_URL}
+        pitch={ui.sabotextPitch}
+        cta={ui.sabotextCta}
+      />
+    </div>
+  )
+}
 
 function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size?: 'sm' | 'md' | 'lg' }) {
   const v = ITEM_VISUALS[item]
@@ -991,6 +1046,7 @@ export default function App() {
           ))}
         </ol>
       </section>
+      <SisterGameLinks ui={ui} />
     </main>
   )
 }
