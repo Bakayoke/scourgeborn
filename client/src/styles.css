@@ -2871,3 +2871,267 @@ input:focus {
 .how-to li {
   margin-bottom: 0.35rem;
 }
+
+/* Party chaos visuals */
+.item-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  border: 2px solid var(--item-color, var(--blight));
+  background: color-mix(in srgb, var(--item-color, var(--blight)) 18%, transparent);
+  font-weight: 700;
+  font-family: var(--font-stamp);
+  letter-spacing: 0.06em;
+}
+
+.item-badge.sm { font-size: 0.7rem; padding: 0.15rem 0.4rem; }
+.item-badge.lg { font-size: 1rem; padding: 0.35rem 0.7rem; }
+
+.item-icon { font-size: 1.1em; }
+
+.recipe-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+  margin: 0.35rem 0;
+}
+
+.recipe-step { display: inline-flex; align-items: center; }
+.recipe-arrow { color: var(--ink-dim); margin: 0 0.15rem; font-size: 0.75rem; }
+
+.patient-card {
+  min-width: 10rem;
+}
+
+.patient-timer {
+  display: block;
+  font-family: var(--font-stamp);
+  font-size: 1.1rem;
+  margin-top: 0.25rem;
+}
+
+.team-board {
+  margin: 0.75rem 0;
+}
+
+.team-board h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.5rem;
+}
+
+.team-card {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.team-card.you {
+  border-color: var(--blight);
+  box-shadow: 0 0 10px var(--blight-glow);
+}
+
+.team-card.offline { opacity: 0.45; }
+
+.team-station {
+  display: block;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+}
+
+.team-hand { display: block; margin-top: 0.25rem; min-height: 1.5rem; }
+.team-stat { display: block; font-size: 0.7rem; color: var(--void-accent); margin-top: 0.15rem; }
+
+.station-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 8, 0.92);
+  animation: fadeIn 0.2s ease;
+}
+
+.splash-you {
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  color: var(--ink-dim);
+  margin: 0;
+}
+
+.splash-icon { font-size: 4rem; margin: 0.5rem 0; }
+
+.station-splash h2 {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  color: var(--station-color, var(--blight));
+  margin: 0;
+  letter-spacing: 0.08em;
+}
+
+.splash-yell {
+  color: var(--hazard);
+  font-weight: 700;
+  margin-top: 1rem;
+  font-size: 1.1rem;
+}
+
+.alert-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  padding: 1.25rem;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(201, 162, 39, 0.95), rgba(201, 162, 39, 0.7));
+  color: #050508;
+  font-weight: 800;
+  font-size: 1.2rem;
+  font-family: var(--font-stamp);
+  letter-spacing: 0.04em;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.alert-overlay p { margin: 0.5rem 0 0; }
+
+.wave-banner {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 85;
+  padding: 1rem 2rem;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  border: 2px solid var(--blight);
+  background: rgba(8, 6, 16, 0.95);
+  color: var(--blight);
+  pointer-events: none;
+}
+
+.wave-banner.wave-4 {
+  border-color: var(--danger);
+  color: var(--danger);
+  animation: pulse 0.5s ease infinite alternate;
+}
+
+.wave-chip {
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  color: var(--hazard);
+  font-family: var(--font-stamp);
+}
+
+.game-header {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.workstation {
+  border-color: color-mix(in srgb, var(--station-color, var(--blight)) 40%, var(--line));
+}
+
+.workstation h2 { color: var(--station-color, var(--blight)); }
+.station-icon { margin-right: 0.35rem; }
+
+.big-buttons .btn { flex: 1; min-width: 7rem; font-size: 1.1rem; padding: 0.85rem; }
+
+.btn.item-btn.red { background: #e0456a; color: #fff; border-color: #e0456a; }
+.btn.item-btn.blue { background: #4fd1c5; color: #050508; border-color: #4fd1c5; }
+.btn.item-btn.purple { background: #9d7cff; color: #fff; border-color: #9d7cff; }
+.btn.item-btn.hot { background: #ff6b35; color: #fff; border-color: #ff6b35; }
+.btn.item-btn.cold { background: #6ecff6; color: #050508; border-color: #6ecff6; }
+
+.btn.send-btn { font-weight: 700; border-color: var(--void-accent); }
+.btn.ping { font-size: 0.75rem; padding: 0.4rem 0.55rem; border-color: var(--hazard-dim); color: var(--hazard); }
+.btn.ping.urgent { border-color: var(--danger); color: var(--danger); font-weight: 700; }
+
+.ping-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--line);
+}
+
+.tutorial-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--blight);
+  border-radius: var(--radius);
+  background: rgba(157, 124, 255, 0.08);
+}
+
+.tutorial-panel h3 { margin: 0 0 0.5rem; color: var(--blight); }
+
+.highlights {
+  margin: 1rem 0;
+  text-align: left;
+  max-width: 16rem;
+  margin-inline: auto;
+}
+
+.highlights ul { list-style: none; padding: 0; }
+.highlights li { padding: 0.35rem 0; border-bottom: 1px solid var(--line); }
+
+.finale-score { font-size: 1.1rem; }
+.finale-actions { display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem; }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes flashIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shakeIn {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes pulse {
+  from { transform: translate(-50%, -50%) scale(1); }
+  to { transform: translate(-50%, -50%) scale(1.05); }
+}
+
+.flash-in { animation: flashIn 0.3s ease; }
+.shake-in { animation: shakeIn 0.5s ease; }
+
+.patient-card.pulse .patient-timer { animation: pulse 0.6s ease infinite alternate; }
+
+.lab-app.screen-flash-cure::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(79, 209, 197, 0.25);
+  animation: fadeIn 0.15s ease reverse;
+  z-index: 200;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   backToLobby,
   clearSession,
@@ -15,25 +15,56 @@ import {
   subscribeConnection,
   type ConnState,
 } from './api'
-import { itemLabel, loadLanguage, rememberLanguage, stationLabel, t } from './i18n'
+import { loadLanguage, rememberLanguage, t } from './i18n'
+import {
+  ITEM_VISUALS,
+  itemShort,
+  recipeSteps,
+  STATION_VISUALS,
+  stationShort,
+} from './labVisuals'
 import { JoinQr } from './qr'
-import type { Lang, PublicRoom, Station } from './types'
+import { sfxCure, sfxMiss, sfxPing, sfxSend, sfxSpawn, sfxWave } from './sfx'
+import type { ItemId, Lang, PublicRoom, Station, TutorialStep } from './types'
 
 type Screen = 'home' | 'create' | 'join' | 'game'
 const APP_ORIGIN = 'https://scourgeborn.com'
 const STATIONS: Station[] = ['extractor', 'synthesizer', 'incubator']
 
+function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size?: 'sm' | 'md' | 'lg' }) {
+  const v = ITEM_VISUALS[item]
+  return (
+    <span className={`item-badge ${size}`} style={{ '--item-color': v.color } as CSSProperties}>
+      <span className="item-icon">{v.icon}</span>
+      <span className="item-short">{itemShort(item, lang)}</span>
+    </span>
+  )
+}
+
+function RecipeStrip({ item, lang }: { item: ItemId; lang: Lang }) {
+  const steps = recipeSteps(item)
+  return (
+    <div className="recipe-strip">
+      {steps.map((s, i) => (
+        <span key={`${s}-${i}`} className="recipe-step">
+          {i > 0 && <span className="recipe-arrow">→</span>}
+          <ItemBadge item={s} lang={lang} size="sm" />
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
   const ui = t(lang)
-  if (room.patients.length === 0) {
-    return <p className="hint">{ui.noPatients}</p>
-  }
+  if (room.patients.length === 0) return <p className="hint">{ui.noPatients}</p>
   return (
     <div className="patient-bar">
       {room.patients.map((p) => (
-        <div key={p.id} className={`patient-card${p.timeRemaining <= 10 ? ' urgent' : ''}`}>
-          <strong>{itemLabel(p.requiredVaccine, lang)}</strong>
-          <span>{p.timeRemaining}s</span>
+        <div key={p.id} className={`patient-card${p.timeRemaining <= 10 ? ' urgent pulse' : ''}`}>
+          <ItemBadge item={p.requiredVaccine} lang={lang} size="lg" />
+          <RecipeStrip item={p.requiredVaccine} lang={lang} />
+          <span className="patient-timer">{p.timeRemaining}s</span>
           <div className="bar">
             <div
               className="bar-fill health"
@@ -42,6 +73,191 @@ function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function TeamBoard({ room, lang, playerId }: { room: PublicRoom; lang: Lang; playerId: string }) {
+  const ui = t(lang)
+  return (
+    <section className="team-board">
+      <h3>{ui.teamBoard}</h3>
+      <div className="team-grid">
+        {room.players
+          .filter((p) => !p.spectator)
+          .map((p) => {
+            const st = STATION_VISUALS[p.assignedStation ?? 'extractor']
+            const isYou = p.id === playerId
+            return (
+              <div key={p.id} className={`team-card${isYou ? ' you' : ''}${!p.connected ? ' offline' : ''}`}>
+                <span className="team-station" style={{ color: st.color }}>
+                  {st.icon} {stationShort(p.assignedStation ?? 'extractor', lang)}
+                </span>
+                <strong>{p.name}{isYou ? ' ★' : ''}</strong>
+                <span className="team-hand">
+                  {p.itemInHand ? <ItemBadge item={p.itemInHand} lang={lang} size="sm" /> : '—'}
+                </span>
+                {(p.cures ?? 0) > 0 && (
+                  <span className="team-stat">{p.cures} {ui.cures}</span>
+                )}
+              </div>
+            )
+          })}
+      </div>
+    </section>
+  )
+}
+
+function StationSplash({
+  station,
+  lang,
+  onDone,
+}: {
+  station: Station
+  lang: Lang
+  onDone: () => void
+}) {
+  const ui = t(lang)
+  const v = STATION_VISUALS[station]
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000)
+    return () => clearTimeout(t)
+  }, [onDone])
+  return (
+    <div className="station-splash" style={{ '--station-color': v.color } as CSSProperties}>
+      <p className="splash-you">{ui.youAre}</p>
+      <p className="splash-icon">{v.icon}</p>
+      <h2>{stationShort(station, lang)}</h2>
+      <p className="splash-yell">{ui.yellRole}</p>
+    </div>
+  )
+}
+
+function AlertOverlay({ message, itemId, lang }: { message: string; itemId: ItemId | null; lang: Lang }) {
+  return (
+    <div className="alert-overlay flash-in">
+      {itemId && <ItemBadge item={itemId} lang={lang} size="lg" />}
+      <p>{message}</p>
+    </div>
+  )
+}
+
+function WaveBanner({ label, wave }: { label: string; wave: number }) {
+  return (
+    <div className={`wave-banner wave-${wave} flash-in`}>
+      {label}
+    </div>
+  )
+}
+
+function TutorialPanel({
+  room,
+  lang,
+  step,
+  onStep,
+  onSkip,
+  onStart,
+}: {
+  room: PublicRoom
+  lang: Lang
+  step: TutorialStep
+  onStep: (s: TutorialStep) => void
+  onSkip: () => void
+  onStart: () => void
+}) {
+  const ui = t(lang)
+  const hints: Record<TutorialStep, string> = {
+    extract_red: ui.tutorialExtract,
+    send_or_switch: ui.tutorialSend,
+    deliver: ui.tutorialDeliver,
+    done: ui.tutorialDone,
+  }
+  return (
+    <div className="tutorial-panel">
+      <h3>{ui.tutorialTitle}</h3>
+      <p>{hints[step]}</p>
+      {step === 'extract_red' && (
+        <button type="button" className="btn primary" onClick={() => onStep('send_or_switch')}>
+          {ui.tutorialTry}
+        </button>
+      )}
+      {step === 'send_or_switch' && (
+        <button type="button" className="btn primary" onClick={() => onStep('deliver')}>
+          {ui.tutorialTry}
+        </button>
+      )}
+      {step === 'deliver' && (
+        <button type="button" className="btn primary" onClick={() => onStep('done')}>
+          {ui.tutorialTry}
+        </button>
+      )}
+      {step !== 'done' && (
+        <button type="button" className="btn ghost" onClick={onSkip}>
+          {ui.tutorialSkip}
+        </button>
+      )}
+      {step === 'done' && room.youAreHost && (
+        <button type="button" className="btn primary" onClick={onStart}>
+          {room.canStartSolo ? ui.startSolo : ui.startMulti}
+        </button>
+      )}
+      {step === 'done' && !room.youAreHost && <p>{ui.waitingHost}</p>}
+    </div>
+  )
+}
+
+function GameOverScreen({
+  room,
+  lang,
+  onLeave,
+  onBack,
+  onError,
+}: {
+  room: PublicRoom
+  lang: Lang
+  onLeave: () => void
+  onBack: () => void
+  onError: (m: string | null) => void
+}) {
+  const ui = t(lang)
+  const sorted = [...room.players]
+    .filter((p) => !p.spectator)
+    .sort((a, b) => (b.cures ?? 0) - (a.cures ?? 0) || (b.sends ?? 0) - (a.sends ?? 0))
+
+  return (
+    <div className="finale loss shake-in">
+      <h2>{ui.gameOver}</h2>
+      <p className="finale-score">
+        {ui.score}: <strong>{room.score}</strong> · {ui.misses}: {room.misses}/{room.maxMisses}
+      </p>
+      <section className="highlights">
+        <h3>{ui.highlights}</h3>
+        <ul>
+          {sorted.map((p) => (
+            <li key={p.id}>
+              <strong>{p.name}</strong> — {p.cures ?? 0} {ui.cures}, {p.sends ?? 0} {ui.sends}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <div className="finale-actions">
+        <button type="button" className="btn" onClick={onLeave}>
+          {ui.leave}
+        </button>
+        {room.youAreHost && (
+          <button
+            type="button"
+            className="btn primary"
+            onClick={async () => {
+              const res = await backToLobby()
+              if (!res.ok) onError(res.error ?? ui.error)
+              else onBack()
+            }}
+          >
+            {ui.backToLobby}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -61,19 +277,26 @@ function Workstation({
 }) {
   const ui = t(lang)
   const station = room.yourActiveStation
+  const sv = STATION_VISUALS[station]
   const others = room.players.filter((p) => !p.spectator && p.id !== playerId && p.connected)
   const canDeliver = Boolean(
     room.itemInHand && room.patients.some((p) => p.requiredVaccine === room.itemInHand),
   )
 
   return (
-    <div className="workstation">
-      <h2>{stationLabel(station, lang)}</h2>
+    <div className="workstation" style={{ '--station-color': sv.color } as CSSProperties}>
+      <h2>
+        <span className="station-icon">{sv.icon}</span> {stationShort(station, lang)}
+      </h2>
       <p className="coach-line">{room.mode === 'solo' ? ui.coachSolo : ui.coachMulti}</p>
 
       <div className="hand-display">
         {ui.inHand}:{' '}
-        <strong>{room.itemInHand ? itemLabel(room.itemInHand, lang) : ui.emptyHand}</strong>
+        {room.itemInHand ? (
+          <ItemBadge item={room.itemInHand} lang={lang} size="md" />
+        ) : (
+          <strong>{ui.emptyHand}</strong>
+        )}
       </div>
 
       {room.itemInHand && !canDeliver && room.patients.length > 0 && (
@@ -83,12 +306,20 @@ function Workstation({
       {feedback && <p className="feedback-banner">{feedback}</p>}
 
       {station === 'extractor' && (
-        <div className="action-row">
-          <button type="button" className="btn primary" onClick={() => onAction('extract', { element: 'red_rna' })}>
-            {ui.extractRed}
+        <div className="action-row big-buttons">
+          <button
+            type="button"
+            className="btn item-btn red"
+            onClick={() => onAction('extract', { element: 'red_rna' })}
+          >
+            {ITEM_VISUALS.red_rna.icon} {ui.extractRed}
           </button>
-          <button type="button" className="btn primary" onClick={() => onAction('extract', { element: 'blue_rna' })}>
-            {ui.extractBlue}
+          <button
+            type="button"
+            className="btn item-btn blue"
+            onClick={() => onAction('extract', { element: 'blue_rna' })}
+          >
+            {ITEM_VISUALS.blue_rna.icon} {ui.extractBlue}
           </button>
         </div>
       )}
@@ -97,30 +328,30 @@ function Workstation({
         <div className="action-col">
           {room.synthSlot && (
             <p className="hint">
-              {ui.synthSlot}: {itemLabel(room.synthSlot, lang)}
+              {ui.synthSlot}: <ItemBadge item={room.synthSlot} lang={lang} size="sm" />
             </p>
           )}
-          <button type="button" className="btn primary" onClick={() => onAction('synthesize')}>
-            {ui.synthesize}
+          <button type="button" className="btn primary item-btn purple" onClick={() => onAction('synthesize')}>
+            ⚗ {ui.synthesize}
           </button>
         </div>
       )}
 
       {station === 'incubator' && (
-        <div className="action-row">
-          <button type="button" className="btn primary" onClick={() => onAction('incubate', { mode: 'heat' })}>
-            {ui.heat}
+        <div className="action-row big-buttons">
+          <button type="button" className="btn item-btn hot" onClick={() => onAction('incubate', { mode: 'heat' })}>
+            🔥 {ui.heat}
           </button>
-          <button type="button" className="btn" onClick={() => onAction('incubate', { mode: 'cool' })}>
-            {ui.cool}
+          <button type="button" className="btn item-btn cold" onClick={() => onAction('incubate', { mode: 'cool' })}>
+            ❄ {ui.cool}
           </button>
         </div>
       )}
 
       {canDeliver && (
         <div className="action-col">
-          <button type="button" className="btn deliver-btn" onClick={() => onAction('deliver')}>
-            {ui.deliver}
+          <button type="button" className="btn deliver-btn pulse" onClick={() => onAction('deliver')}>
+            ✓ {ui.deliver}
           </button>
           <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
             {ui.drop}
@@ -140,29 +371,88 @@ function Workstation({
         <div className="send-row">
           <p className="hint">{ui.sendTo}:</p>
           {others.map((p) => (
-            <button key={p.id} type="button" className="btn" onClick={() => onAction('send', { toPlayerId: p.id })}>
-              {p.name} ({stationLabel(p.assignedStation ?? 'extractor', lang)})
+            <button
+              key={p.id}
+              type="button"
+              className="btn send-btn"
+              onClick={() => onAction('send', { toPlayerId: p.id })}
+            >
+              → {p.name}
             </button>
           ))}
         </div>
       )}
 
+      {room.mode === 'multi' && (
+        <div className="ping-row">
+          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_red' })}>
+            {ui.pingNeedRed}
+          </button>
+          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_blue' })}>
+            {ui.pingNeedBlue}
+          </button>
+          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_mix' })}>
+            {ui.pingNeedMix}
+          </button>
+          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_heat' })}>
+            {ui.pingNeedHeat}
+          </button>
+          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_cool' })}>
+            {ui.pingNeedCool}
+          </button>
+          <button type="button" className="btn ping urgent" onClick={() => onAction('ping', { kind: 'need_deliver' })}>
+            {ui.pingDeliver}
+          </button>
+        </div>
+      )}
+
       {room.mode === 'solo' && (
         <div className="station-tabs">
-          {STATIONS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={`btn tab${room.yourActiveStation === s ? ' active' : ''}`}
-              onClick={() => onAction('switch_station', { station: s })}
-            >
-              {stationLabel(s, lang)}
-            </button>
-          ))}
+          {STATIONS.map((s) => {
+            const st = STATION_VISUALS[s]
+            return (
+              <button
+                key={s}
+                type="button"
+                className={`btn tab${room.yourActiveStation === s ? ' active' : ''}`}
+                onClick={() => onAction('switch_station', { station: s })}
+              >
+                {st.icon} {stationShort(s, lang)}
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
   )
+}
+
+function useGameFx(room: PublicRoom | null) {
+  const prev = useRef<{ score: number; misses: number; patients: number; wave: number; alert: string | null } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    if (!room || room.status !== 'playing') return
+    const p = prev.current
+    if (p) {
+      if (room.score > p.score) sfxCure()
+      if (room.misses > p.misses) sfxMiss()
+      if (room.patients.length > p.patients) sfxSpawn()
+      if (room.wave > p.wave) sfxWave()
+      if (room.alert && room.alert !== p.alert) {
+        if (room.alert.includes('!')) sfxPing()
+        else sfxSend()
+      }
+    }
+    prev.current = {
+      score: room.score,
+      misses: room.misses,
+      patients: room.patients.length,
+      wave: room.wave,
+      alert: room.alert,
+    }
+  }, [room])
 }
 
 function GameView({
@@ -181,6 +471,31 @@ function GameView({
   const ui = t(lang)
   const seated = room.players.filter((p) => !p.spectator && p.connected).length
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [showSplash, setShowSplash] = useState(false)
+  const [showWave, setShowWave] = useState<number | null>(null)
+  const [tutorialStep, setTutorialStep] = useState<TutorialStep>('extract_red')
+  const [tutorialDone, setTutorialDone] = useState(false)
+  const prevStatus = useRef(room.status)
+  const prevWave = useRef(room.wave)
+
+  useGameFx(room)
+
+  useEffect(() => {
+    if (prevStatus.current === 'lobby' && room.status === 'playing' && room.mode === 'multi') {
+      setShowSplash(true)
+    }
+    prevStatus.current = room.status
+  }, [room.status, room.mode])
+
+  useEffect(() => {
+    if (room.wave > prevWave.current && room.status === 'playing') {
+      setShowWave(room.wave)
+      const t = setTimeout(() => setShowWave(null), 2500)
+      prevWave.current = room.wave
+      return () => clearTimeout(t)
+    }
+    prevWave.current = room.wave
+  }, [room.wave, room.status])
 
   async function act(action: string, data?: Record<string, unknown>) {
     try {
@@ -198,35 +513,29 @@ function GameView({
 
   if (room.status === 'gameover') {
     return (
-      <div className="finale loss">
-        <h2>{ui.gameOver}</h2>
-        <p>
-          {ui.score}: {room.score} · {ui.misses}: {room.misses}/{room.maxMisses}
-        </p>
-        <button type="button" className="btn" onClick={onLeave}>
-          {ui.leave}
-        </button>
-        {room.youAreHost && (
-          <button
-            type="button"
-            className="btn primary"
-              onClick={async () => {
-                const res = await backToLobby()
-                if (!res.ok) onError(res.error ?? ui.error)
-                else setFeedback(null)
-              }}
-          >
-            {ui.backToLobby}
-          </button>
-        )}
-      </div>
+      <GameOverScreen
+        room={room}
+        lang={lang}
+        onLeave={onLeave}
+        onBack={() => setFeedback(null)}
+        onError={onError}
+      />
     )
   }
 
   return (
     <div className="game-view lab-view">
+      {showSplash && (
+        <StationSplash station={room.yourStation} lang={lang} onDone={() => setShowSplash(false)} />
+      )}
+      {room.alert && (
+        <AlertOverlay message={room.alert} itemId={room.alertItemId} lang={lang} />
+      )}
+      {showWave && <WaveBanner label={room.waveLabel} wave={showWave} />}
+
       <header className="game-header">
         <span className="code-stamp">{room.code}</span>
+        <span className="wave-chip">{room.waveLabel}</span>
         <span>
           {ui.score}: <strong>{room.score}</strong> · {ui.misses}: {room.misses}/{room.maxMisses}
         </span>
@@ -236,7 +545,20 @@ function GameView({
         <div className="panel lobby-panel">
           <p>{ui.shareHint}</p>
           <p className="hint">{seated} spelare</p>
-          {room.youAreHost ? (
+          {!tutorialDone ? (
+            <TutorialPanel
+              room={room}
+              lang={lang}
+              step={tutorialStep}
+              onStep={setTutorialStep}
+              onSkip={() => setTutorialDone(true)}
+              onStart={async () => {
+                const res = await startGame()
+                if (!res.ok) onError(res.error ?? ui.error)
+                else setFeedback(null)
+              }}
+            />
+          ) : room.youAreHost ? (
             <button
               type="button"
               className="btn primary"
@@ -259,6 +581,7 @@ function GameView({
             <PatientBar room={room} lang={lang} />
           </section>
           {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
+          <TeamBoard room={room} lang={lang} playerId={playerId} />
           {!room.youAreSpectator && (
             <Workstation
               room={room}
@@ -268,16 +591,6 @@ function GameView({
               onAction={(a, d) => void act(a, d)}
             />
           )}
-          <ul className="team-list">
-            {room.players
-              .filter((p) => !p.spectator)
-              .map((p) => (
-                <li key={p.id}>
-                  <strong>{p.name}</strong> — {stationLabel(p.assignedStation ?? 'extractor', lang)}
-                  {p.itemInHand ? ` · ${itemLabel(p.itemInHand, lang)}` : ''}
-                </li>
-              ))}
-          </ul>
         </>
       )}
 

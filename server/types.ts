@@ -27,13 +27,14 @@ export type RoomStatus = 'lobby' | 'playing' | 'gameover'
 
 export type Station = 'extractor' | 'synthesizer' | 'incubator'
 
-/** Craftable / deliverable items */
 export type ItemId =
   | 'red_rna'
   | 'blue_rna'
   | 'purple_rna'
   | 'heated_purple_rna'
   | 'cooled_blue_rna'
+
+export type PingKind = 'need_red' | 'need_blue' | 'need_mix' | 'need_heat' | 'need_cool' | 'need_deliver'
 
 export type Patient = {
   id: string
@@ -42,12 +43,24 @@ export type Patient = {
   maxTime: number
 }
 
+export type PlayerAlert = {
+  kind: 'incoming' | 'ping'
+  fromName: string
+  messageSv: string
+  messageEn: string
+  itemId?: ItemId
+  at: number
+}
+
+export type PlayerStats = {
+  cures: number
+  sends: number
+}
+
 export type LabPlayerState = {
   assignedStation: Station
-  /** Solo: which station tab is active */
   activeStation: Station
   itemInHand: ItemId | null
-  /** Synthesizer holds one input while waiting for the second */
   synthSlot: ItemId | null
 }
 
@@ -71,11 +84,17 @@ export type Room = {
   lastSpawnAt: number
   lastEventSv: string | null
   lastEventEn: string | null
+  gameStartedAt: number
+  wave: number
+  alerts: Record<string, PlayerAlert | null>
+  stats: Record<string, PlayerStats>
 }
 
 export type PublicLabPlayer = Player & {
   assignedStation: Station
   itemInHand: ItemId | null
+  cures: number
+  sends: number
 }
 
 export type PublicRoom = {
@@ -104,4 +123,9 @@ export type PublicRoom = {
   youAreHost: boolean
   canStartSolo: boolean
   minPlayersMulti: number
+  wave: number
+  waveLabel: string
+  alert: string | null
+  alertItemId: ItemId | null
+  stats: Record<string, PlayerStats>
 }

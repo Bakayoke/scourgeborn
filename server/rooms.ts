@@ -9,10 +9,12 @@ import {
   incubate,
   initLabGame,
   msg,
+  pingStation,
   sendItem,
   switchStation,
   synthesize,
   tickLab,
+  waveLabel,
 } from './game/lab.js'
 import {
   limitsFor,
@@ -22,7 +24,7 @@ import {
   type PartyPass,
 } from './premium.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
-import type { ItemId, Lang, Player, PublicRoom, Room, RoomStatus, Station } from './types.js'
+import type { ItemId, Lang, PingKind, Player, PublicRoom, Room, RoomStatus, Station } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
 const DISCONNECT_GRACE_MS = 60_000
@@ -99,6 +101,10 @@ function emptyGameFields(): Pick<
   | 'lastEventSv'
   | 'lastEventEn'
   | 'mode'
+  | 'gameStartedAt'
+  | 'wave'
+  | 'alerts'
+  | 'stats'
 > {
   return {
     score: 0,
@@ -110,6 +116,10 @@ function emptyGameFields(): Pick<
     lastEventSv: null,
     lastEventEn: null,
     mode: 'multi',
+    gameStartedAt: 0,
+    wave: 1,
+    alerts: {},
+    stats: {},
   }
 }
 
@@ -151,6 +161,10 @@ export function restoreRooms(list: Room[]) {
       lastSpawnAt: Number(raw.lastSpawnAt) || 0,
       lastEventSv: raw.lastEventSv ?? null,
       lastEventEn: raw.lastEventEn ?? null,
+      gameStartedAt: Number(raw.gameStartedAt) || 0,
+      wave: Number(raw.wave) || 1,
+      alerts: (raw.alerts as Room['alerts']) ?? {},
+      stats: (raw.stats as Room['stats']) ?? {},
     }
     rooms.set(room.code, room)
   }
@@ -496,6 +510,9 @@ export function labAction(
     case 'switch_station':
       result = switchStation(room, playerId, String(payload.station ?? 'extractor') as Station)
       break
+    case 'ping':
+      result = pingStation(room, playerId, String(payload.kind ?? 'need_red') as PingKind)
+      break
     default:
       return { error: 'Okänd action' }
   }
@@ -594,14 +611,20 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
 
   const players = room.players.map((p) => {
     const ls = room.lab[p.id]
+    const st = room.stats[p.id]
     return {
       ...p,
       assignedStation: ls?.assignedStation ?? 'extractor',
       itemInHand: ls?.itemInHand ?? null,
+      cures: st?.cures ?? 0,
+      sends: st?.sends ?? 0,
     }
   })
 
   const seated = seatedPlayers(room).filter((p) => p.connected).length
+
+  const viewerAlert = viewerId && room.alerts ? room.alerts[viewerId] : null
+  const alertFresh = viewerAlert && Date.now() - viewerAlert.at < 8000
 
   return {
     code: room.code,
@@ -630,6 +653,11 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     youAreHost: Boolean(viewer && viewer.id === room.hostId),
     canStartSolo: seated === 1,
     minPlayersMulti: MIN_MULTI_PLAYERS,
+    wave: room.wave ?? 1,
+    waveLabel: waveLabel(room.wave ?? 1, lang),
+    alert: alertFresh ? (lang === 'en' ? viewerAlert!.messageEn : viewerAlert!.messageSv) : null,
+    alertItemId: alertFresh ? (viewerAlert!.itemId ?? null) : null,
+    stats: { ...room.stats },
   }
 }
 
