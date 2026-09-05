@@ -43,9 +43,7 @@ export type PublicRoom = {
   language: Lang
   status: RoomStatus
   mode: GameMode
-  premiumTier: 'free' | 'party'
-  premiumExpiresAt: number | null
-  limits: { maxPlayers: number; maxRounds: number; freePack: boolean }
+  limits: { maxPlayers: number }
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   score: number
@@ -73,11 +71,6 @@ export type Session = {
   code: string
   playerId: string
   name: string
-}
-
-export type PartyPassLocal = {
-  token: string
-  expiresAt: number
 }
 
 export type TutorialStep = 'extract_red' | 'send_or_switch' | 'deliver' | 'done'

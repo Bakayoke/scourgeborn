@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
-import type { Lang, PartyPassLocal, PublicRoom, Session } from './types'
+import type { Lang, PublicRoom, Session } from './types'
 
 const API_BASE = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
 
@@ -73,8 +73,8 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
 type OkRoom = { ok: true; playerId: string; room: PublicRoom }
 type Err = { ok: false; error: string }
 
-export async function createGame(name: string, language: Lang, partyToken?: string | null) {
-  return ack<OkRoom | Err>('create', { name, language, partyToken })
+export async function createGame(name: string, language: Lang) {
+  return ack<OkRoom | Err>('create', { name, language })
 }
 
 export async function joinGame(code: string, name: string) {
@@ -121,7 +121,6 @@ export async function ensureSessionBound(retries = 4) {
 }
 
 const SESSION_KEY = 'scourgeborn-session'
-const PASS_KEY = 'scourgeborn-party-pass'
 
 export function loadSession(): Session | null {
   try {
@@ -138,19 +137,4 @@ export function saveSession(session: Session) {
 
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY)
-}
-
-export function loadPartyPass(): PartyPassLocal | null {
-  try {
-    const raw = localStorage.getItem(PASS_KEY)
-    if (!raw) return null
-    const pass = JSON.parse(raw) as PartyPassLocal
-    if (!pass.expiresAt || pass.expiresAt <= Date.now()) {
-      localStorage.removeItem(PASS_KEY)
-      return null
-    }
-    return pass
-  } catch {
-    return null
-  }
 }

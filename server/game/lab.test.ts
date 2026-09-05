@@ -14,7 +14,6 @@ function mockRoom(overrides: Partial<Room> = {}): Room {
     language: 'sv',
     status: 'playing',
     mode: 'multi',
-    premiumExpiresAt: null,
     isPublic: false,
     waitlist: [],
     score: 0,

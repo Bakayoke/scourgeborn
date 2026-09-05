@@ -43,7 +43,6 @@ export async function saveRoomToRedis(redis: RedisClient, room: Room): Promise<v
     lastTickAt: String(room.lastTickAt),
     lastSpawnAt: String(room.lastSpawnAt),
     updatedAt: String(room.updatedAt),
-    premiumExpiresAt: String(room.premiumExpiresAt ?? 0),
     isPublic: room.isPublic ? '1' : '0',
     lastEventSv: room.lastEventSv ?? '',
     lastEventEn: room.lastEventEn ?? '',

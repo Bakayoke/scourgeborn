@@ -1,13 +1,11 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises'
 import path from 'node:path'
-import type { PartyPass } from './premium.js'
 import { deleteRoomFromRedis, loadRoomFromRedis, saveRoomToRedis } from './redis/roomStore.js'
 import type { Room } from './types.js'
 
 export type PersistedSnapshot = {
   version: 1
   savedAt: number
-  passes: PartyPass[]
   rooms: Room[]
 }
 
@@ -36,7 +34,7 @@ export const ROOM_UPDATE_CHANNEL = 'scourgeborn:room-update'
 const ROOM_TTL_SEC = 60 * 60 * 24
 
 function emptySnapshot(): PersistedSnapshot {
-  return { version: 1, savedAt: Date.now(), passes: [], rooms: [] }
+  return { version: 1, savedAt: Date.now(), rooms: [] }
 }
 
 function fileBackend(dir: string): Backend {
@@ -46,7 +44,9 @@ function fileBackend(dir: string): Backend {
     async load() {
       try {
         const raw = await readFile(file, 'utf8')
-        return JSON.parse(raw) as PersistedSnapshot
+        const parsed = JSON.parse(raw) as PersistedSnapshot & { passes?: unknown[] }
+        if (!parsed || parsed.version !== 1) return null
+        return { version: 1, savedAt: parsed.savedAt, rooms: parsed.rooms ?? [] }
       } catch {
         return null
       }
@@ -79,19 +79,14 @@ async function redisBackend(url: string): Promise<Backend> {
     async load() {
       const raw = await client.get(key)
       if (!raw) return null
-      return JSON.parse(typeof raw === 'string' ? raw : String(raw)) as PersistedSnapshot
+      const parsed = JSON.parse(typeof raw === 'string' ? raw : String(raw)) as PersistedSnapshot & {
+        passes?: unknown[]
+      }
+      if (!parsed || parsed.version !== 1) return null
+      return { version: 1, savedAt: parsed.savedAt, rooms: parsed.rooms ?? [] }
     },
     async save(snapshot) {
-      const now = Date.now()
-      const maxPassMs = Math.max(0, ...snapshot.passes.map((p) => p.expiresAt - now))
-      const maxRoomMs = Math.max(
-        0,
-        ...snapshot.rooms.map((r) => (r.premiumExpiresAt ?? 0) - now),
-      )
-      const ttlSec = Math.max(
-        60 * 60 * 48,
-        Math.ceil(Math.max(maxPassMs, maxRoomMs) / 1000) + 60 * 60,
-      )
+      const ttlSec = 60 * 60 * 48
       await client.set(key, JSON.stringify(snapshot), { EX: ttlSec })
       for (const room of snapshot.rooms) {
         await client.set(ROOM_KEY(room.code), JSON.stringify(room), { EX: ROOM_TTL_SEC })
@@ -216,23 +211,18 @@ export async function flushPersist() {
   lastSaveAt = Date.now()
 }
 
-export function buildSnapshot(passes: Iterable<PartyPass>, rooms: Iterable<Room>): PersistedSnapshot {
+export function buildSnapshot(rooms: Iterable<Room>): PersistedSnapshot {
   const now = Date.now()
   const keepMs = 12 * 60 * 60 * 1000
   return {
     version: 1,
     savedAt: now,
-    passes: [...passes].filter((p) => p.expiresAt > now),
     rooms: [...rooms]
       .map((room) => ({
         ...room,
         players: room.players.map((p) => ({ ...p, connected: false })),
       }))
-      .filter((room) => {
-        const partyLive = Boolean(room.premiumExpiresAt && room.premiumExpiresAt > now)
-        const fresh = now - (room.updatedAt || 0) < keepMs
-        return partyLive || fresh
-      }),
+      .filter((room) => now - (room.updatedAt || 0) < keepMs),
   }
 }
 

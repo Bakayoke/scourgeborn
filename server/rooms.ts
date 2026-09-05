@@ -18,13 +18,7 @@ import {
   waveLabel,
   type ExtractItemId,
 } from './game/lab.js'
-import {
-  limitsFor,
-  lookupPass,
-  redeemPassCode,
-  tierFromExpiry,
-  type PartyPass,
-} from './premium.js'
+import { GAME_LIMITS } from './limits.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
 import type { ItemId, Lang, PingKind, Player, PublicRoom, Room, RoomStatus, Station } from './types.js'
 
@@ -70,8 +64,8 @@ function cancelDisconnectTimer(code: string, playerId: string) {
   }
 }
 
-function roomLimits(room: Room) {
-  return limitsFor(tierFromExpiry(room.premiumExpiresAt))
+function roomLimits() {
+  return GAME_LIMITS
 }
 
 function roomMsg(room: Room, sv: string, en: string) {
@@ -150,7 +144,6 @@ export function restoreRooms(list: Room[]) {
       language: raw.language === 'en' ? 'en' : 'sv',
       status: normalizeStatus(raw.status),
       mode: raw.mode === 'solo' ? 'solo' : 'multi',
-      premiumExpiresAt: raw.premiumExpiresAt ?? null,
       isPublic: Boolean(raw.isPublic),
       waitlist: Array.isArray(raw.waitlist) ? raw.waitlist : [],
       notice: raw.notice ?? null,
@@ -212,12 +205,8 @@ export function createRoom(
   hostName: string,
   socketId: string,
   language: Lang = 'sv',
-  partyToken?: string | null,
   wantPublic = false,
 ): { room: Room; playerId: string } {
-  const pass = lookupPass(partyToken)
-  const premiumExpiresAt = pass?.expiresAt ?? null
-  const isParty = tierFromExpiry(premiumExpiresAt) === 'party'
   const code = uniqueCode()
   const playerId = crypto.randomUUID()
   const host: Player = {
@@ -232,8 +221,7 @@ export function createRoom(
     players: [host],
     language: language === 'en' ? 'en' : 'sv',
     status: 'lobby',
-    premiumExpiresAt,
-    isPublic: Boolean(wantPublic && isParty),
+    isPublic: Boolean(wantPublic),
     waitlist: [],
     notice: null,
     updatedAt: Date.now(),
@@ -314,7 +302,7 @@ export function joinRoom(
     touch(room)
     return { room, playerId: reclaim.id }
   }
-  const maxPlayers = roomLimits(room).maxPlayers
+  const maxPlayers = roomLimits().maxPlayers
   const connectedSeated = seatedPlayers(room).filter((p) => p.connected).length
   if (maxPlayers > 0 && connectedSeated >= maxPlayers) {
     return {
@@ -407,9 +395,8 @@ export function listPublicLobbies(opts: { language?: Lang | null; limit?: number
   return [...rooms.values()]
     .filter((r) => {
       if (!r.isPublic || r.status !== 'lobby') return false
-      if (tierFromExpiry(r.premiumExpiresAt) !== 'party') return false
       if (opts.language && r.language !== opts.language) return false
-      const max = roomLimits(r).maxPlayers
+      const max = roomLimits().maxPlayers
       const seated = seatedPlayers(r).filter((p) => p.connected).length
       if (max > 0 && seated >= max) return false
       return true
@@ -443,16 +430,13 @@ export function setPublicLobby(
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden' }
-  if (isPublic && tierFromExpiry(room.premiumExpiresAt) !== 'party') {
-    return { error: roomMsg(room, 'Öppen lobby kräver Party-pass', 'Open lobby requires Party pass') }
-  }
   room.isPublic = Boolean(isPublic)
   touch(room)
   return room
 }
 
 function promoteWaitlist(room: Room) {
-  const max = roomLimits(room).maxPlayers
+  const max = roomLimits().maxPlayers
   while (room.waitlist.length > 0) {
     const seated = seatedPlayers(room).filter((p) => p.connected).length
     if (max > 0 && seated >= max) break
@@ -567,41 +551,9 @@ export function pruneIdleRooms() {
   }
 }
 
-export function redeemParty(
-  code: string,
-  playerId: string,
-  passCode: string,
-): { room: Room; pass: PartyPass } | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  if (room.hostId !== playerId) return { error: 'Bara värden' }
-  const pass = redeemPassCode(passCode)
-  if ('error' in pass) return pass
-  room.premiumExpiresAt = pass.expiresAt
-  touch(room)
-  return { room, pass }
-}
-
-export function applyPartyToken(code: string, token: string): Room | { error: string } {
-  const room = rooms.get(code)
-  if (!room) return { error: 'Rum saknas' }
-  const pass = lookupPass(token)
-  if (!pass) return { error: 'Ogiltigt party-pass' }
-  room.premiumExpiresAt = pass.expiresAt
-  touch(room)
-  return room
-}
-
-export function unlockRoomWithPass(code: string, pass: PartyPass) {
-  const room = rooms.get(code.toUpperCase())
-  if (!room) return
-  room.premiumExpiresAt = pass.expiresAt
-  touch(room)
-}
-
 export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const lang = room.language
-  const limits = roomLimits(room)
+  const limits = roomLimits()
   const viewer = viewerId ? room.players.find((p) => p.id === viewerId) : null
   const labState = viewerId ? room.lab[viewerId] : null
 
@@ -638,8 +590,6 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     language: room.language,
     status: room.status,
     mode: room.mode,
-    premiumTier: tierFromExpiry(room.premiumExpiresAt),
-    premiumExpiresAt: room.premiumExpiresAt,
     limits,
     isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,

@@ -7,7 +7,6 @@ import {
   ensureSessionBound,
   joinGame,
   labAction,
-  loadPartyPass,
   loadSession,
   saveSession,
   setRoomHandler,
@@ -828,8 +827,7 @@ export default function App() {
 
   async function handleCreate() {
     setError(null)
-    const pass = loadPartyPass()
-    const res = await createGame(name, lang, pass?.token ?? null)
+    const res = await createGame(name, lang)
     if (!res.ok) return setError(res.error)
     saveSession({ code: res.room.code, playerId: res.playerId, name })
     setPlayerId(res.playerId)

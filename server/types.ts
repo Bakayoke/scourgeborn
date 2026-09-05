@@ -1,11 +1,7 @@
 export type Lang = 'sv' | 'en'
 
-export type PremiumTier = 'free' | 'party'
-
-export type PremiumLimits = {
+export type GameLimits = {
   maxPlayers: number
-  maxRounds: number
-  freePack: boolean
 }
 
 export type Player = {
@@ -73,7 +69,6 @@ export type Room = {
   language: Lang
   status: RoomStatus
   mode: GameMode
-  premiumExpiresAt: number | null
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   notice: RoomNotice | null
@@ -106,9 +101,7 @@ export type PublicRoom = {
   language: Lang
   status: RoomStatus
   mode: GameMode
-  premiumTier: PremiumTier
-  premiumExpiresAt: number | null
-  limits: PremiumLimits
+  limits: GameLimits
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
   score: number
