@@ -1845,7 +1845,12 @@ input:focus {
     animation: none !important;
   }
 
-  .lab-app.screen-urgent::before {
+  .lab-tv.screen-urgent {
+    animation: none !important;
+  }
+
+  .lab-app.screen-urgent::before,
+  .lab-tv.screen-urgent::before {
     animation: none !important;
     opacity: 0.6;
   }
@@ -3247,7 +3252,12 @@ input:focus {
   animation: screenVibrate 0.11s linear infinite;
 }
 
-.lab-app.screen-urgent::before {
+.lab-tv.screen-urgent {
+  animation: screenVibrate 0.11s linear infinite;
+}
+
+.lab-app.screen-urgent::before,
+.lab-tv.screen-urgent::before {
   content: '';
   position: fixed;
   inset: 0;
@@ -3342,4 +3352,452 @@ input:focus {
   font-size: 1.2rem;
   line-height: 1;
   padding: 0.15rem 0;
+}
+
+/* —— Lab TV mode (fixed fullscreen presentation) —— */
+
+.lab-tv {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 100% 80% at 50% -20%, rgba(157, 124, 255, 0.18), transparent 55%),
+    radial-gradient(ellipse 70% 60% at 90% 100%, rgba(255, 45, 85, 0.12), transparent 50%),
+    #07080c;
+  box-sizing: border-box;
+}
+
+.lab-tv.is-fullscreen {
+  padding: 0;
+}
+
+.lab-tv-fs-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  background: rgba(7, 8, 12, 0.92);
+  text-align: center;
+}
+
+.lab-tv-fs-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 3rem);
+  color: var(--hazard);
+  margin: 0;
+  letter-spacing: 0.08em;
+}
+
+.lab-tv-fs-sub {
+  color: var(--ink-dim);
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  max-width: 32rem;
+  margin: 0;
+}
+
+.lab-tv-fs-btn {
+  font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+  padding: 1rem 2.5rem;
+  margin-top: 0.5rem;
+}
+
+.lab-tv-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(1rem, 2.5vh, 2rem) clamp(1rem, 3vw, 2.5rem);
+}
+
+.lab-tv-chrome {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+}
+
+.lab-tv:hover .lab-tv-chrome,
+.lab-tv:focus-within .lab-tv-chrome {
+  opacity: 1;
+}
+
+.lab-tv-brand {
+  font-family: var(--font-display);
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+}
+
+.lab-tv-chrome-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lab-tv-error {
+  position: relative;
+  z-index: 60;
+  margin: 0;
+}
+
+.lab-tv-host-actions {
+  position: fixed;
+  bottom: 3.5rem;
+  right: 1rem;
+  z-index: 40;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+
+.lab-tv:hover .lab-tv-host-actions {
+  opacity: 1;
+}
+
+/* TV lobby */
+
+.lab-tv-lobby {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1rem, 2vh, 1.75rem);
+  max-width: 72rem;
+  margin: 0 auto;
+  min-height: 100%;
+}
+
+.lab-tv-lobby-head {
+  text-align: center;
+}
+
+.lab-tv-badge {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: clamp(0.85rem, 1.5vw, 1rem);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--hazard);
+  border: 2px solid var(--hazard);
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  margin-bottom: 0.75rem;
+}
+
+.lab-tv-lobby-head h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  margin: 0;
+  color: var(--ink);
+}
+
+.lab-tv-lobby-main {
+  display: grid;
+  grid-template-columns: 1fr minmax(16rem, 22rem);
+  gap: clamp(1.5rem, 3vw, 3rem);
+  align-items: start;
+  flex: 1;
+}
+
+.lab-tv-lobby-join {
+  text-align: center;
+  padding: clamp(1.5rem, 3vh, 2.5rem);
+  border: 2px solid var(--blight);
+  border-radius: var(--radius);
+  background: rgba(157, 124, 255, 0.08);
+  box-shadow: 0 0 40px rgba(157, 124, 255, 0.15);
+}
+
+.lab-tv-code {
+  font-family: var(--font-stamp);
+  font-size: clamp(4rem, 12vw, 8rem);
+  letter-spacing: 0.2em;
+  color: var(--blight);
+  text-shadow: 0 0 30px var(--blight-glow);
+  line-height: 1;
+  margin-bottom: 1.5rem;
+}
+
+.lab-tv-url {
+  font-family: var(--font-stamp);
+  font-size: clamp(0.75rem, 1.5vw, 0.95rem);
+  color: var(--ink-dim);
+  word-break: break-all;
+  margin-top: 1rem;
+}
+
+.lab-tv-lobby-side h2 {
+  font-size: clamp(1.1rem, 2vw, 1.4rem);
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.lab-tv-player-count {
+  font-family: var(--font-stamp);
+  font-size: clamp(2rem, 4vw, 3rem);
+  color: var(--void-accent);
+  margin: 0 0 1rem;
+}
+
+.lab-tv-roster {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+}
+
+.lab-tv-roster li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: clamp(1rem, 2vw, 1.25rem);
+}
+
+.lab-tv-roster li.offline {
+  opacity: 0.45;
+}
+
+.lab-tv-roster-name {
+  font-weight: 700;
+}
+
+.lab-tv-roster-tag {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--hazard);
+}
+
+.lab-tv-wait-hint {
+  color: var(--ink-dim);
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+}
+
+.lab-tv-start {
+  width: 100%;
+  font-size: clamp(1.1rem, 2.5vw, 1.4rem);
+  padding: 1rem 1.5rem;
+}
+
+.lab-tv-steps {
+  margin: auto 0 0;
+  padding-left: 1.25rem;
+  color: var(--ink-dim);
+  font-size: clamp(0.85rem, 1.5vw, 1rem);
+  columns: 2;
+  column-gap: 2rem;
+}
+
+.lab-tv-steps li {
+  break-inside: avoid;
+  margin-bottom: 0.35rem;
+}
+
+.lab-tv-tutorial {
+  max-width: 36rem;
+  margin: 1rem auto 0;
+}
+
+/* TV game */
+
+.lab-tv-game {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.75rem, 2vh, 1.5rem);
+  max-width: 90rem;
+  margin: 0 auto;
+  min-height: 100%;
+}
+
+.lab-tv-game-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem 2rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--line);
+}
+
+.lab-tv-head-code {
+  font-family: var(--font-stamp);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  letter-spacing: 0.15em;
+  color: var(--blight);
+}
+
+.lab-tv-head-wave {
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 3vw, 2rem);
+  color: var(--hazard);
+  text-align: center;
+  letter-spacing: 0.06em;
+}
+
+.lab-tv-head-stats {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.lab-tv-stat {
+  text-align: center;
+}
+
+.lab-tv-stat span {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.lab-tv-stat strong {
+  font-family: var(--font-stamp);
+  font-size: clamp(2rem, 4vw, 3rem);
+  color: var(--blight);
+}
+
+.lab-tv-stat.danger strong {
+  color: var(--danger);
+}
+
+.lab-tv-patients h2,
+.lab-tv-team h2 {
+  font-size: clamp(0.9rem, 1.5vw, 1.1rem);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  margin: 0 0 0.75rem;
+}
+
+.lab-tv-patient-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: clamp(0.75rem, 1.5vw, 1.25rem);
+}
+
+.lab-tv-patient {
+  padding: clamp(0.85rem, 1.5vw, 1.25rem);
+  border: 3px solid var(--item-color, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--item-color, var(--blight)) 14%, var(--panel));
+  box-shadow: 0 0 20px color-mix(in srgb, var(--item-glow, transparent) 50%, transparent);
+}
+
+.lab-tv-patient.urgent {
+  border-color: var(--danger);
+  box-shadow: 0 0 24px var(--danger-glow);
+  animation: urgentShake 0.4s ease infinite alternate;
+}
+
+.lab-tv-patient-timer {
+  font-family: var(--font-stamp);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 1;
+  margin: 0.5rem 0;
+  color: var(--ink);
+}
+
+.lab-tv-patient.urgent .lab-tv-patient-timer {
+  color: var(--danger);
+}
+
+.lab-tv-empty {
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 1.25rem;
+  padding: 2rem;
+}
+
+.lab-tv-event {
+  text-align: center;
+  font-size: clamp(1rem, 2vw, 1.35rem);
+  color: var(--void-accent);
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  margin: 0;
+}
+
+.lab-tv-team-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.lab-tv-team-card {
+  text-align: center;
+  padding: clamp(0.75rem, 1.5vw, 1.1rem);
+  border: 2px solid var(--station-color, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--station-color, var(--blight)) 10%, var(--panel));
+}
+
+.lab-tv-team-card.offline {
+  opacity: 0.4;
+}
+
+.lab-tv-team-station {
+  display: block;
+  font-size: clamp(0.85rem, 1.5vw, 1rem);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--station-color);
+  margin-bottom: 0.35rem;
+}
+
+.lab-tv-team-name {
+  display: block;
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  margin-bottom: 0.5rem;
+}
+
+.lab-tv-team-hand {
+  display: flex;
+  justify-content: center;
+  min-height: 2rem;
+}
+
+.lab-tv-team-stat {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+
+@media (max-width: 720px) {
+  .lab-tv-lobby-main {
+    grid-template-columns: 1fr;
+  }
+
+  .lab-tv-steps {
+    columns: 1;
+  }
+
+  .lab-tv-game-head {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .lab-tv-head-stats {
+    justify-content: center;
+  }
+}
+
+@media (min-width: 1200px) {
+  .lab-tv-team-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }

@@ -458,8 +458,12 @@ export function startGame(code: string, playerId: string): Room | { error: strin
   if (ids.length >= 2 && ids.length < MIN_MULTI_PLAYERS) {
     return { error: roomMsg(room, `Minst ${MIN_MULTI_PLAYERS} spelare`, `At least ${MIN_MULTI_PLAYERS} players`) }
   }
+  const labIds = ids.length >= 2 ? ids.filter((id) => id !== room.hostId) : ids
+  if (labIds.length < 1) {
+    return { error: roomMsg(room, 'Ingen spelare', 'No players') }
+  }
   Object.assign(room, emptyGameFields())
-  initLabGame(room, ids)
+  initLabGame(room, labIds, ids.length >= 2)
   touch(room)
   return room
 }
@@ -579,6 +583,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   })
 
   const seated = seatedPlayers(room).filter((p) => p.connected).length
+  const viewerInLab = Boolean(viewerId && room.lab[viewerId])
 
   const viewerAlert = viewerId && room.alerts ? room.alerts[viewerId] : null
   const alertFresh = viewerAlert && Date.now() - viewerAlert.at < 8000
@@ -606,6 +611,10 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     notice,
     youAreSpectator: Boolean(viewer?.spectator),
     youAreHost: Boolean(viewer && viewer.id === room.hostId),
+    youAreTvHost:
+      room.mode === 'multi' &&
+      room.status === 'playing' &&
+      Boolean(viewer && viewer.id === room.hostId && !viewerInLab),
     canStartSolo: seated === 1,
     minPlayersMulti: MIN_MULTI_PLAYERS,
     wave: room.wave ?? 1,

@@ -24,6 +24,7 @@ import {
   stationShort,
 } from './labVisuals'
 import { JoinQr } from './qr'
+import { LabTvShell, TvGameView, TvLobbyView } from './TvMode'
 import { sfxCure, sfxMiss, sfxPing, sfxSend, sfxSpawn, sfxWave } from './sfx'
 import type { ItemId, Lang, PingKind, PublicRoom, Station, TutorialStep } from './types'
 
@@ -155,10 +156,12 @@ function StationSplash({
 }) {
   const ui = t(lang)
   const v = STATION_VISUALS[station]
+  const doneRef = useRef(onDone)
+  doneRef.current = onDone
   useEffect(() => {
-    const t = setTimeout(onDone, 3000)
-    return () => clearTimeout(t)
-  }, [onDone])
+    const timer = setTimeout(() => doneRef.current(), 3000)
+    return () => clearTimeout(timer)
+  }, [])
   return (
     <div className="station-splash" style={{ '--station-color': v.color } as CSSProperties}>
       <p className="splash-you">{ui.youAre}</p>
@@ -646,11 +649,16 @@ function GameView({
   useGameFx(room)
 
   useEffect(() => {
-    if (prevStatus.current === 'lobby' && room.status === 'playing' && room.mode === 'multi') {
+    if (
+      prevStatus.current === 'lobby' &&
+      room.status === 'playing' &&
+      room.mode === 'multi' &&
+      !room.youAreTvHost
+    ) {
       setShowSplash(true)
     }
     prevStatus.current = room.status
-  }, [room.status, room.mode])
+  }, [room.status, room.mode, room.youAreTvHost])
 
   useEffect(() => {
     if (room.wave > prevWave.current && room.status === 'playing') {
@@ -676,6 +684,8 @@ function GameView({
     }
   }
 
+  const isPartyTv = room.youAreHost && room.mode === 'multi' && (room.status === 'lobby' || room.youAreTvHost)
+
   if (room.status === 'gameover') {
     return (
       <GameOverScreen
@@ -688,9 +698,60 @@ function GameView({
     )
   }
 
+  if (isPartyTv) {
+    return (
+      <>
+        {room.alert && <AlertOverlay message={room.alert} itemId={room.alertItemId} lang={lang} />}
+        {showWave && <WaveBanner label={room.waveLabel} wave={showWave} />}
+        {room.status === 'lobby' ? (
+          <>
+            <TvLobbyView
+              room={room}
+              lang={lang}
+              seated={seated}
+              joinUrl={`${APP_ORIGIN}/?join=${room.code}`}
+              onStart={async () => {
+                const res = await startGame()
+                if (!res.ok) onError(res.error ?? ui.error)
+                else setFeedback(null)
+              }}
+              startLabel={seated === 1 ? ui.startSolo : ui.startMulti}
+              showTutorial={room.canStartSolo && !tutorialDone}
+            />
+            {room.canStartSolo && !tutorialDone && (
+              <div className="lab-tv-tutorial">
+                <TutorialPanel
+                  room={room}
+                  lang={lang}
+                  step={tutorialStep}
+                  onStep={setTutorialStep}
+                  onSkip={() => setTutorialDone(true)}
+                  onStart={async () => {
+                    const res = await startGame()
+                    if (!res.ok) onError(res.error ?? ui.error)
+                    else setFeedback(null)
+                  }}
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <TvGameView room={room} lang={lang} />
+        )}
+        {room.youAreHost && room.status !== 'lobby' && (
+          <div className="lab-tv-host-actions">
+            <button type="button" className="btn ghost danger" onClick={() => void endParty().then(() => {})}>
+              {ui.endParty}
+            </button>
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <div className="game-view lab-view">
-      {showSplash && (
+      {showSplash && !room.youAreTvHost && (
         <StationSplash station={room.yourStation} lang={lang} onDone={() => setShowSplash(false)} />
       )}
       {room.alert && (
@@ -746,11 +807,11 @@ function GameView({
         </div>
       ) : (
         <>
+          {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
           <section className="patients-section">
             <h3>{ui.patients}</h3>
             <PatientBar room={room} lang={lang} />
           </section>
-          {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
           <TeamBoard room={room} lang={lang} playerId={playerId} />
           {!room.youAreSpectator && (
             <Workstation
@@ -848,11 +909,26 @@ export default function App() {
   if (room && screen === 'game' && playerId) {
     const screenUrgent =
       room.status === 'playing' && room.patients.some((p) => p.timeRemaining <= 10)
+    const isPartyTv =
+      room.youAreHost && room.mode === 'multi' && (room.status === 'lobby' || room.youAreTvHost)
+
+    const game = (
+      <GameView room={room} lang={lang} playerId={playerId} onLeave={leaveGame} onError={setError} />
+    )
+
+    if (isPartyTv) {
+      return (
+        <LabTvShell lang={lang} urgent={screenUrgent} onLeave={leaveGame}>
+          {error && <p className="error-banner lab-tv-error">{error}</p>}
+          {game}
+        </LabTvShell>
+      )
+    }
 
     return (
       <main className={`app lab-app${screenUrgent ? ' screen-urgent' : ''}`}>
         {error && <p className="error-banner">{error}</p>}
-        <GameView room={room} lang={lang} playerId={playerId} onLeave={leaveGame} onError={setError} />
+        {game}
         <p className={`conn ${conn}`}>{conn === 'connected' ? ui.connected : ui.connecting}</p>
       </main>
     )

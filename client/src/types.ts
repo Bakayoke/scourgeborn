@@ -58,6 +58,7 @@ export type PublicRoom = {
   notice: string | null
   youAreSpectator: boolean
   youAreHost: boolean
+  youAreTvHost: boolean
   canStartSolo: boolean
   minPlayersMulti: number
   wave: number

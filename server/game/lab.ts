@@ -175,8 +175,8 @@ function initStats(room: Room, playerIds: string[]) {
   }
 }
 
-export function initLabGame(room: Room, playerIds: string[]) {
-  const solo = playerIds.length === 1
+export function initLabGame(room: Room, playerIds: string[], partyMulti = false) {
+  const solo = !partyMulti && playerIds.length === 1
   room.mode = solo ? 'solo' : 'multi'
   room.status = 'playing'
   room.score = 0

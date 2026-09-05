@@ -44,13 +44,15 @@ describe('lobby and lab start', () => {
   it('ping reaches extractor player', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-ping', 'sv')
     const p2 = joinRoom(room.code, 'Ada', 'sock-ping2')
+    const p3 = joinRoom(room.code, 'Bob', 'sock-ping3')
     assert.ok(!('error' in p2))
-    if ('error' in p2) return
+    assert.ok(!('error' in p3))
+    if ('error' in p2 || 'error' in p3) return
     startGame(room.code, hostId)
-    const ping = labAction(room.code, p2.playerId, 'ping', { kind: 'need_red' })
+    const ping = labAction(room.code, p3.playerId, 'ping', { kind: 'need_red' })
     assert.ok(!('error' in ping))
     if ('error' in ping) return
-    assert.ok(ping.alerts[hostId])
+    assert.ok(ping.alerts[p2.playerId])
   })
 })
 
