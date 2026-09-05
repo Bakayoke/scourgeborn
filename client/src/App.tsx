@@ -848,8 +848,11 @@ export default function App() {
   }
 
   if (room && screen === 'game' && playerId) {
+    const screenUrgent =
+      room.status === 'playing' && room.patients.some((p) => p.timeRemaining <= 10)
+
     return (
-      <main className="app lab-app">
+      <main className={`app lab-app${screenUrgent ? ' screen-urgent' : ''}`}>
         {error && <p className="error-banner">{error}</p>}
         <GameView room={room} lang={lang} playerId={playerId} onLeave={leaveGame} onError={setError} />
         <p className={`conn ${conn}`}>{conn === 'connected' ? ui.connected : ui.connecting}</p>
