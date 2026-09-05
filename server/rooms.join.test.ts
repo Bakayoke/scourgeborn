@@ -88,6 +88,7 @@ describe('lab realtime ticks', () => {
     } as Room
     assert.equal(currentWave(room), 1)
     const cfg = waveConfig(1)
-    assert.ok(cfg.pool.every((i) => i === 'red_rna' || i === 'blue_rna'))
+    assert.ok(cfg.pool.length >= 4)
+    assert.ok(cfg.pool.includes('green_rna'))
   })
 })

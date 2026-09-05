@@ -7,6 +7,8 @@ export type PingKind = 'need_red' | 'need_blue' | 'need_mix' | 'need_heat' | 'ne
 export type ItemId =
   | 'red_rna'
   | 'blue_rna'
+  | 'green_rna'
+  | 'yellow_rna'
   | 'purple_rna'
   | 'heated_purple_rna'
   | 'cooled_blue_rna'

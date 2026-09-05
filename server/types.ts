@@ -30,6 +30,8 @@ export type Station = 'extractor' | 'synthesizer' | 'incubator'
 export type ItemId =
   | 'red_rna'
   | 'blue_rna'
+  | 'green_rna'
+  | 'yellow_rna'
   | 'purple_rna'
   | 'heated_purple_rna'
   | 'cooled_blue_rna'

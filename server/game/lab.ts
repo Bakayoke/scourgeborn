@@ -16,26 +16,33 @@ export const MIN_MULTI_PLAYERS = 2
 const STATIONS: Station[] = ['extractor', 'synthesizer', 'incubator']
 
 const ORDER_TIME: Record<ItemId, number> = {
-  red_rna: 45,
-  blue_rna: 45,
-  purple_rna: 55,
-  heated_purple_rna: 70,
-  cooled_blue_rna: 60,
+  red_rna: 24,
+  blue_rna: 24,
+  green_rna: 22,
+  yellow_rna: 22,
+  purple_rna: 30,
+  heated_purple_rna: 36,
+  cooled_blue_rna: 32,
 }
 
-const WAVE_THRESHOLDS = [0, 60_000, 180_000, 300_000] as const
+const WAVE_THRESHOLDS = [0, 18_000, 50_000, 85_000] as const
 
 const WAVE_LABELS: Record<number, { sv: string; en: string }> = {
-  1: { sv: 'VÅG 1 — VARMNING', en: 'WAVE 1 — WARMUP' },
-  2: { sv: 'VÅG 2 — MIXA!', en: 'WAVE 2 — MIX IT!' },
-  3: { sv: 'VÅG 3 — VÄRME & KYLA', en: 'WAVE 3 — HEAT & COOL' },
-  4: { sv: 'VÅG 4 — KAOS!', en: 'WAVE 4 — CHAOS!' },
+  1: { sv: 'VÅG 1 — REDO?', en: 'WAVE 1 — READY?' },
+  2: { sv: 'VÅG 2 — SNABBARE!', en: 'WAVE 2 — FASTER!' },
+  3: { sv: 'VÅG 3 — PANIK!', en: 'WAVE 3 — PANIC!' },
+  4: { sv: 'VÅG 4 — RUSKIGT!', en: 'WAVE 4 — BRUTAL!' },
 }
+
+export const EXTRACT_ITEMS = ['red_rna', 'blue_rna', 'green_rna', 'yellow_rna'] as const
+export type ExtractItemId = (typeof EXTRACT_ITEMS)[number]
 
 export function itemLabel(id: ItemId, lang: Lang): string {
   const sv: Record<ItemId, string> = {
     red_rna: 'Röd RNA',
     blue_rna: 'Blå RNA',
+    green_rna: 'Grön RNA',
+    yellow_rna: 'Gul RNA',
     purple_rna: 'Lila RNA',
     heated_purple_rna: 'Uppvärmd lila RNA',
     cooled_blue_rna: 'Kyld blå RNA',
@@ -43,6 +50,8 @@ export function itemLabel(id: ItemId, lang: Lang): string {
   const en: Record<ItemId, string> = {
     red_rna: 'Red RNA',
     blue_rna: 'Blue RNA',
+    green_rna: 'Green RNA',
+    yellow_rna: 'Yellow RNA',
     purple_rna: 'Purple RNA',
     heated_purple_rna: 'Heated Purple RNA',
     cooled_blue_rna: 'Cooled Blue RNA',
@@ -54,6 +63,8 @@ export function itemShort(id: ItemId, lang: Lang): string {
   const sv: Record<ItemId, string> = {
     red_rna: 'RÖD',
     blue_rna: 'BLÅ',
+    green_rna: 'GRÖN',
+    yellow_rna: 'GUL',
     purple_rna: 'LILA',
     heated_purple_rna: 'VARM LILA',
     cooled_blue_rna: 'KYLD BLÅ',
@@ -61,6 +72,8 @@ export function itemShort(id: ItemId, lang: Lang): string {
   const en: Record<ItemId, string> = {
     red_rna: 'RED',
     blue_rna: 'BLUE',
+    green_rna: 'GREEN',
+    yellow_rna: 'YELLOW',
     purple_rna: 'PURPLE',
     heated_purple_rna: 'HOT PURPLE',
     cooled_blue_rna: 'COLD BLUE',
@@ -117,27 +130,40 @@ export function currentWave(room: Room): number {
 export function waveConfig(wave: number) {
   switch (wave) {
     case 1:
-      return { pool: ['red_rna', 'blue_rna'] as ItemId[], maxPatients: 1, spawnMs: 22_000, timeScale: 1 }
+      return {
+        pool: ['red_rna', 'blue_rna', 'green_rna', 'yellow_rna'] as ItemId[],
+        maxPatients: 2,
+        spawnMs: 12_000,
+        timeScale: 0.78,
+      }
     case 2:
       return {
-        pool: ['red_rna', 'blue_rna', 'purple_rna'] as ItemId[],
-        maxPatients: 2,
-        spawnMs: 18_000,
-        timeScale: 0.95,
+        pool: ['red_rna', 'blue_rna', 'green_rna', 'yellow_rna', 'purple_rna'] as ItemId[],
+        maxPatients: 3,
+        spawnMs: 8_000,
+        timeScale: 0.65,
       }
     case 3:
       return {
-        pool: ['purple_rna', 'heated_purple_rna', 'cooled_blue_rna'] as ItemId[],
-        maxPatients: 3,
-        spawnMs: 14_000,
-        timeScale: 0.85,
+        pool: ['purple_rna', 'heated_purple_rna', 'cooled_blue_rna', 'green_rna', 'yellow_rna'] as ItemId[],
+        maxPatients: 4,
+        spawnMs: 6_000,
+        timeScale: 0.55,
       }
     default:
       return {
-        pool: ['red_rna', 'blue_rna', 'purple_rna', 'heated_purple_rna', 'cooled_blue_rna'] as ItemId[],
-        maxPatients: 4,
-        spawnMs: 10_000,
-        timeScale: 0.75,
+        pool: [
+          'red_rna',
+          'blue_rna',
+          'green_rna',
+          'yellow_rna',
+          'purple_rna',
+          'heated_purple_rna',
+          'cooled_blue_rna',
+        ] as ItemId[],
+        maxPatients: 5,
+        spawnMs: 4_000,
+        timeScale: 0.42,
       }
   }
 }
@@ -177,7 +203,7 @@ export function spawnPatient(room: Room, forceItem?: ItemId): Patient {
   const requiredVaccine =
     forceItem ?? cfg.pool[Math.floor(Math.random() * cfg.pool.length)]!
   const baseTime = ORDER_TIME[requiredVaccine]
-  const maxTime = Math.max(20, Math.round(baseTime * cfg.timeScale))
+  const maxTime = Math.max(10, Math.round(baseTime * cfg.timeScale))
   return {
     id: crypto.randomUUID(),
     requiredVaccine,
@@ -308,7 +334,7 @@ export function switchStation(room: Room, playerId: string, station: Station): {
 export function extract(
   room: Room,
   playerId: string,
-  element: 'red_rna' | 'blue_rna',
+  element: ExtractItemId,
 ): { error?: string } {
   const state = room.lab[playerId]
   if (!state || room.status !== 'playing') return { error: 'Ogiltigt' }
@@ -319,8 +345,8 @@ export function extract(
   state.itemInHand = element
   setEvent(
     room,
-    `${element === 'red_rna' ? 'RÖD' : 'BLÅ'} extraherad!`,
-    `${element === 'red_rna' ? 'RED' : 'BLUE'} extracted!`,
+    `${itemShort(element, 'sv')} extraherad!`,
+    `${itemShort(element, 'en')} extracted!`,
   )
   return {}
 }

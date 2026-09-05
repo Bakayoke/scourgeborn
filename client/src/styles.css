@@ -2737,17 +2737,24 @@ input:focus {
 
 .patient-card {
   flex: 0 0 auto;
-  min-width: 8.5rem;
+  min-width: 10rem;
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--line);
+  border: 2px solid var(--item-color, var(--line));
   border-radius: var(--radius);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--item-color, var(--blight)) 12%, var(--panel));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--item-glow, transparent) 60%, transparent);
   font-size: 0.85rem;
 }
 
 .patient-card.urgent {
   border-color: var(--danger);
-  box-shadow: 0 0 12px var(--danger-glow);
+  box-shadow: 0 0 18px var(--danger-glow), 0 0 8px var(--item-glow, transparent);
+  animation: urgentShake 0.4s ease infinite alternate;
+}
+
+@keyframes urgentShake {
+  from { transform: translateX(-1px); }
+  to { transform: translateX(1px); }
 }
 
 .patient-card strong {
@@ -2880,7 +2887,8 @@ input:focus {
   padding: 0.25rem 0.55rem;
   border-radius: 999px;
   border: 2px solid var(--item-color, var(--blight));
-  background: color-mix(in srgb, var(--item-color, var(--blight)) 18%, transparent);
+  background: color-mix(in srgb, var(--item-color, var(--blight)) 22%, transparent);
+  box-shadow: 0 0 12px var(--item-glow, var(--blight-glow));
   font-weight: 700;
   font-family: var(--font-stamp);
   letter-spacing: 0.06em;
@@ -3056,11 +3064,114 @@ input:focus {
 
 .big-buttons .btn { flex: 1; min-width: 7rem; font-size: 1.1rem; padding: 0.85rem; }
 
-.btn.item-btn.red { background: #e0456a; color: #fff; border-color: #e0456a; }
-.btn.item-btn.blue { background: #4fd1c5; color: #050508; border-color: #4fd1c5; }
-.btn.item-btn.purple { background: #9d7cff; color: #fff; border-color: #9d7cff; }
-.btn.item-btn.hot { background: #ff6b35; color: #fff; border-color: #ff6b35; }
-.btn.item-btn.cold { background: #6ecff6; color: #050508; border-color: #6ecff6; }
+.btn.item-btn.red { background: #ff2d55; color: #fff; border-color: #ff2d55; }
+.btn.item-btn.blue { background: #00d4ff; color: #050508; border-color: #00d4ff; }
+.btn.item-btn.green { background: #39ff14; color: #050508; border-color: #39ff14; }
+.btn.item-btn.yellow { background: #ffe600; color: #050508; border-color: #ffe600; }
+.btn.item-btn.purple { background: #bf5fff; color: #fff; border-color: #bf5fff; }
+.btn.item-btn.hot { background: #ff4500; color: #fff; border-color: #ff4500; }
+.btn.item-btn.cold { background: #00bfff; color: #050508; border-color: #00bfff; }
+
+.extract-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.extract-grid .btn {
+  min-width: 0;
+  font-size: 0.95rem;
+  padding: 0.75rem 0.5rem;
+}
+
+.party-setup {
+  text-align: left;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 2px solid var(--hazard);
+  border-radius: var(--radius);
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.party-setup h3 {
+  margin: 0 0 0.75rem;
+  color: var(--hazard);
+  font-family: var(--font-display);
+}
+
+.party-steps {
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.party-steps li { margin-bottom: 0.4rem; }
+
+.party-host-block {
+  text-align: center;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.room-code-big {
+  font-family: var(--font-stamp);
+  font-size: 2.5rem;
+  letter-spacing: 0.25em;
+  color: var(--blight);
+  margin: 0.5rem 0;
+  text-shadow: 0 0 20px var(--blight-glow);
+}
+
+.tv-hint {
+  font-weight: 700;
+  color: var(--hazard);
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.join-url {
+  font-family: var(--font-stamp);
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  word-break: break-all;
+  margin-bottom: 0.75rem;
+}
+
+.party-guest-msg {
+  text-align: center;
+  font-size: 1.05rem;
+  color: var(--void-accent);
+  font-weight: 600;
+  padding: 1rem;
+}
+
+.party-roster {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.party-roster ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.35rem 0 0;
+}
+
+.party-roster li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.btn.party-start {
+  width: 100%;
+  font-size: 1.15rem;
+  padding: 1rem;
+  margin-top: 0.5rem;
+}
 
 .btn.send-btn { font-weight: 700; border-color: var(--void-accent); }
 .btn.ping { font-size: 0.75rem; padding: 0.4rem 0.55rem; border-color: var(--hazard-dim); color: var(--hazard); }

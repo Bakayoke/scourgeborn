@@ -17,6 +17,7 @@ import {
 } from './api'
 import { loadLanguage, rememberLanguage, t } from './i18n'
 import {
+  EXTRACT_OPTIONS,
   ITEM_VISUALS,
   itemShort,
   recipeSteps,
@@ -33,10 +34,40 @@ const APP_ORIGIN = 'https://scourgeborn.com'
 function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size?: 'sm' | 'md' | 'lg' }) {
   const v = ITEM_VISUALS[item]
   return (
-    <span className={`item-badge ${size}`} style={{ '--item-color': v.color } as CSSProperties}>
+    <span
+      className={`item-badge ${size}`}
+      style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
+    >
       <span className="item-icon">{v.icon}</span>
       <span className="item-short">{itemShort(item, lang)}</span>
     </span>
+  )
+}
+
+function ExtractButtons({
+  lang,
+  onAction,
+}: {
+  lang: Lang
+  onAction: (action: string, data?: Record<string, unknown>) => void
+}) {
+  return (
+    <div className="action-row big-buttons extract-grid">
+      {EXTRACT_OPTIONS.map((id) => {
+        const v = ITEM_VISUALS[id]
+        const tone = id.replace('_rna', '')
+        return (
+          <button
+            key={id}
+            type="button"
+            className={`btn item-btn ${tone}`}
+            onClick={() => onAction('extract', { element: id })}
+          >
+            {v.icon} {itemShort(id, lang)}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -59,8 +90,14 @@ function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
   if (room.patients.length === 0) return <p className="hint">{ui.noPatients}</p>
   return (
     <div className="patient-bar">
-      {room.patients.map((p) => (
-        <div key={p.id} className={`patient-card${p.timeRemaining <= 10 ? ' urgent pulse' : ''}`}>
+      {room.patients.map((p) => {
+        const v = ITEM_VISUALS[p.requiredVaccine]
+        return (
+        <div
+          key={p.id}
+          className={`patient-card${p.timeRemaining <= 10 ? ' urgent pulse' : ''}`}
+          style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
+        >
           <ItemBadge item={p.requiredVaccine} lang={lang} size="lg" />
           <RecipeStrip item={p.requiredVaccine} lang={lang} />
           <span className="patient-timer">{p.timeRemaining}s</span>
@@ -71,7 +108,8 @@ function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
             />
           </div>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -145,6 +183,60 @@ function WaveBanner({ label, wave }: { label: string; wave: number }) {
   return (
     <div className={`wave-banner wave-${wave} flash-in`}>
       {label}
+    </div>
+  )
+}
+
+function PartyLobbyPanel({
+  room,
+  lang,
+  seated,
+  joinUrl,
+}: {
+  room: PublicRoom
+  lang: Lang
+  seated: number
+  joinUrl: string
+}) {
+  const ui = t(lang)
+  const seatedPlayers = room.players.filter((p) => !p.spectator)
+
+  return (
+    <div className="party-setup">
+      <h3>{ui.partySetupTitle}</h3>
+      <ol className="party-steps">
+        {ui.partySetupSteps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+
+      {room.youAreHost ? (
+        <div className="party-host-block">
+          <p className="tv-hint">{ui.tvModeHint}</p>
+          <div className="room-code-big">{room.code}</div>
+          <p className="join-url">{joinUrl}</p>
+          <JoinQr url={joinUrl} size={200} alt="join" />
+          <p className="hint">{ui.partyScanHint}</p>
+        </div>
+      ) : (
+        <p className="party-guest-msg">{ui.partyGuestMsg}</p>
+      )}
+
+      <div className="party-roster">
+        <strong>{ui.partyRoster} ({seated})</strong>
+        <ul>
+          {seatedPlayers.map((p) => (
+            <li key={p.id}>
+              {p.name}
+              {p.connected ? '' : ' …'}
+              {p.id === room.hostId ? ` (${ui.hostLabel})` : ''}
+            </li>
+          ))}
+        </ul>
+        {seated < room.minPlayersMulti && room.youAreHost && (
+          <p className="hint">{ui.partyNeedMore}</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -344,22 +436,7 @@ function SoloLabView({
           style={{ '--station-color': STATION_VISUALS.extractor.color } as CSSProperties}
         >
           <h3>{STATION_VISUALS.extractor.icon} {stationShort('extractor', lang)}</h3>
-          <div className="action-row big-buttons">
-            <button
-              type="button"
-              className="btn item-btn red"
-              onClick={() => onAction('extract', { element: 'red_rna' })}
-            >
-              {ITEM_VISUALS.red_rna.icon} {ui.extractRed}
-            </button>
-            <button
-              type="button"
-              className="btn item-btn blue"
-              onClick={() => onAction('extract', { element: 'blue_rna' })}
-            >
-              {ITEM_VISUALS.blue_rna.icon} {ui.extractBlue}
-            </button>
-          </div>
+          <ExtractButtons lang={lang} onAction={onAction} />
         </section>
 
         <div className="flow-connector">↓</div>
@@ -431,24 +508,7 @@ function MultiWorkstation({
       <HandBar room={room} lang={lang} canDeliver={canDeliver} onAction={onAction} />
       {feedback && <p className="feedback-banner">{feedback}</p>}
 
-      {station === 'extractor' && (
-        <div className="action-row big-buttons">
-          <button
-            type="button"
-            className="btn item-btn red"
-            onClick={() => onAction('extract', { element: 'red_rna' })}
-          >
-            {ITEM_VISUALS.red_rna.icon} {ui.extractRed}
-          </button>
-          <button
-            type="button"
-            className="btn item-btn blue"
-            onClick={() => onAction('extract', { element: 'blue_rna' })}
-          >
-            {ITEM_VISUALS.blue_rna.icon} {ui.extractBlue}
-          </button>
-        </div>
-      )}
+      {station === 'extractor' && <ExtractButtons lang={lang} onAction={onAction} />}
 
       {station === 'synthesizer' && (
         <div className="action-col">
@@ -649,9 +709,14 @@ function GameView({
 
       {room.status === 'lobby' ? (
         <div className="panel lobby-panel">
-          <p>{ui.shareHint}</p>
-          <p className="hint">{seated} spelare</p>
-          {!tutorialDone ? (
+          <PartyLobbyPanel
+            room={room}
+            lang={lang}
+            seated={seated}
+            joinUrl={`${APP_ORIGIN}/?join=${room.code}`}
+          />
+
+          {room.canStartSolo && !tutorialDone ? (
             <TutorialPanel
               room={room}
               lang={lang}
@@ -667,7 +732,7 @@ function GameView({
           ) : room.youAreHost ? (
             <button
               type="button"
-              className="btn primary"
+              className="btn primary party-start"
               onClick={async () => {
                 const res = await startGame()
                 if (!res.ok) onError(res.error ?? ui.error)
@@ -723,11 +788,18 @@ export default function App() {
   const [playerId, setPlayerId] = useState<string | null>(loadSession()?.playerId ?? null)
   const [error, setError] = useState<string | null>(null)
   const [conn, setConn] = useState<ConnState>('connecting')
-  const [showQr, setShowQr] = useState(false)
   const ui = useMemo(() => t(lang), [lang])
 
   useEffect(() => rememberLanguage(lang), [lang])
   useEffect(() => subscribeConnection(setConn), [])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const joinCode = params.get('join')?.trim().toUpperCase()
+    if (joinCode && /^[A-Z0-9]{4}$/.test(joinCode)) {
+      setCode(joinCode)
+      setScreen('join')
+    }
+  }, [])
   useEffect(() => {
     setRoomHandler(setRoom)
     return () => setRoomHandler(null)
@@ -780,14 +852,6 @@ export default function App() {
       <main className="app lab-app">
         {error && <p className="error-banner">{error}</p>}
         <GameView room={room} lang={lang} playerId={playerId} onLeave={leaveGame} onError={setError} />
-        {room.status === 'lobby' && room.youAreHost && (
-          <div className="host-tools">
-            <button type="button" className="btn ghost" onClick={() => setShowQr((v) => !v)}>
-              QR
-            </button>
-            {showQr && <JoinQr url={`${APP_ORIGIN}/?join=${room.code}`} alt="join" />}
-          </div>
-        )}
         <p className={`conn ${conn}`}>{conn === 'connected' ? ui.connected : ui.connecting}</p>
       </main>
     )

@@ -5,6 +5,7 @@ import {
   connectedActiveIds,
   deliverVaccine,
   dropItem,
+  EXTRACT_ITEMS,
   extract,
   incubate,
   initLabGame,
@@ -15,6 +16,7 @@ import {
   synthesize,
   tickLab,
   waveLabel,
+  type ExtractItemId,
 } from './game/lab.js'
 import {
   limitsFor,
@@ -489,9 +491,12 @@ export function labAction(
 
   let result: { error?: string } = { error: 'Okänd action' }
   switch (action) {
-    case 'extract':
-      result = extract(room, playerId, payload.element === 'blue_rna' ? 'blue_rna' : 'red_rna')
+    case 'extract': {
+      const raw = String(payload.element ?? 'red_rna')
+      const element = EXTRACT_ITEMS.includes(raw as ExtractItemId) ? (raw as ExtractItemId) : 'red_rna'
+      result = extract(room, playerId, element)
       break
+    }
     case 'synthesize':
       result = synthesize(room, playerId)
       break

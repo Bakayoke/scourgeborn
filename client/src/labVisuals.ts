@@ -2,27 +2,32 @@ import type { ItemId, Lang, Station } from './types'
 
 export type ItemVisual = {
   color: string
+  glow: string
   icon: string
   shortSv: string
   shortEn: string
 }
 
 export const ITEM_VISUALS: Record<ItemId, ItemVisual> = {
-  red_rna: { color: '#e0456a', icon: '●', shortSv: 'RÖD', shortEn: 'RED' },
-  blue_rna: { color: '#4fd1c5', icon: '●', shortSv: 'BLÅ', shortEn: 'BLUE' },
-  purple_rna: { color: '#9d7cff', icon: '●', shortSv: 'LILA', shortEn: 'PURPLE' },
-  heated_purple_rna: { color: '#ff6b35', icon: '🔥', shortSv: 'VARM LILA', shortEn: 'HOT PURPLE' },
-  cooled_blue_rna: { color: '#6ecff6', icon: '❄', shortSv: 'KYLD BLÅ', shortEn: 'COLD BLUE' },
+  red_rna: { color: '#ff2d55', glow: '#ff2d5588', icon: '●', shortSv: 'RÖD', shortEn: 'RED' },
+  blue_rna: { color: '#00d4ff', glow: '#00d4ff88', icon: '●', shortSv: 'BLÅ', shortEn: 'BLUE' },
+  green_rna: { color: '#39ff14', glow: '#39ff1488', icon: '●', shortSv: 'GRÖN', shortEn: 'GREEN' },
+  yellow_rna: { color: '#ffe600', glow: '#ffe60088', icon: '●', shortSv: 'GUL', shortEn: 'YELLOW' },
+  purple_rna: { color: '#bf5fff', glow: '#bf5fff88', icon: '●', shortSv: 'LILA', shortEn: 'PURPLE' },
+  heated_purple_rna: { color: '#ff4500', glow: '#ff450088', icon: '🔥', shortSv: 'VARM LILA', shortEn: 'HOT PURPLE' },
+  cooled_blue_rna: { color: '#00bfff', glow: '#00bfff88', icon: '❄', shortSv: 'KYLD BLÅ', shortEn: 'COLD BLUE' },
 }
 
 export const STATION_VISUALS: Record<
   Station,
-  { color: string; icon: string; shortSv: string; shortEn: string }
+  { color: string; glow: string; icon: string; shortSv: string; shortEn: string }
 > = {
-  extractor: { color: '#e0456a', icon: '🧪', shortSv: 'EXTRAKTOR', shortEn: 'EXTRACTOR' },
-  synthesizer: { color: '#9d7cff', icon: '⚗', shortSv: 'SYNTHESIZER', shortEn: 'SYNTHESIZER' },
-  incubator: { color: '#ff6b35', icon: '🌡', shortSv: 'INKUBATOR', shortEn: 'INCUBATOR' },
+  extractor: { color: '#ff2d55', glow: '#ff2d5544', icon: '🧪', shortSv: 'EXTRAKTOR', shortEn: 'EXTRACTOR' },
+  synthesizer: { color: '#bf5fff', glow: '#bf5fff44', icon: '⚗', shortSv: 'SYNTHESIZER', shortEn: 'SYNTHESIZER' },
+  incubator: { color: '#ff4500', glow: '#ff450044', icon: '🌡', shortSv: 'INKUBATOR', shortEn: 'INCUBATOR' },
 }
+
+export const EXTRACT_OPTIONS: ItemId[] = ['red_rna', 'blue_rna', 'green_rna', 'yellow_rna']
 
 /** Recipe steps to craft the final item (for patient cards). */
 export function recipeSteps(item: ItemId): ItemId[] {
@@ -31,6 +36,10 @@ export function recipeSteps(item: ItemId): ItemId[] {
       return ['red_rna']
     case 'blue_rna':
       return ['blue_rna']
+    case 'green_rna':
+      return ['green_rna']
+    case 'yellow_rna':
+      return ['yellow_rna']
     case 'purple_rna':
       return ['red_rna', 'blue_rna', 'purple_rna']
     case 'heated_purple_rna':
@@ -53,7 +62,9 @@ export function stationShort(station: Station, lang: Lang) {
 }
 
 export function stationForItem(item: ItemId): Station | null {
-  if (item === 'red_rna' || item === 'blue_rna') return 'extractor'
+  if (item === 'red_rna' || item === 'blue_rna' || item === 'green_rna' || item === 'yellow_rna') {
+    return 'extractor'
+  }
   if (item === 'purple_rna') return 'synthesizer'
   if (item === 'heated_purple_rna' || item === 'cooled_blue_rna') return 'incubator'
   return null
