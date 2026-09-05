@@ -25,11 +25,10 @@ import {
 } from './labVisuals'
 import { JoinQr } from './qr'
 import { sfxCure, sfxMiss, sfxPing, sfxSend, sfxSpawn, sfxWave } from './sfx'
-import type { ItemId, Lang, PublicRoom, Station, TutorialStep } from './types'
+import type { ItemId, Lang, PingKind, PublicRoom, Station, TutorialStep } from './types'
 
 type Screen = 'home' | 'create' | 'join' | 'game'
 const APP_ORIGIN = 'https://scourgeborn.com'
-const STATIONS: Station[] = ['extractor', 'synthesizer', 'incubator']
 
 function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size?: 'sm' | 'md' | 'lg' }) {
   const v = ITEM_VISUALS[item]
@@ -262,7 +261,146 @@ function GameOverScreen({
   )
 }
 
-function Workstation({
+const PING_BY_STATION: Record<Station, PingKind[]> = {
+  extractor: ['need_deliver'],
+  synthesizer: ['need_red', 'need_blue', 'need_deliver'],
+  incubator: ['need_mix', 'need_deliver'],
+}
+
+const PING_UI: Record<PingKind, keyof ReturnType<typeof t>> = {
+  need_red: 'pingNeedRed',
+  need_blue: 'pingNeedBlue',
+  need_mix: 'pingNeedMix',
+  need_heat: 'pingNeedHeat',
+  need_cool: 'pingNeedCool',
+  need_deliver: 'pingDeliver',
+}
+
+function HandBar({
+  room,
+  lang,
+  canDeliver,
+  onAction,
+}: {
+  room: PublicRoom
+  lang: Lang
+  canDeliver: boolean
+  onAction: (action: string, data?: Record<string, unknown>) => void
+}) {
+  const ui = t(lang)
+  return (
+    <div className="hand-bar">
+      <div className="hand-display">
+        {ui.inHand}:{' '}
+        {room.itemInHand ? (
+          <ItemBadge item={room.itemInHand} lang={lang} size="md" />
+        ) : (
+          <strong>{ui.emptyHand}</strong>
+        )}
+      </div>
+      {room.itemInHand && !canDeliver && room.patients.length > 0 && (
+        <p className="hint">{ui.wrongVaccine}</p>
+      )}
+      {canDeliver && (
+        <button type="button" className="btn deliver-btn pulse" onClick={() => onAction('deliver')}>
+          ✓ {ui.deliver}
+        </button>
+      )}
+      {room.itemInHand && (
+        <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
+          {ui.drop}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SoloLabView({
+  room,
+  lang,
+  feedback,
+  onAction,
+}: {
+  room: PublicRoom
+  lang: Lang
+  feedback: string | null
+  onAction: (action: string, data?: Record<string, unknown>) => void
+}) {
+  const ui = t(lang)
+  const canDeliver = Boolean(
+    room.itemInHand && room.patients.some((p) => p.requiredVaccine === room.itemInHand),
+  )
+
+  return (
+    <div className="solo-lab">
+      <p className="coach-line">{ui.coachSolo}</p>
+      <p className="flow-hint">{ui.soloFlow}</p>
+      <HandBar room={room} lang={lang} canDeliver={canDeliver} onAction={onAction} />
+      {feedback && <p className="feedback-banner">{feedback}</p>}
+
+      <div className="lab-pipeline">
+        <section
+          className="station-panel"
+          style={{ '--station-color': STATION_VISUALS.extractor.color } as CSSProperties}
+        >
+          <h3>{STATION_VISUALS.extractor.icon} {stationShort('extractor', lang)}</h3>
+          <div className="action-row big-buttons">
+            <button
+              type="button"
+              className="btn item-btn red"
+              onClick={() => onAction('extract', { element: 'red_rna' })}
+            >
+              {ITEM_VISUALS.red_rna.icon} {ui.extractRed}
+            </button>
+            <button
+              type="button"
+              className="btn item-btn blue"
+              onClick={() => onAction('extract', { element: 'blue_rna' })}
+            >
+              {ITEM_VISUALS.blue_rna.icon} {ui.extractBlue}
+            </button>
+          </div>
+        </section>
+
+        <div className="flow-connector">↓</div>
+
+        <section
+          className="station-panel"
+          style={{ '--station-color': STATION_VISUALS.synthesizer.color } as CSSProperties}
+        >
+          <h3>{STATION_VISUALS.synthesizer.icon} {stationShort('synthesizer', lang)}</h3>
+          {room.synthSlot && (
+            <p className="hint">
+              {ui.synthSlot}: <ItemBadge item={room.synthSlot} lang={lang} size="sm" />
+            </p>
+          )}
+          <button type="button" className="btn primary item-btn purple" onClick={() => onAction('synthesize')}>
+            ⚗ {ui.synthesize}
+          </button>
+        </section>
+
+        <div className="flow-connector">↓</div>
+
+        <section
+          className="station-panel"
+          style={{ '--station-color': STATION_VISUALS.incubator.color } as CSSProperties}
+        >
+          <h3>{STATION_VISUALS.incubator.icon} {stationShort('incubator', lang)}</h3>
+          <div className="action-row big-buttons">
+            <button type="button" className="btn item-btn hot" onClick={() => onAction('incubate', { mode: 'heat' })}>
+              🔥 {ui.heat}
+            </button>
+            <button type="button" className="btn item-btn cold" onClick={() => onAction('incubate', { mode: 'cool' })}>
+              ❄ {ui.cool}
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function MultiWorkstation({
   room,
   lang,
   playerId,
@@ -282,27 +420,15 @@ function Workstation({
   const canDeliver = Boolean(
     room.itemInHand && room.patients.some((p) => p.requiredVaccine === room.itemInHand),
   )
+  const pings = PING_BY_STATION[station]
 
   return (
     <div className="workstation" style={{ '--station-color': sv.color } as CSSProperties}>
       <h2>
         <span className="station-icon">{sv.icon}</span> {stationShort(station, lang)}
       </h2>
-      <p className="coach-line">{room.mode === 'solo' ? ui.coachSolo : ui.coachMulti}</p>
-
-      <div className="hand-display">
-        {ui.inHand}:{' '}
-        {room.itemInHand ? (
-          <ItemBadge item={room.itemInHand} lang={lang} size="md" />
-        ) : (
-          <strong>{ui.emptyHand}</strong>
-        )}
-      </div>
-
-      {room.itemInHand && !canDeliver && room.patients.length > 0 && (
-        <p className="hint">{ui.wrongVaccine}</p>
-      )}
-
+      <p className="coach-line">{ui.coachMulti}</p>
+      <HandBar room={room} lang={lang} canDeliver={canDeliver} onAction={onAction} />
       {feedback && <p className="feedback-banner">{feedback}</p>}
 
       {station === 'extractor' && (
@@ -348,26 +474,7 @@ function Workstation({
         </div>
       )}
 
-      {canDeliver && (
-        <div className="action-col">
-          <button type="button" className="btn deliver-btn pulse" onClick={() => onAction('deliver')}>
-            ✓ {ui.deliver}
-          </button>
-          <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
-            {ui.drop}
-          </button>
-        </div>
-      )}
-
-      {room.itemInHand && !canDeliver && (
-        <div className="action-col">
-          <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
-            {ui.drop}
-          </button>
-        </div>
-      )}
-
-      {room.mode === 'multi' && room.itemInHand && others.length > 0 && (
+      {room.itemInHand && others.length > 0 && (
         <div className="send-row">
           <p className="hint">{ui.sendTo}:</p>
           {others.map((p) => (
@@ -383,47 +490,46 @@ function Workstation({
         </div>
       )}
 
-      {room.mode === 'multi' && (
-        <div className="ping-row">
-          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_red' })}>
-            {ui.pingNeedRed}
+      <div className="ping-row">
+        {pings.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            className={`btn ping${kind === 'need_deliver' ? ' urgent' : ''}`}
+            onClick={() => onAction('ping', { kind })}
+          >
+            {ui[PING_UI[kind]]}
           </button>
-          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_blue' })}>
-            {ui.pingNeedBlue}
-          </button>
-          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_mix' })}>
-            {ui.pingNeedMix}
-          </button>
-          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_heat' })}>
-            {ui.pingNeedHeat}
-          </button>
-          <button type="button" className="btn ping" onClick={() => onAction('ping', { kind: 'need_cool' })}>
-            {ui.pingNeedCool}
-          </button>
-          <button type="button" className="btn ping urgent" onClick={() => onAction('ping', { kind: 'need_deliver' })}>
-            {ui.pingDeliver}
-          </button>
-        </div>
-      )}
-
-      {room.mode === 'solo' && (
-        <div className="station-tabs">
-          {STATIONS.map((s) => {
-            const st = STATION_VISUALS[s]
-            return (
-              <button
-                key={s}
-                type="button"
-                className={`btn tab${room.yourActiveStation === s ? ' active' : ''}`}
-                onClick={() => onAction('switch_station', { station: s })}
-              >
-                {st.icon} {stationShort(s, lang)}
-              </button>
-            )
-          })}
-        </div>
-      )}
+        ))}
+      </div>
     </div>
+  )
+}
+
+function Workstation({
+  room,
+  lang,
+  playerId,
+  feedback,
+  onAction,
+}: {
+  room: PublicRoom
+  lang: Lang
+  playerId: string
+  feedback: string | null
+  onAction: (action: string, data?: Record<string, unknown>) => void
+}) {
+  if (room.mode === 'solo') {
+    return <SoloLabView room={room} lang={lang} feedback={feedback} onAction={onAction} />
+  }
+  return (
+    <MultiWorkstation
+      room={room}
+      lang={lang}
+      playerId={playerId}
+      feedback={feedback}
+      onAction={onAction}
+    />
   )
 }
 

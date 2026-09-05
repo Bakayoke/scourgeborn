@@ -3135,3 +3135,67 @@ input:focus {
   animation: fadeIn 0.15s ease reverse;
   z-index: 200;
 }
+
+/* Solo: all stations on one screen */
+.solo-lab {
+  margin: 0.75rem 0;
+}
+
+.flow-hint {
+  text-align: center;
+  font-family: var(--font-stamp);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: var(--void-accent);
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.hand-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 2px solid var(--blight);
+  border-radius: var(--radius);
+  background: rgba(157, 124, 255, 0.1);
+}
+
+.hand-bar .hand-display {
+  flex: 1;
+  margin: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.lab-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.station-panel {
+  padding: 0.85rem;
+  border: 2px solid color-mix(in srgb, var(--station-color, var(--blight)) 45%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--station-color, var(--blight)) 8%, var(--panel));
+}
+
+.station-panel h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+  color: var(--station-color, var(--blight));
+  letter-spacing: 0.05em;
+}
+
+.flow-connector {
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0.15rem 0;
+}

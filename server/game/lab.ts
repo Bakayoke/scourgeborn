@@ -164,10 +164,10 @@ export function initLabGame(room: Room, playerIds: string[]) {
   room.lastTickAt = Date.now()
   room.lastSpawnAt = Date.now()
   room.lastEventSv = solo
-    ? 'Solo-läge: byt flik mellan Extraktor, Synthesizer och Inkubator.'
+    ? 'Alla stationer syns — scrolla och tryck direkt, ingen flikväxling!'
     : 'Nya patienter inkommer — skicka prover mellan stationerna!'
   room.lastEventEn = solo
-    ? 'Solo mode: switch tabs between Extractor, Synthesizer and Incubator.'
+    ? 'All stations visible — scroll and tap directly, no tab switching!'
     : 'New patients incoming — pass samples between stations!'
 }
 
@@ -190,6 +190,11 @@ function effectiveStation(room: Room, playerId: string): Station {
   const state = room.lab[playerId]
   if (!state) return 'extractor'
   return room.mode === 'solo' ? state.activeStation : state.assignedStation
+}
+
+function atStation(room: Room, playerId: string, station: Station): boolean {
+  if (room.mode === 'solo') return true
+  return effectiveStation(room, playerId) === station
 }
 
 function setEvent(room: Room, sv: string, en: string) {
@@ -307,7 +312,7 @@ export function extract(
 ): { error?: string } {
   const state = room.lab[playerId]
   if (!state || room.status !== 'playing') return { error: 'Ogiltigt' }
-  if (effectiveStation(room, playerId) !== 'extractor') {
+  if (!atStation(room, playerId, 'extractor')) {
     return { error: 'Du står inte vid extraktorn' }
   }
   if (state.itemInHand) return { error: 'Händerna är fulla — skicka eller leverera först' }
@@ -323,7 +328,7 @@ export function extract(
 export function synthesize(room: Room, playerId: string): { error?: string } {
   const state = room.lab[playerId]
   if (!state || room.status !== 'playing') return { error: 'Ogiltigt' }
-  if (effectiveStation(room, playerId) !== 'synthesizer') {
+  if (!atStation(room, playerId, 'synthesizer')) {
     return { error: 'Du står inte vid synthesizern' }
   }
   if (!state.itemInHand) return { error: 'Du har inget i handen' }
@@ -360,7 +365,7 @@ export function incubate(
 ): { error?: string } {
   const state = room.lab[playerId]
   if (!state || room.status !== 'playing') return { error: 'Ogiltigt' }
-  if (effectiveStation(room, playerId) !== 'incubator') {
+  if (!atStation(room, playerId, 'incubator')) {
     return { error: 'Du står inte vid inkubatorn' }
   }
   if (!state.itemInHand) return { error: 'Du har inget i handen' }
