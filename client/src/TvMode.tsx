@@ -182,6 +182,16 @@ export function TvLobbyView({
           <li key={step}>{step}</li>
         ))}
       </ol>
+
+      <div className="lab-tv-play-guide">
+        <h3>{ui.partyPlayTitle}</h3>
+        <ol className="lab-tv-play-steps">
+          {ui.partyPlaySteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className="lab-tv-goal">{ui.goalExplain}</p>
+      </div>
     </div>
   )
 }
@@ -209,6 +219,8 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
         </div>
       </header>
 
+      <p className="lab-tv-host-hint">{ui.tvHostHint}</p>
+
       <section className="lab-tv-patients">
         <h2>{ui.patients}</h2>
         {room.patients.length === 0 ? (
@@ -225,6 +237,7 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
                   style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
                 >
                   <ItemBadge item={p.requiredVaccine} lang={lang} size="lg" />
+                  <span className="patient-needs-label">{ui.patientNeeds}</span>
                   <RecipeStrip item={p.requiredVaccine} lang={lang} />
                   <div className="lab-tv-patient-timer">{p.timeRemaining}s</div>
                   <div className="bar">

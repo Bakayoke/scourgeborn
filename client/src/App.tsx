@@ -126,6 +126,27 @@ function ExtractButtons({
   )
 }
 
+function splashDuty(station: Station, lang: Lang) {
+  const ui = t(lang)
+  if (station === 'extractor') return ui.splashExtractor
+  if (station === 'synthesizer') return ui.splashSynthesizer
+  return ui.splashIncubator
+}
+
+function stationCoach(station: Station, lang: Lang) {
+  const ui = t(lang)
+  if (station === 'extractor') return ui.coachMultiExtractor
+  if (station === 'synthesizer') return ui.coachMultiSynthesizer
+  return ui.coachMultiIncubator
+}
+
+function stationHint(station: Station, lang: Lang) {
+  const ui = t(lang)
+  if (station === 'extractor') return ui.stationHintExtractor
+  if (station === 'synthesizer') return ui.stationHintSynthesizer
+  return ui.stationHintIncubator
+}
+
 function RecipeStrip({ item, lang }: { item: ItemId; lang: Lang }) {
   const steps = recipeSteps(item)
   return (
@@ -154,6 +175,7 @@ function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
           style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
         >
           <ItemBadge item={p.requiredVaccine} lang={lang} size="lg" />
+          <span className="patient-needs-label">{ui.patientNeeds}</span>
           <RecipeStrip item={p.requiredVaccine} lang={lang} />
           <span className="patient-timer">{p.timeRemaining}s</span>
           <div className="bar">
@@ -214,7 +236,7 @@ function StationSplash({
   const doneRef = useRef(onDone)
   doneRef.current = onDone
   useEffect(() => {
-    const timer = setTimeout(() => doneRef.current(), 3000)
+    const timer = setTimeout(() => doneRef.current(), 4500)
     return () => clearTimeout(timer)
   }, [])
   return (
@@ -222,6 +244,7 @@ function StationSplash({
       <p className="splash-you">{ui.youAre}</p>
       <p className="splash-icon">{v.icon}</p>
       <h2>{stationShort(station, lang)}</h2>
+      <p className="splash-duty">{splashDuty(station, lang)}</p>
       <p className="splash-yell">{ui.yellRole}</p>
     </div>
   )
@@ -293,6 +316,16 @@ function PartyLobbyPanel({
         {seated < room.minPlayersMulti && room.youAreHost && (
           <p className="hint">{ui.partyNeedMore}</p>
         )}
+      </div>
+
+      <div className="party-play-guide">
+        <h4>{ui.partyPlayTitle}</h4>
+        <ol className="party-play-steps">
+          {ui.partyPlaySteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className="hint goal-hint">{ui.goalExplain}</p>
       </div>
     </div>
   )
@@ -413,7 +446,7 @@ function GameOverScreen({
 const PING_BY_STATION: Record<Station, PingKind[]> = {
   extractor: ['need_deliver'],
   synthesizer: ['need_red', 'need_blue', 'need_deliver'],
-  incubator: ['need_mix', 'need_deliver'],
+  incubator: ['need_mix', 'need_heat', 'need_cool', 'need_deliver'],
 }
 
 const PING_UI: Record<PingKind, keyof ReturnType<typeof t>> = {
@@ -451,9 +484,12 @@ function HandBar({
         <p className="hint">{ui.wrongVaccine}</p>
       )}
       {canDeliver && (
-        <button type="button" className="btn deliver-btn pulse" onClick={() => onAction('deliver')}>
-          ✓ {ui.deliver}
-        </button>
+        <>
+          <p className="hint deliver-hint">{ui.deliverHint}</p>
+          <button type="button" className="btn deliver-btn pulse" onClick={() => onAction('deliver')}>
+            ✓ {ui.deliver}
+          </button>
+        </>
       )}
       {room.itemInHand && (
         <button type="button" className="btn ghost" onClick={() => onAction('drop')}>
@@ -484,6 +520,7 @@ function SoloLabView({
     <div className="solo-lab">
       <p className="coach-line">{ui.coachSolo}</p>
       <p className="flow-hint">{ui.soloFlow}</p>
+      <p className="hint goal-hint">{ui.goalExplain}</p>
       <HandBar room={room} lang={lang} canDeliver={canDeliver} onAction={onAction} />
       {feedback && <p className="feedback-banner">{feedback}</p>}
 
@@ -493,6 +530,7 @@ function SoloLabView({
           style={{ '--station-color': STATION_VISUALS.extractor.color } as CSSProperties}
         >
           <h3>{STATION_VISUALS.extractor.icon} {stationShort('extractor', lang)}</h3>
+          <p className="station-hint">{ui.stationHintExtractor}</p>
           <ExtractButtons lang={lang} onAction={onAction} />
         </section>
 
@@ -503,6 +541,7 @@ function SoloLabView({
           style={{ '--station-color': STATION_VISUALS.synthesizer.color } as CSSProperties}
         >
           <h3>{STATION_VISUALS.synthesizer.icon} {stationShort('synthesizer', lang)}</h3>
+          <p className="station-hint">{ui.synthHint}</p>
           {room.synthSlot && (
             <p className="hint">
               {ui.synthSlot}: <ItemBadge item={room.synthSlot} lang={lang} size="sm" />
@@ -520,6 +559,10 @@ function SoloLabView({
           style={{ '--station-color': STATION_VISUALS.incubator.color } as CSSProperties}
         >
           <h3>{STATION_VISUALS.incubator.icon} {stationShort('incubator', lang)}</h3>
+          <div className="incubator-hints">
+            <p className="hint">{ui.heatHint}</p>
+            <p className="hint">{ui.coolHint}</p>
+          </div>
           <div className="action-row big-buttons">
             <button type="button" className="btn item-btn hot" onClick={() => onAction('incubate', { mode: 'heat' })}>
               🔥 {ui.heat}
@@ -561,7 +604,8 @@ function MultiWorkstation({
       <h2>
         <span className="station-icon">{sv.icon}</span> {stationShort(station, lang)}
       </h2>
-      <p className="coach-line">{ui.coachMulti}</p>
+      <p className="coach-line">{stationCoach(station, lang)}</p>
+      <p className="station-hint">{stationHint(station, lang)}</p>
       <HandBar room={room} lang={lang} canDeliver={canDeliver} onAction={onAction} />
       {feedback && <p className="feedback-banner">{feedback}</p>}
 
@@ -569,6 +613,7 @@ function MultiWorkstation({
 
       {station === 'synthesizer' && (
         <div className="action-col">
+          <p className="hint">{ui.synthHint}</p>
           {room.synthSlot && (
             <p className="hint">
               {ui.synthSlot}: <ItemBadge item={room.synthSlot} lang={lang} size="sm" />
@@ -581,13 +626,17 @@ function MultiWorkstation({
       )}
 
       {station === 'incubator' && (
-        <div className="action-row big-buttons">
-          <button type="button" className="btn item-btn hot" onClick={() => onAction('incubate', { mode: 'heat' })}>
-            🔥 {ui.heat}
-          </button>
-          <button type="button" className="btn item-btn cold" onClick={() => onAction('incubate', { mode: 'cool' })}>
-            ❄ {ui.cool}
-          </button>
+        <div className="action-col">
+          <p className="hint">{ui.heatHint}</p>
+          <p className="hint">{ui.coolHint}</p>
+          <div className="action-row big-buttons">
+            <button type="button" className="btn item-btn hot" onClick={() => onAction('incubate', { mode: 'heat' })}>
+              🔥 {ui.heat}
+            </button>
+            <button type="button" className="btn item-btn cold" onClick={() => onAction('incubate', { mode: 'cool' })}>
+              ❄ {ui.cool}
+            </button>
+          </div>
         </div>
       )}
 
@@ -771,9 +820,9 @@ function GameView({
                 else setFeedback(null)
               }}
               startLabel={seated === 1 ? ui.startSolo : ui.startMulti}
-              showTutorial={room.canStartSolo && !tutorialDone}
+              showTutorial={!tutorialDone}
             />
-            {room.canStartSolo && !tutorialDone && (
+            {!tutorialDone && (
               <div className="lab-tv-tutorial">
                 <TutorialPanel
                   room={room}
@@ -831,7 +880,7 @@ function GameView({
             joinUrl={`${APP_ORIGIN}/?join=${room.code}`}
           />
 
-          {room.canStartSolo && !tutorialDone ? (
+          {!tutorialDone ? (
             <TutorialPanel
               room={room}
               lang={lang}

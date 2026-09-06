@@ -3012,6 +3012,104 @@ input:focus {
   font-size: 1.1rem;
 }
 
+.splash-duty {
+  max-width: 22rem;
+  text-align: center;
+  color: var(--ink);
+  margin: 0.75rem 1rem 0;
+  line-height: 1.45;
+  font-size: 0.95rem;
+}
+
+.patient-needs-label {
+  display: block;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-top: 0.25rem;
+}
+
+.station-hint {
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid var(--station-color, var(--blight));
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.party-play-guide {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.party-play-guide h4 {
+  margin: 0 0 0.5rem;
+  color: var(--blight);
+}
+
+.party-play-steps {
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+  line-height: 1.45;
+}
+
+.goal-hint {
+  color: var(--ink-dim);
+  font-size: 0.85rem;
+}
+
+.deliver-hint {
+  color: var(--void-accent);
+  font-weight: 600;
+  margin: 0.25rem 0;
+}
+
+.incubator-hints {
+  margin-bottom: 0.5rem;
+}
+
+.incubator-hints .hint {
+  margin: 0.15rem 0;
+  font-size: 0.85rem;
+}
+
+.lab-tv-host-hint {
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: 0.95rem;
+  margin: 0 0 0.75rem;
+  padding: 0 1rem;
+}
+
+.lab-tv-play-guide {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lab-tv-play-guide h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--blight);
+}
+
+.lab-tv-play-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
+.lab-tv-goal {
+  margin: 0.75rem 0 0;
+  color: var(--ink-dim);
+  font-size: 0.9rem;
+}
+
 .alert-overlay {
   position: fixed;
   top: 0;
