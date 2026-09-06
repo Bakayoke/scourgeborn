@@ -322,15 +322,6 @@ export function pingStation(
   return {}
 }
 
-export function switchStation(room: Room, playerId: string, station: Station): { error?: string } {
-  if (room.status !== 'playing') return { error: 'Spelet körs inte' }
-  if (room.mode !== 'solo') return { error: 'Bara solo kan byta station' }
-  const state = room.lab[playerId]
-  if (!state) return { error: 'Spelare saknas' }
-  state.activeStation = station
-  return {}
-}
-
 export function extract(
   room: Room,
   playerId: string,

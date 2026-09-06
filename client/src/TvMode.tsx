@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { JoinQr } from './qr'
 import { t } from './i18n'
-import { ITEM_VISUALS, itemShort, recipeSteps, STATION_VISUALS, stationShort } from './labVisuals'
+import { ITEM_VISUALS, itemShort, STATION_VISUALS, stationShort } from './labVisuals'
+import { RecipeStrip } from './RecipeStrip'
 import type { ItemId, Lang, PublicRoom, Station } from './types'
 
 function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size?: 'sm' | 'md' | 'lg' }) {
@@ -14,20 +15,6 @@ function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size
       <span className="item-icon">{v.icon}</span>
       <span className="item-short">{itemShort(item, lang)}</span>
     </span>
-  )
-}
-
-function RecipeStrip({ item, lang }: { item: ItemId; lang: Lang }) {
-  const steps = recipeSteps(item)
-  return (
-    <div className="recipe-strip">
-      {steps.map((s, i) => (
-        <span key={`${s}-${i}`} className="recipe-step">
-          {i > 0 && <span className="recipe-arrow">→</span>}
-          <ItemBadge item={s} lang={lang} size="sm" />
-        </span>
-      ))}
-    </div>
   )
 }
 

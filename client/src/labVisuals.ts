@@ -29,26 +29,59 @@ export const STATION_VISUALS: Record<
 
 export const EXTRACT_OPTIONS: ItemId[] = ['red_rna', 'blue_rna', 'green_rna', 'yellow_rna']
 
-/** Recipe steps to craft the final item (for patient cards). */
-export function recipeSteps(item: ItemId): ItemId[] {
+export type RecipeToken =
+  | { t: 'badge'; item: ItemId }
+  | { t: 'plus' }
+  | { t: 'arrow' }
+  | { t: 'mix' }
+  | { t: 'heat' }
+  | { t: 'cool' }
+
+/** Visual recipe tokens for patient cards (parallel inputs use +, not sequential →). */
+export function recipeTokens(item: ItemId): RecipeToken[] {
   switch (item) {
-    case 'red_rna':
-      return ['red_rna']
-    case 'blue_rna':
-      return ['blue_rna']
-    case 'green_rna':
-      return ['green_rna']
-    case 'yellow_rna':
-      return ['yellow_rna']
     case 'purple_rna':
-      return ['red_rna', 'blue_rna', 'purple_rna']
+      return [
+        { t: 'badge', item: 'red_rna' },
+        { t: 'plus' },
+        { t: 'badge', item: 'blue_rna' },
+        { t: 'arrow' },
+        { t: 'mix' },
+        { t: 'arrow' },
+        { t: 'badge', item: 'purple_rna' },
+      ]
     case 'heated_purple_rna':
-      return ['red_rna', 'blue_rna', 'purple_rna', 'heated_purple_rna']
+      return [
+        { t: 'badge', item: 'red_rna' },
+        { t: 'plus' },
+        { t: 'badge', item: 'blue_rna' },
+        { t: 'arrow' },
+        { t: 'mix' },
+        { t: 'arrow' },
+        { t: 'badge', item: 'purple_rna' },
+        { t: 'arrow' },
+        { t: 'heat' },
+        { t: 'arrow' },
+        { t: 'badge', item: 'heated_purple_rna' },
+      ]
     case 'cooled_blue_rna':
-      return ['blue_rna', 'cooled_blue_rna']
+      return [
+        { t: 'badge', item: 'blue_rna' },
+        { t: 'arrow' },
+        { t: 'cool' },
+        { t: 'arrow' },
+        { t: 'badge', item: 'cooled_blue_rna' },
+      ]
     default:
-      return [item]
+      return [{ t: 'badge', item }]
   }
+}
+
+/** @deprecated Use recipeTokens for patient-card display. */
+export function recipeSteps(item: ItemId): ItemId[] {
+  return recipeTokens(item)
+    .filter((t): t is { t: 'badge'; item: ItemId } => t.t === 'badge')
+    .map((t) => t.item)
 }
 
 export function itemShort(id: ItemId, lang: Lang) {
@@ -59,13 +92,4 @@ export function itemShort(id: ItemId, lang: Lang) {
 export function stationShort(station: Station, lang: Lang) {
   const v = STATION_VISUALS[station]
   return lang === 'en' ? v.shortEn : v.shortSv
-}
-
-export function stationForItem(item: ItemId): Station | null {
-  if (item === 'red_rna' || item === 'blue_rna' || item === 'green_rna' || item === 'yellow_rna') {
-    return 'extractor'
-  }
-  if (item === 'purple_rna') return 'synthesizer'
-  if (item === 'heated_purple_rna' || item === 'cooled_blue_rna') return 'incubator'
-  return null
 }

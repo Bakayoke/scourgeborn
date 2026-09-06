@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Scourgeborn — real-time ritual chaos with social deduction (Overcooked × Secret Hitler)",
+  "description": "Scourgeborn — real-time party lab game. Cure patients, craft vaccines, yell at your team.",
   "scripts": {
     "dev": "concurrently -n server,client -c coral,cyan \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch server/index.ts",

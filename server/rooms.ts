@@ -12,7 +12,6 @@ import {
   msg,
   pingStation,
   sendItem,
-  switchStation,
   synthesize,
   tickLab,
   waveLabel,
@@ -499,9 +498,6 @@ export function labAction(
       break
     case 'drop':
       result = dropItem(room, playerId)
-      break
-    case 'switch_station':
-      result = switchStation(room, playerId, String(payload.station ?? 'extractor') as Station)
       break
     case 'ping':
       result = pingStation(room, playerId, String(payload.kind ?? 'need_red') as PingKind)

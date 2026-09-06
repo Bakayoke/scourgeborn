@@ -19,11 +19,11 @@ import {
   EXTRACT_OPTIONS,
   ITEM_VISUALS,
   itemShort,
-  recipeSteps,
   STATION_VISUALS,
   stationShort,
 } from './labVisuals'
 import { JoinQr } from './qr'
+import { RecipeStrip } from './RecipeStrip'
 import { LabTvShell, TvGameView, TvLobbyView } from './TvMode'
 import { sfxCure, sfxMiss, sfxPing, sfxSend, sfxSpawn, sfxWave } from './sfx'
 import type { ItemId, Lang, PingKind, PublicRoom, Station, TutorialStep } from './types'
@@ -145,20 +145,6 @@ function stationHint(station: Station, lang: Lang) {
   if (station === 'extractor') return ui.stationHintExtractor
   if (station === 'synthesizer') return ui.stationHintSynthesizer
   return ui.stationHintIncubator
-}
-
-function RecipeStrip({ item, lang }: { item: ItemId; lang: Lang }) {
-  const steps = recipeSteps(item)
-  return (
-    <div className="recipe-strip">
-      {steps.map((s, i) => (
-        <span key={`${s}-${i}`} className="recipe-step">
-          {i > 0 && <span className="recipe-arrow">→</span>}
-          <ItemBadge item={s} lang={lang} size="sm" />
-        </span>
-      ))}
-    </div>
-  )
 }
 
 function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
@@ -299,7 +285,10 @@ function PartyLobbyPanel({
           <p className="hint">{ui.partyScanHint}</p>
         </div>
       ) : (
-        <p className="party-guest-msg">{ui.partyGuestMsg}</p>
+        <>
+          <p className="party-guest-msg">{ui.partyGuestMsg}</p>
+          <p className="hint">{ui.shareHint}</p>
+        </>
       )}
 
       <div className="party-roster">

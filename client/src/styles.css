@@ -2914,12 +2914,32 @@ input:focus {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.15rem;
+  justify-content: center;
+  gap: 0.1rem;
   margin: 0.35rem 0;
 }
 
 .recipe-step { display: inline-flex; align-items: center; }
-.recipe-arrow { color: var(--ink-dim); margin: 0 0.15rem; font-size: 0.75rem; }
+.recipe-arrow { color: var(--ink-dim); margin: 0 0.1rem; font-size: 0.75rem; }
+.recipe-plus {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin: 0 0.05rem;
+}
+.recipe-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  margin: 0 0.05rem;
+}
+.recipe-mix { background: rgba(191, 95, 255, 0.25); }
+.recipe-heat { background: rgba(255, 69, 0, 0.25); }
+.recipe-cool { background: rgba(0, 191, 255, 0.25); }
 
 .patient-card {
   min-width: 10rem;
