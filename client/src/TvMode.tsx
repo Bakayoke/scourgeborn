@@ -123,6 +123,7 @@ export function TvLobbyView({
   onStart,
   startLabel,
   showTutorial,
+  canStart,
 }: {
   room: PublicRoom
   lang: Lang
@@ -131,6 +132,7 @@ export function TvLobbyView({
   onStart: () => void
   startLabel: string
   showTutorial: boolean
+  canStart: boolean
 }) {
   const ui = t(lang)
   const players = labRoster(room)
@@ -169,7 +171,12 @@ export function TvLobbyView({
               {seated < room.minPlayersMulti && (
                 <p className="lab-tv-wait-hint">{ui.partyNeedMore}</p>
               )}
-              <button type="button" className="btn primary lab-tv-start" onClick={onStart}>
+              <button
+                type="button"
+                className="btn primary lab-tv-start"
+                onClick={onStart}
+                disabled={!canStart}
+              >
                 {startLabel}
               </button>
             </>

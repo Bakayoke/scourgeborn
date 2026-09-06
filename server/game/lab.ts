@@ -11,7 +11,7 @@ import type {
 
 export const MAX_MISSES = 3
 export const TICK_MS = 1_000
-export const MIN_MULTI_PLAYERS = 2
+export const MIN_MULTI_PLAYERS = 4
 
 const STATIONS: Station[] = ['extractor', 'synthesizer', 'incubator']
 

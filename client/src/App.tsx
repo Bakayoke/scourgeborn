@@ -338,6 +338,7 @@ function TutorialPanel({
   onStep,
   onSkip,
   onStart,
+  seated,
 }: {
   room: PublicRoom
   lang: Lang
@@ -345,8 +346,11 @@ function TutorialPanel({
   onStep: (s: TutorialStep) => void
   onSkip: () => void
   onStart: () => void
+  seated: number
 }) {
   const ui = t(lang)
+  const canStartParty = seated >= room.minPlayersMulti
+  const canStart = room.canStartSolo || canStartParty
   const hints: Record<TutorialStep, string> = {
     extract_red: ui.tutorialExtract,
     send_or_switch: ui.tutorialSend,
@@ -378,9 +382,12 @@ function TutorialPanel({
         </button>
       )}
       {step === 'done' && room.youAreHost && (
-        <button type="button" className="btn primary" onClick={onStart}>
-          {room.canStartSolo ? ui.startSolo : ui.startMulti}
-        </button>
+        <>
+          {!canStart && <p className="hint">{ui.partyNeedMore}</p>}
+          <button type="button" className="btn primary" onClick={onStart} disabled={!canStart}>
+            {room.canStartSolo ? ui.startSolo : ui.startMulti}
+          </button>
+        </>
       )}
       {step === 'done' && !room.youAreHost && <p>{ui.waitingHost}</p>}
     </div>
@@ -742,6 +749,8 @@ function GameView({
 }) {
   const ui = t(lang)
   const seated = room.players.filter((p) => !p.spectator && p.connected).length
+  const canStartParty = seated >= room.minPlayersMulti
+  const canStart = room.canStartSolo || canStartParty
   const [feedback, setFeedback] = useState<string | null>(null)
   const [showSplash, setShowSplash] = useState(false)
   const [showWave, setShowWave] = useState<number | null>(null)
@@ -821,6 +830,7 @@ function GameView({
               }}
               startLabel={seated === 1 ? ui.startSolo : ui.startMulti}
               showTutorial={!tutorialDone}
+              canStart={canStart}
             />
             {!tutorialDone && (
               <div className="lab-tv-tutorial">
@@ -830,6 +840,7 @@ function GameView({
                   step={tutorialStep}
                   onStep={setTutorialStep}
                   onSkip={() => setTutorialDone(true)}
+                  seated={seated}
                   onStart={async () => {
                     const res = await startGame()
                     if (!res.ok) onError(res.error ?? ui.error)
@@ -887,6 +898,7 @@ function GameView({
               step={tutorialStep}
               onStep={setTutorialStep}
               onSkip={() => setTutorialDone(true)}
+              seated={seated}
               onStart={async () => {
                 const res = await startGame()
                 if (!res.ok) onError(res.error ?? ui.error)
@@ -894,17 +906,21 @@ function GameView({
               }}
             />
           ) : room.youAreHost ? (
-            <button
-              type="button"
-              className="btn primary party-start"
-              onClick={async () => {
-                const res = await startGame()
-                if (!res.ok) onError(res.error ?? ui.error)
-                else setFeedback(null)
-              }}
-            >
-              {seated === 1 ? ui.startSolo : ui.startMulti}
-            </button>
+            <>
+              {!canStart && <p className="hint">{ui.partyNeedMore}</p>}
+              <button
+                type="button"
+                className="btn primary party-start"
+                disabled={!canStart}
+                onClick={async () => {
+                  const res = await startGame()
+                  if (!res.ok) onError(res.error ?? ui.error)
+                  else setFeedback(null)
+                }}
+              >
+                {seated === 1 ? ui.startSolo : ui.startMulti}
+              </button>
+            </>
           ) : (
             <p>{ui.waitingHost}</p>
           )}

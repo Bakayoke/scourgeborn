@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { currentWave, waveConfig } from './game/lab.js'
+import { MIN_MULTI_PLAYERS, currentWave, waveConfig } from './game/lab.js'
 import { createRoom, joinRoom, labAction, onPhaseTimeout, roomsNeedingTick, startGame } from './rooms.js'
 import type { Room } from './types.js'
+
+function joinPlayers(code: string, names: string[]) {
+  const ids: string[] = []
+  for (let i = 0; i < names.length; i++) {
+    const res = joinRoom(code, names[i]!, `sock-${names[i]}-${i}`)
+    assert.ok(!('error' in res))
+    if ('error' in res) return ids
+    ids.push(res.playerId)
+  }
+  return ids
+}
 
 describe('lobby and lab start', () => {
   it('starts solo lab with host alone', () => {
@@ -16,14 +27,31 @@ describe('lobby and lab start', () => {
     assert.ok(started.gameStartedAt > 0)
   })
 
-  it('starts multi lab with two players', () => {
+  it('blocks party start until enough players', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-m1', 'sv')
     joinRoom(room.code, 'Ada', 'sock-m2')
+    const tooFew = startGame(room.code, hostId)
+    assert.ok('error' in tooFew)
+    joinPlayers(room.code, ['Bob', 'Cara'])
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started))
     if ('error' in started) return
     assert.equal(started.mode, 'multi')
     assert.equal(started.status, 'playing')
+    assert.equal(Object.keys(started.lab).length, MIN_MULTI_PLAYERS - 1)
+  })
+
+  it('assigns all three stations in party', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-stations', 'sv')
+    joinPlayers(room.code, ['Ada', 'Bob', 'Cara'])
+    const started = startGame(room.code, hostId)
+    assert.ok(!('error' in started))
+    if ('error' in started) return
+    const stations = new Set(Object.values(started.lab).map((s) => s.assignedStation))
+    assert.equal(stations.size, 3)
+    assert.ok(stations.has('extractor'))
+    assert.ok(stations.has('synthesizer'))
+    assert.ok(stations.has('incubator'))
   })
 
   it('extract and deliver vaccine in solo', () => {
@@ -43,16 +71,17 @@ describe('lobby and lab start', () => {
 
   it('ping reaches extractor player', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-ping', 'sv')
-    const p2 = joinRoom(room.code, 'Ada', 'sock-ping2')
-    const p3 = joinRoom(room.code, 'Bob', 'sock-ping3')
-    assert.ok(!('error' in p2))
-    assert.ok(!('error' in p3))
-    if ('error' in p2 || 'error' in p3) return
+    const guestIds = joinPlayers(room.code, ['Ada', 'Bob', 'Cara'])
+    assert.equal(guestIds.length, 3)
     startGame(room.code, hostId)
-    const ping = labAction(room.code, p3.playerId, 'ping', { kind: 'need_red' })
+    const extractorId = guestIds.find((id) => room.lab[id]?.assignedStation === 'extractor')
+    assert.ok(extractorId)
+    const pingerId = guestIds.find((id) => id !== extractorId)
+    assert.ok(pingerId)
+    const ping = labAction(room.code, pingerId!, 'ping', { kind: 'need_red' })
     assert.ok(!('error' in ping))
     if ('error' in ping) return
-    assert.ok(ping.alerts[p2.playerId])
+    assert.ok(ping.alerts[extractorId!])
   })
 })
 
@@ -69,7 +98,7 @@ describe('lab realtime ticks', () => {
 
   it('ends game after max misses', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-go', 'sv')
-    joinRoom(room.code, 'Ada', 'sock-go2')
+    joinPlayers(room.code, ['Ada', 'Bob', 'Cara'])
     startGame(room.code, hostId)
     room.patients = [
       { id: '1', requiredVaccine: 'red_rna', timeRemaining: 1, maxTime: 10 },

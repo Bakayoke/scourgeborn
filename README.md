@@ -1,21 +1,23 @@
 # Scourgeborn
 
-Real-time ritual chaos + social deduction — håll matrisen vid liv medan smittan väljer sina förrädare.
+Real-time party lab game — cure patients before the timer runs out.
 
 **Domän:** [scourgeborn.com](https://scourgeborn.com)
 
 ## Spel
 
-- **Solo:** Hantera alla ritualverktyg själv — överlev så länge som möjligt
-- **Multi:** Synka tidskritiska uppgifter på mobilen; efter ~2 min utses Scourgeborn
-- **Nödröstning:** Försegl misstänkt eller hoppa över
-- **Seger:** 5 cykler (multi) · **Förlust:** matrishälsa = 0
+- **Solo:** Alla stationer på en skärm — träna tempot själv
+- **Party:** TV/laptop visar patienter och lobby, tre spelare styr Extraktor, Synthesizer och Inkubator på mobil
+- **Mål:** Ge rätt vaccin till patienterna. Tre misslyckanden stänger labbet
+- **Crafting:** RÖD+BLÅ → LILA → värme/kyla. GRÖN/GUL levereras direkt
+
+Party kräver **4 spelare totalt** (värd + 3 på mobil) så att alla stationer bemannas.
 
 ## Stack
 
 - React + Vite (mobil-first klient)
 - Express + Socket.io (realtid, Redis adapter)
-- Redis HASH / SET / LIST per rum + pub/sub
+- Redis per rum + pub/sub
 - Railway (API) · Cloudflare (statisk frontend)
 
 ## Utveckling
@@ -25,4 +27,4 @@ npm install && npm install --prefix client
 npm run dev
 ```
 
-Socket-events: `create`, `join`, `startGame`, `ritualTool`, `acknowledgeAffliction`, `callCleansingRite`, `cleansingVote`
+Socket-events: `create`, `join`, `startGame`, `extract`, `synthesize`, `incubate`, `send`, `deliver`, `ping`
