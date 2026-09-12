@@ -16,6 +16,7 @@ import {
   synthesize,
   tickLab,
   waveLabel,
+  WIN_SCORE,
   type ExtractItemId,
 } from './game/lab.js'
 import { GAME_LIMITS } from './limits.js'
@@ -101,6 +102,13 @@ function emptyGameFields(): Pick<
   | 'wave'
   | 'alerts'
   | 'stats'
+  | 'eventLog'
+  | 'missLog'
+  | 'wave4StartedAt'
+  | 'yellSv'
+  | 'yellEn'
+  | 'yellAt'
+  | 'yellItemId'
 > {
   return {
     score: 0,
@@ -116,6 +124,13 @@ function emptyGameFields(): Pick<
     wave: 1,
     alerts: {},
     stats: {},
+    eventLog: [],
+    missLog: [],
+    wave4StartedAt: null,
+    yellSv: null,
+    yellEn: null,
+    yellAt: 0,
+    yellItemId: null,
   }
 }
 
@@ -124,8 +139,12 @@ export function allRooms() {
 }
 
 function normalizeStatus(raw: unknown): RoomStatus {
-  if (raw === 'playing' || raw === 'gameover') return raw
+  if (raw === 'playing' || raw === 'gameover' || raw === 'victory') return raw
   return 'lobby'
+}
+
+function isTerminal(status: RoomStatus) {
+  return status === 'gameover' || status === 'victory'
 }
 
 export function restoreRooms(list: Room[]) {
@@ -160,6 +179,13 @@ export function restoreRooms(list: Room[]) {
       wave: Number(raw.wave) || 1,
       alerts: (raw.alerts as Room['alerts']) ?? {},
       stats: (raw.stats as Room['stats']) ?? {},
+      eventLog: Array.isArray(raw.eventLog) ? raw.eventLog : [],
+      missLog: Array.isArray(raw.missLog) ? raw.missLog : [],
+      wave4StartedAt: raw.wave4StartedAt ?? null,
+      yellSv: raw.yellSv ?? null,
+      yellEn: raw.yellEn ?? null,
+      yellAt: Number(raw.yellAt) || 0,
+      yellItemId: raw.yellItemId ?? null,
     }
     rooms.set(room.code, room)
   }
@@ -244,7 +270,7 @@ function releaseSocket(socketId: string) {
   if (!player || !player.connected) return
   player.connected = false
   touch(room)
-  if (room.status === 'lobby' || room.status === 'gameover') {
+  if (room.status === 'lobby' || isTerminal(room.status)) {
     if (player.id !== room.hostId) {
       room.players = room.players.filter((p) => p.id !== player.id)
       touch(room)
@@ -367,7 +393,7 @@ export function handleDisconnect(socketId: string) {
           touch(rr)
           onBroadcast?.(rr.code)
         }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
-      } else if (r.status === 'lobby' || r.status === 'gameover') {
+      } else if (r.status === 'lobby' || isTerminal(r.status)) {
         r.players = r.players.filter((x) => x.id !== binding.playerId)
       }
       touch(r)
@@ -576,6 +602,7 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
       itemInHand: ls?.itemInHand ?? null,
       cures: st?.cures ?? 0,
       sends: st?.sends ?? 0,
+      pings: st?.pings ?? 0,
     }
   })
 
@@ -620,6 +647,24 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     alert: alertFresh ? (lang === 'en' ? viewerAlert!.messageEn : viewerAlert!.messageSv) : null,
     alertItemId: alertFresh ? (viewerAlert!.itemId ?? null) : null,
     stats: { ...room.stats },
+    eventLog: (room.eventLog ?? []).map((e) => ({
+      ...e,
+      sv: e.sv,
+      en: e.en,
+    })),
+    missLog: (room.missLog ?? []).map((m) => ({ ...m })),
+    gameDurationSec: room.gameStartedAt
+      ? Math.max(0, Math.floor((Date.now() - room.gameStartedAt) / 1000))
+      : 0,
+    winScoreTarget: WIN_SCORE,
+    yellMessage:
+      room.yellAt && Date.now() - room.yellAt < 5000
+        ? lang === 'en'
+          ? room.yellEn
+          : room.yellSv
+        : null,
+    yellItemId: room.yellAt && Date.now() - room.yellAt < 5000 ? room.yellItemId : null,
+    yellAt: room.yellAt ?? 0,
   }
 }
 

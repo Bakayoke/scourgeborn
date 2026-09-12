@@ -1,5 +1,19 @@
 export type Lang = 'sv' | 'en'
-export type RoomStatus = 'lobby' | 'playing' | 'gameover'
+export type RoomStatus = 'lobby' | 'playing' | 'gameover' | 'victory'
+
+export type LabLogEntry = {
+  at: number
+  kind: string
+  sv: string
+  en: string
+}
+
+export type MissLogEntry = {
+  at: number
+  vaccine: ItemId
+  sv: string
+  en: string
+}
 export type GameMode = 'solo' | 'multi'
 export type Station = 'extractor' | 'synthesizer' | 'incubator'
 export type PingKind = 'need_red' | 'need_blue' | 'need_mix' | 'need_heat' | 'need_cool' | 'need_deliver'
@@ -23,6 +37,7 @@ export type Patient = {
 export type PlayerStats = {
   cures: number
   sends: number
+  pings: number
 }
 
 export type Player = {
@@ -34,6 +49,7 @@ export type Player = {
   itemInHand?: ItemId | null
   cures?: number
   sends?: number
+  pings?: number
 }
 
 export type PublicRoom = {
@@ -67,6 +83,13 @@ export type PublicRoom = {
   alert: string | null
   alertItemId: ItemId | null
   stats: Record<string, PlayerStats>
+  eventLog: LabLogEntry[]
+  missLog: MissLogEntry[]
+  gameDurationSec: number
+  winScoreTarget: number
+  yellMessage: string | null
+  yellItemId: ItemId | null
+  yellAt: number
 }
 
 export type Session = {

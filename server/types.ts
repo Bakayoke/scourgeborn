@@ -19,7 +19,9 @@ export type RoomNotice = {
 
 export type GameMode = 'solo' | 'multi'
 
-export type RoomStatus = 'lobby' | 'playing' | 'gameover'
+export type RoomStatus = 'lobby' | 'playing' | 'gameover' | 'victory'
+
+export type LabLogKind = 'cure' | 'miss' | 'send' | 'ping' | 'drop' | 'wave' | 'spawn' | 'system' | 'victory'
 
 export type Station = 'extractor' | 'synthesizer' | 'incubator'
 
@@ -31,6 +33,20 @@ export type ItemId =
   | 'purple_rna'
   | 'heated_purple_rna'
   | 'cooled_blue_rna'
+
+export type LabLogEntry = {
+  at: number
+  kind: LabLogKind
+  sv: string
+  en: string
+}
+
+export type MissLogEntry = {
+  at: number
+  vaccine: ItemId
+  sv: string
+  en: string
+}
 
 export type PingKind = 'need_red' | 'need_blue' | 'need_mix' | 'need_heat' | 'need_cool' | 'need_deliver'
 
@@ -53,6 +69,7 @@ export type PlayerAlert = {
 export type PlayerStats = {
   cures: number
   sends: number
+  pings: number
 }
 
 export type LabPlayerState = {
@@ -85,6 +102,13 @@ export type Room = {
   wave: number
   alerts: Record<string, PlayerAlert | null>
   stats: Record<string, PlayerStats>
+  eventLog: LabLogEntry[]
+  missLog: MissLogEntry[]
+  wave4StartedAt: number | null
+  yellSv: string | null
+  yellEn: string | null
+  yellAt: number
+  yellItemId: ItemId | null
 }
 
 export type PublicLabPlayer = Player & {
@@ -92,6 +116,7 @@ export type PublicLabPlayer = Player & {
   itemInHand: ItemId | null
   cures: number
   sends: number
+  pings: number
 }
 
 export type PublicRoom = {
@@ -125,4 +150,11 @@ export type PublicRoom = {
   alert: string | null
   alertItemId: ItemId | null
   stats: Record<string, PlayerStats>
+  eventLog: LabLogEntry[]
+  missLog: MissLogEntry[]
+  gameDurationSec: number
+  winScoreTarget: number
+  yellMessage: string | null
+  yellItemId: ItemId | null
+  yellAt: number
 }

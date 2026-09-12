@@ -1,6 +1,7 @@
 import type {
   ItemId,
   Lang,
+  LabLogKind,
   LabPlayerState,
   Patient,
   PingKind,
@@ -13,6 +14,9 @@ export const MAX_MISSES = 3
 export const TICK_MS = 1_000
 export const MIN_MULTI_PLAYERS = 2
 export const FULL_STATION_LAB_PLAYERS = 3
+export const WIN_SCORE = 15
+export const WAVE4_SURVIVE_MS = 45_000
+const MAX_LOG = 25
 
 const STATIONS: Station[] = ['extractor', 'synthesizer', 'incubator']
 
@@ -172,7 +176,7 @@ export function waveConfig(wave: number) {
 function initStats(room: Room, playerIds: string[]) {
   room.stats = {}
   for (const id of playerIds) {
-    room.stats[id] = { cures: 0, sends: 0 }
+    room.stats[id] = { cures: 0, sends: 0, pings: 0 }
   }
 }
 
@@ -193,6 +197,13 @@ export function initLabGame(room: Room, playerIds: string[], partyMulti = false)
   initStats(room, playerIds)
   room.patients = [spawnPatient(room)]
   room.lab = assignStations(playerIds, solo)
+  room.eventLog = []
+  room.missLog = []
+  room.wave4StartedAt = null
+  room.yellSv = null
+  room.yellEn = null
+  room.yellAt = 0
+  room.yellItemId = null
   room.lastTickAt = Date.now()
   room.lastSpawnAt = Date.now()
   if (solo || compact) {
@@ -234,9 +245,68 @@ function atStation(room: Room, playerId: string, station: Station): boolean {
   return effectiveStation(room, playerId) === station
 }
 
-function setEvent(room: Room, sv: string, en: string) {
+function pushLog(room: Room, kind: LabLogKind, sv: string, en: string) {
+  if (!room.eventLog) room.eventLog = []
+  room.eventLog.push({ at: Date.now(), kind, sv, en })
+  if (room.eventLog.length > MAX_LOG) {
+    room.eventLog = room.eventLog.slice(-MAX_LOG)
+  }
+}
+
+function setEvent(room: Room, sv: string, en: string, kind: LabLogKind = 'system') {
   room.lastEventSv = sv
   room.lastEventEn = en
+  pushLog(room, kind, sv, en)
+}
+
+function setYell(room: Room, sv: string, en: string, itemId: ItemId | null = null) {
+  room.yellSv = sv
+  room.yellEn = en
+  room.yellAt = Date.now()
+  room.yellItemId = itemId
+}
+
+function describeMiss(room: Room, patient: Patient): { sv: string; en: string } {
+  const needSv = itemShort(patient.requiredVaccine, 'sv')
+  const needEn = itemShort(patient.requiredVaccine, 'en')
+  const handsSv: string[] = []
+  const handsEn: string[] = []
+  for (const [id, state] of Object.entries(room.lab)) {
+    if (!state.itemInHand) continue
+    const name = playerName(room, id)
+    handsSv.push(`${name}: ${itemShort(state.itemInHand, 'sv')}`)
+    handsEn.push(`${name}: ${itemShort(state.itemInHand, 'en')}`)
+  }
+  if (handsSv.length === 0) {
+    return {
+      sv: `Behövde ${needSv} — ingen hade rätt prov i handen`,
+      en: `Needed ${needEn} — nobody held the right sample`,
+    }
+  }
+  return {
+    sv: `Behövde ${needSv} — laget hade: ${handsSv.join(', ')}`,
+    en: `Needed ${needEn} — team held: ${handsEn.join(', ')}`,
+  }
+}
+
+function checkVictory(room: Room) {
+  if (room.status !== 'playing') return
+  const now = Date.now()
+  if (room.score >= WIN_SCORE) {
+    room.status = 'victory'
+    const sv = `Mål nått — ${WIN_SCORE} botade! Labbet räddat!`
+    const en = `Goal reached — ${WIN_SCORE} cured! Lab saved!`
+    setEvent(room, sv, en, 'victory')
+    setYell(room, sv, en)
+    return
+  }
+  if (room.wave4StartedAt && now - room.wave4StartedAt >= WAVE4_SURVIVE_MS) {
+    room.status = 'victory'
+    const sv = 'Överlevde våg 4 — labbet räddat!'
+    const en = 'Survived wave 4 — lab saved!'
+    setEvent(room, sv, en, 'victory')
+    setYell(room, sv, en)
+  }
 }
 
 function setAlert(room: Room, playerId: string, alert: PlayerAlert) {
@@ -244,8 +314,8 @@ function setAlert(room: Room, playerId: string, alert: PlayerAlert) {
   room.alerts[playerId] = alert
 }
 
-function bumpStat(room: Room, playerId: string, field: 'cures' | 'sends') {
-  if (!room.stats[playerId]) room.stats[playerId] = { cures: 0, sends: 0 }
+function bumpStat(room: Room, playerId: string, field: 'cures' | 'sends' | 'pings') {
+  if (!room.stats[playerId]) room.stats[playerId] = { cures: 0, sends: 0, pings: 0 }
   room.stats[playerId][field] += 1
 }
 
@@ -329,7 +399,9 @@ export function pingStation(
     return { error: 'Ingen på rätt station är online' }
   }
 
-  setEvent(room, msgPair.sv, msgPair.en)
+  bumpStat(room, fromId, 'pings')
+  setEvent(room, msgPair.sv, msgPair.en, 'ping')
+  setYell(room, msgPair.sv, msgPair.en)
   return {}
 }
 
@@ -440,7 +512,10 @@ export function sendItem(
     itemId: item,
     at: Date.now(),
   })
-  setEvent(room, `${fromName} skickade ${shortSv}!`, `${fromName} sent ${shortEn}!`)
+  const sendSv = `${fromName} skickar ${shortSv}!`
+  const sendEn = `${fromName} sends ${shortEn}!`
+  setEvent(room, sendSv, sendEn, 'send')
+  setYell(room, sendSv, sendEn, item)
   return {}
 }
 
@@ -458,14 +533,24 @@ export function deliverVaccine(room: Room, playerId: string): { error?: string }
   state.itemInHand = null
   room.score += 1
   bumpStat(room, playerId, 'cures')
-  setEvent(room, `Patient botad! (+1 poäng)`, `Patient cured! (+1 score)`)
+  const name = playerName(room, playerId)
+  setEvent(room, `${name} botade en patient! (+1)`, `${name} cured a patient! (+1)`, 'cure')
+  checkVictory(room)
   return {}
 }
 
 export function dropItem(room: Room, playerId: string): { error?: string } {
   const state = room.lab[playerId]
   if (!state?.itemInHand) return { error: 'Inget att släppa' }
+  const item = state.itemInHand
   state.itemInHand = null
+  const name = playerName(room, playerId)
+  setEvent(
+    room,
+    `${name} slängde ${itemShort(item, 'sv')}`,
+    `${name} dropped ${itemShort(item, 'en')}`,
+    'drop',
+  )
   return {}
 }
 
@@ -474,7 +559,15 @@ function maybeAdvanceWave(room: Room) {
   if (wave > room.wave) {
     room.wave = wave
     const labels = WAVE_LABELS[wave]!
-    setEvent(room, labels.sv, labels.en)
+    setEvent(room, labels.sv, labels.en, 'wave')
+    if (wave >= 4 && !room.wave4StartedAt) {
+      room.wave4StartedAt = Date.now()
+      setYell(
+        room,
+        'VÅG 4 — håll ut 45 sekunder för seger!',
+        'WAVE 4 — survive 45 seconds to win!',
+      )
+    }
   }
 }
 
@@ -496,18 +589,34 @@ export function tickLab(room: Room) {
 
   if (expired.length > 0) {
     room.patients = room.patients.filter((p) => p.timeRemaining > 0)
+    if (!room.missLog) room.missLog = []
+    for (const patient of expired) {
+      const attr = describeMiss(room, patient)
+      room.missLog.push({
+        at: now,
+        vaccine: patient.requiredVaccine,
+        sv: attr.sv,
+        en: attr.en,
+      })
+      pushLog(room, 'miss', attr.sv, attr.en)
+      setYell(room, attr.sv, attr.en, patient.requiredVaccine)
+    }
     room.misses += expired.length
     setEvent(
       room,
       `${expired.length} patient(er) försämrades — misslyckande!`,
       `${expired.length} patient(s) deteriorated — missed!`,
+      'miss',
     )
     if (room.misses >= MAX_MISSES) {
       room.status = 'gameover'
-      setEvent(room, 'För många misslyckanden — labbet stängs.', 'Too many failures — lab shut down.')
+      setEvent(room, 'För många misslyckanden — labbet stängs.', 'Too many failures — lab shut down.', 'system')
       return
     }
   }
+
+  checkVictory(room)
+  if (room.status !== 'playing') return
 
   if (room.patients.length < cfg.maxPatients && now - room.lastSpawnAt >= cfg.spawnMs) {
     const newPatient = spawnPatient(room)
@@ -518,7 +627,7 @@ export function tickLab(room: Room) {
       room.patients.push(newPatient)
     }
     room.lastSpawnAt = now
-    setEvent(room, 'Ny patient inkommen!', 'New patient arrived!')
+    setEvent(room, 'Ny patient inkommen!', 'New patient arrived!', 'spawn')
   }
 }
 

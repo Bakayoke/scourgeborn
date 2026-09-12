@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { CopyJoinButton } from './CopyJoinButton'
 import { JoinQr } from './qr'
 import { t } from './i18n'
 import { ITEM_VISUALS, itemShort, STATION_VISUALS, stationShort } from './labVisuals'
@@ -59,11 +60,13 @@ function useTvFullscreen() {
 export function LabTvShell({
   lang,
   urgent,
+  juiceClass = '',
   onLeave,
   children,
 }: {
   lang: Lang
   urgent: boolean
+  juiceClass?: string
   onLeave: () => void
   children: ReactNode
 }) {
@@ -73,7 +76,7 @@ export function LabTvShell({
   return (
     <main
       ref={rootRef}
-      className={`lab-tv${urgent ? ' screen-urgent' : ''}${fullscreen ? ' is-fullscreen' : ''}`}
+      className={`lab-tv${urgent ? ' screen-urgent' : ''}${juiceClass}${fullscreen ? ' is-fullscreen' : ''}`}
     >
       {!fullscreen && (
         <div className="lab-tv-fs-overlay">
@@ -136,6 +139,7 @@ export function TvLobbyView({
           <div className="lab-tv-code">{room.code}</div>
           <JoinQr url={joinUrl} size={280} alt="join" />
           <p className="lab-tv-url">{joinUrl}</p>
+          <CopyJoinButton url={joinUrl} lang={lang} />
         </div>
 
         <aside className="lab-tv-lobby-side">
@@ -190,6 +194,16 @@ export function TvLobbyView({
   )
 }
 
+function TvYellBoard({ room, lang }: { room: PublicRoom; lang: Lang }) {
+  if (!room.yellMessage) return null
+  return (
+    <div className="lab-tv-yell flash-in" key={room.yellAt}>
+      {room.yellItemId && <ItemBadge item={room.yellItemId} lang={lang} size="lg" />}
+      <p>{room.yellMessage}</p>
+    </div>
+  )
+}
+
 export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
   const ui = t(lang)
   const players = activeLabPlayers(room)
@@ -202,7 +216,9 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
         <div className="lab-tv-head-stats">
           <div className="lab-tv-stat">
             <span>{ui.score}</span>
-            <strong>{room.score}</strong>
+            <strong>
+              {room.score}/{room.winScoreTarget}
+            </strong>
           </div>
           <div className="lab-tv-stat danger">
             <span>{ui.misses}</span>
@@ -213,6 +229,8 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
         </div>
       </header>
 
+      <TvYellBoard room={room} lang={lang} />
+      <p className="lab-tv-win-hint">{ui.winHint}</p>
       <p className="lab-tv-host-hint">{ui.tvHostHint}</p>
 
       <section className="lab-tv-patients">

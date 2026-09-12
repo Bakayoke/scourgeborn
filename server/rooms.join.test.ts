@@ -68,6 +68,19 @@ describe('lobby and lab start', () => {
     assert.equal(del.score, 1)
   })
 
+  it('wins when score target is reached', () => {
+    const { room, playerId } = createRoom('Host', 'sock-win', 'sv')
+    startGame(room.code, playerId)
+    room.score = 14
+    room.patients = [{ id: 'p1', requiredVaccine: 'red_rna', timeRemaining: 60, maxTime: 60 }]
+    labAction(room.code, playerId, 'extract', { element: 'red_rna' })
+    const del = labAction(room.code, playerId, 'deliver', {})
+    assert.ok(!('error' in del))
+    if ('error' in del) return
+    assert.equal(del.status, 'victory')
+    assert.equal(del.score, 15)
+  })
+
   it('compact party can synthesize and deliver purple', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-compact', 'sv')
     const guest = joinRoom(room.code, 'Ada', 'sock-compact-g')

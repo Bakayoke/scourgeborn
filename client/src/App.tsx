@@ -22,6 +22,7 @@ import {
   STATION_VISUALS,
   stationShort,
 } from './labVisuals'
+import { CopyJoinButton } from './CopyJoinButton'
 import { JoinQr } from './qr'
 import { RecipeStrip } from './RecipeStrip'
 import { LabTvShell, TvGameView, TvLobbyView } from './TvMode'
@@ -289,6 +290,7 @@ function PartyLobbyPanel({
           <div className="room-code-big">{room.code}</div>
           <p className="join-url">{joinUrl}</p>
           <JoinQr url={joinUrl} size={200} alt="join" />
+          <CopyJoinButton url={joinUrl} lang={lang} />
           <p className="hint">{ui.partyScanHint}</p>
         </div>
       ) : (
@@ -390,7 +392,30 @@ function TutorialPanel({
   )
 }
 
-function GameOverScreen({
+function formatDuration(sec: number) {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`
+}
+
+function mvpBadges(players: PublicRoom['players'], ui: ReturnType<typeof t>) {
+  const active = players.filter((p) => !p.spectator)
+  if (active.length === 0) return new Map<string, string[]>()
+  const maxCures = Math.max(...active.map((p) => p.cures ?? 0))
+  const maxSends = Math.max(...active.map((p) => p.sends ?? 0))
+  const maxPings = Math.max(...active.map((p) => p.pings ?? 0))
+  const badges = new Map<string, string[]>()
+  for (const p of active) {
+    const tags: string[] = []
+    if ((p.cures ?? 0) === maxCures && maxCures > 0) tags.push(ui.mvpCures)
+    if ((p.sends ?? 0) === maxSends && maxSends > 0) tags.push(ui.mvpSends)
+    if ((p.pings ?? 0) === maxPings && maxPings > 0) tags.push(ui.mvpPings)
+    if (tags.length) badges.set(p.id, tags)
+  }
+  return badges
+}
+
+function FinaleScreen({
   room,
   lang,
   onLeave,
@@ -404,43 +429,102 @@ function GameOverScreen({
   onError: (m: string | null) => void
 }) {
   const ui = t(lang)
+  const victory = room.status === 'victory'
   const sorted = [...room.players]
     .filter((p) => !p.spectator)
     .sort((a, b) => (b.cures ?? 0) - (a.cures ?? 0) || (b.sends ?? 0) - (a.sends ?? 0))
+  const badges = mvpBadges(room.players, ui)
+  const log = [...room.eventLog].slice(-8).reverse()
+  const misses = [...room.missLog].slice(-3).reverse()
 
   return (
-    <div className="finale loss shake-in">
-      <h2>{ui.gameOver}</h2>
-      <p className="finale-score">
-        {ui.score}: <strong>{room.score}</strong> · {ui.misses}: {room.misses}/{room.maxMisses}
-      </p>
-      <section className="highlights">
-        <h3>{ui.highlights}</h3>
-        <ul>
-          {sorted.map((p) => (
-            <li key={p.id}>
-              <strong>{p.name}</strong> — {p.cures ?? 0} {ui.cures}, {p.sends ?? 0} {ui.sends}
-            </li>
-          ))}
-        </ul>
-      </section>
-      <div className="finale-actions">
-        <button type="button" className="btn" onClick={onLeave}>
-          {ui.leave}
-        </button>
-        {room.youAreHost && (
-          <button
-            type="button"
-            className="btn primary"
-            onClick={async () => {
-              const res = await backToLobby()
-              if (!res.ok) onError(res.error ?? ui.error)
-              else onBack()
-            }}
-          >
-            {ui.backToLobby}
-          </button>
+    <div className={`finale-card-wrap ${victory ? 'victory' : 'loss'} shake-in`}>
+      <div className={`finale-card ${victory ? 'win' : 'loss'}`}>
+        <p className="finale-kicker">{room.code}</p>
+        <h2>{victory ? ui.victoryTitle : ui.gameOver}</h2>
+        {victory && <p className="finale-sub">{ui.victorySub}</p>}
+
+        <div className="finale-stats">
+          <div>
+            <span>{ui.score}</span>
+            <strong>{room.score}</strong>
+          </div>
+          <div>
+            <span>{ui.finaleDuration}</span>
+            <strong>{formatDuration(room.gameDurationSec)}</strong>
+          </div>
+          <div>
+            <span>{ui.finaleWave}</span>
+            <strong>{room.wave}</strong>
+          </div>
+          <div>
+            <span>{ui.misses}</span>
+            <strong>
+              {room.misses}/{room.maxMisses}
+            </strong>
+          </div>
+        </div>
+
+        <section className="highlights">
+          <h3>{ui.highlights}</h3>
+          <ul>
+            {sorted.map((p) => (
+              <li key={p.id}>
+                <strong>{p.name}</strong>
+                {(badges.get(p.id) ?? []).length > 0 && (
+                  <span className="mvp-tags"> {(badges.get(p.id) ?? []).join(' · ')}</span>
+                )}
+                <span className="finale-player-stats">
+                  {' '}
+                  — {p.cures ?? 0} {ui.cures}, {p.sends ?? 0} {ui.sends}, {p.pings ?? 0} pings
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {misses.length > 0 && (
+          <section className="finale-log">
+            <h3>{ui.missLog}</h3>
+            <ul>
+              {misses.map((m, i) => (
+                <li key={`${m.at}-${i}`}>{lang === 'en' ? m.en : m.sv}</li>
+              ))}
+            </ul>
+          </section>
         )}
+
+        {log.length > 0 && (
+          <section className="finale-log">
+            <h3>{ui.labLog}</h3>
+            <ul>
+              {log.map((e, i) => (
+                <li key={`${e.at}-${i}`}>{lang === 'en' ? e.en : e.sv}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <div className="finale-actions">
+          <button type="button" className="btn" onClick={onLeave}>
+            {ui.leave}
+          </button>
+          {room.youAreHost ? (
+            <button
+              type="button"
+              className="btn primary"
+              onClick={async () => {
+                const res = await backToLobby()
+                if (!res.ok) onError(res.error ?? ui.error)
+                else onBack()
+              }}
+            >
+              {ui.backToLobby}
+            </button>
+          ) : (
+            <p className="hint">{ui.waitingHost}</p>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -706,18 +790,38 @@ function useGameFx(room: PublicRoom | null) {
   const prev = useRef<{ score: number; misses: number; patients: number; wave: number; alert: string | null } | null>(
     null,
   )
+  const [juiceClass, setJuiceClass] = useState('')
 
   useEffect(() => {
     if (!room || room.status !== 'playing') return
     const p = prev.current
     if (p) {
-      if (room.score > p.score) sfxCure()
-      if (room.misses > p.misses) sfxMiss()
+      if (room.score > p.score) {
+        sfxCure()
+        setJuiceClass(' screen-flash-cure')
+        setTimeout(() => setJuiceClass(''), 200)
+      }
+      if (room.misses > p.misses) {
+        sfxMiss()
+        setJuiceClass(' screen-shake-miss')
+        setTimeout(() => setJuiceClass(''), 400)
+        try {
+          navigator.vibrate?.([80, 40, 80])
+        } catch {
+          /* ignore */
+        }
+      }
       if (room.patients.length > p.patients) sfxSpawn()
       if (room.wave > p.wave) sfxWave()
       if (room.alert && room.alert !== p.alert) {
-        if (room.alert.includes('!')) sfxPing()
-        else sfxSend()
+        if (room.alert.includes('!')) {
+          sfxPing()
+          try {
+            navigator.vibrate?.([40, 20, 40])
+          } catch {
+            /* ignore */
+          }
+        } else sfxSend()
       }
     }
     prev.current = {
@@ -728,6 +832,8 @@ function useGameFx(room: PublicRoom | null) {
       alert: room.alert,
     }
   }, [room])
+
+  return juiceClass
 }
 
 function GameView({
@@ -754,8 +860,6 @@ function GameView({
   const [tutorialDone, setTutorialDone] = useState(false)
   const prevStatus = useRef(room.status)
   const prevWave = useRef(room.wave)
-
-  useGameFx(room)
 
   useEffect(() => {
     if (
@@ -795,9 +899,9 @@ function GameView({
 
   const isPartyTv = room.youAreHost && room.mode === 'multi' && (room.status === 'lobby' || room.youAreTvHost)
 
-  if (room.status === 'gameover') {
+  if (room.status === 'gameover' || room.status === 'victory') {
     return (
-      <GameOverScreen
+      <FinaleScreen
         room={room}
         lang={lang}
         onLeave={onLeave}
@@ -874,9 +978,12 @@ function GameView({
         <span className="code-stamp">{room.code}</span>
         <span className="wave-chip">{room.waveLabel}</span>
         <span>
-          {ui.score}: <strong>{room.score}</strong> · {ui.misses}: {room.misses}/{room.maxMisses}
+          {ui.score}: <strong>{room.score}/{room.winScoreTarget}</strong> · {ui.misses}:{' '}
+          {room.misses}/{room.maxMisses}
         </span>
       </header>
+
+      <p className="hint win-hint">{ui.winHint}</p>
 
       {room.status === 'lobby' ? (
         <div className="panel lobby-panel">
@@ -1022,6 +1129,8 @@ export default function App() {
     setScreen('game')
   }
 
+  const juiceClass = useGameFx(room && screen === 'game' ? room : null)
+
   if (room && screen === 'game' && playerId) {
     const screenUrgent =
       room.status === 'playing' && room.patients.some((p) => p.timeRemaining <= 10)
@@ -1034,7 +1143,7 @@ export default function App() {
 
     if (isPartyTv) {
       return (
-        <LabTvShell lang={lang} urgent={screenUrgent} onLeave={leaveGame}>
+        <LabTvShell lang={lang} urgent={screenUrgent} juiceClass={juiceClass} onLeave={leaveGame}>
           {error && <p className="error-banner lab-tv-error">{error}</p>}
           {game}
         </LabTvShell>
@@ -1042,7 +1151,7 @@ export default function App() {
     }
 
     return (
-      <main className={`app lab-app${screenUrgent ? ' screen-urgent' : ''}`}>
+      <main className={`app lab-app${screenUrgent ? ' screen-urgent' : ''}${juiceClass}`}>
         {error && <p className="error-banner">{error}</p>}
         {game}
         <p className={`conn ${conn}`}>{conn === 'connected' ? ui.connected : ui.connecting}</p>
