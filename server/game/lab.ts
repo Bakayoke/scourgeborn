@@ -11,7 +11,8 @@ import type {
 
 export const MAX_MISSES = 3
 export const TICK_MS = 1_000
-export const MIN_MULTI_PLAYERS = 4
+export const MIN_MULTI_PLAYERS = 2
+export const FULL_STATION_LAB_PLAYERS = 3
 
 const STATIONS: Station[] = ['extractor', 'synthesizer', 'incubator']
 
@@ -175,8 +176,13 @@ function initStats(room: Room, playerIds: string[]) {
   }
 }
 
+export function isCompactLab(room: Room): boolean {
+  return room.mode === 'multi' && Object.keys(room.lab).length < FULL_STATION_LAB_PLAYERS
+}
+
 export function initLabGame(room: Room, playerIds: string[], partyMulti = false) {
   const solo = !partyMulti && playerIds.length === 1
+  const compact = partyMulti && playerIds.length < FULL_STATION_LAB_PLAYERS
   room.mode = solo ? 'solo' : 'multi'
   room.status = 'playing'
   room.score = 0
@@ -189,12 +195,17 @@ export function initLabGame(room: Room, playerIds: string[], partyMulti = false)
   room.lab = assignStations(playerIds, solo)
   room.lastTickAt = Date.now()
   room.lastSpawnAt = Date.now()
-  room.lastEventSv = solo
-    ? 'Alla stationer syns — scrolla och tryck direkt, ingen flikväxling!'
-    : 'Nya patienter inkommer — skicka prover mellan stationerna!'
-  room.lastEventEn = solo
-    ? 'All stations visible — scroll and tap directly, no tab switching!'
-    : 'New patients incoming — pass samples between stations!'
+  if (solo || compact) {
+    room.lastEventSv = solo
+      ? 'Alla stationer syns — scrolla och tryck direkt, ingen flikväxling!'
+      : 'Få spelare — alla stationer på mobilen. Skicka prover om ni är flera!'
+    room.lastEventEn = solo
+      ? 'All stations visible — scroll and tap directly, no tab switching!'
+      : 'Short-handed — all stations on your phone. Pass samples if you are several!'
+  } else {
+    room.lastEventSv = 'Nya patienter inkommer — skicka prover mellan stationerna!'
+    room.lastEventEn = 'New patients incoming — pass samples between stations!'
+  }
 }
 
 export function spawnPatient(room: Room, forceItem?: ItemId): Patient {
@@ -219,7 +230,7 @@ function effectiveStation(room: Room, playerId: string): Station {
 }
 
 function atStation(room: Room, playerId: string, station: Station): boolean {
-  if (room.mode === 'solo') return true
+  if (room.mode === 'solo' || isCompactLab(room)) return true
   return effectiveStation(room, playerId) === station
 }
 

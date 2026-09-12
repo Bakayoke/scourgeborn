@@ -688,7 +688,7 @@ function Workstation({
   feedback: string | null
   onAction: (action: string, data?: Record<string, unknown>) => void
 }) {
-  if (room.mode === 'solo') {
+  if (room.mode === 'solo' || room.compactLab) {
     return <SoloLabView room={room} lang={lang} feedback={feedback} onAction={onAction} />
   }
   return (

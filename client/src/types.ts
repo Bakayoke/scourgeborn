@@ -61,6 +61,7 @@ export type PublicRoom = {
   youAreTvHost: boolean
   canStartSolo: boolean
   minPlayersMulti: number
+  compactLab: boolean
   wave: number
   waveLabel: string
   alert: string | null

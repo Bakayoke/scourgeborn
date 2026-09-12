@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { MIN_MULTI_PLAYERS, currentWave, waveConfig } from './game/lab.js'
+import { currentWave, isCompactLab, waveConfig } from './game/lab.js'
 import { createRoom, joinRoom, labAction, onPhaseTimeout, roomsNeedingTick, startGame } from './rooms.js'
 import type { Room } from './types.js'
 
@@ -27,26 +27,25 @@ describe('lobby and lab start', () => {
     assert.ok(started.gameStartedAt > 0)
   })
 
-  it('blocks party start until enough players', () => {
-    const { room, playerId: hostId } = createRoom('Host', 'sock-m1', 'sv')
-    joinRoom(room.code, 'Ada', 'sock-m2')
-    const tooFew = startGame(room.code, hostId)
-    assert.ok('error' in tooFew)
-    joinPlayers(room.code, ['Bob', 'Cara'])
+  it('starts compact party with two players', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-m2', 'sv')
+    joinRoom(room.code, 'Ada', 'sock-m2g')
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started))
     if ('error' in started) return
     assert.equal(started.mode, 'multi')
     assert.equal(started.status, 'playing')
-    assert.equal(Object.keys(started.lab).length, MIN_MULTI_PLAYERS - 1)
+    assert.equal(Object.keys(started.lab).length, 1)
+    assert.ok(isCompactLab(started))
   })
 
-  it('assigns all three stations in party', () => {
+  it('assigns all three stations in full party', () => {
     const { room, playerId: hostId } = createRoom('Host', 'sock-stations', 'sv')
     joinPlayers(room.code, ['Ada', 'Bob', 'Cara'])
     const started = startGame(room.code, hostId)
     assert.ok(!('error' in started))
     if ('error' in started) return
+    assert.ok(!isCompactLab(started))
     const stations = new Set(Object.values(started.lab).map((s) => s.assignedStation))
     assert.equal(stations.size, 3)
     assert.ok(stations.has('extractor'))
@@ -64,6 +63,27 @@ describe('lobby and lab start', () => {
     if ('error' in ex) return
 
     const del = labAction(room.code, playerId, 'deliver', {})
+    assert.ok(!('error' in del))
+    if ('error' in del) return
+    assert.equal(del.score, 1)
+  })
+
+  it('compact party can synthesize and deliver purple', () => {
+    const { room, playerId: hostId } = createRoom('Host', 'sock-compact', 'sv')
+    const guest = joinRoom(room.code, 'Ada', 'sock-compact-g')
+    assert.ok(!('error' in guest))
+    if ('error' in guest) return
+    startGame(room.code, hostId)
+    room.patients = [{ id: 'p1', requiredVaccine: 'purple_rna', timeRemaining: 60, maxTime: 60 }]
+
+    assert.ok(labAction(room.code, guest.playerId, 'extract', { element: 'red_rna' }))
+    assert.ok(labAction(room.code, guest.playerId, 'synthesize', {}))
+    assert.ok(labAction(room.code, guest.playerId, 'extract', { element: 'blue_rna' }))
+    const mixed = labAction(room.code, guest.playerId, 'synthesize', {})
+    assert.ok(!('error' in mixed))
+    if ('error' in mixed) return
+
+    const del = labAction(room.code, guest.playerId, 'deliver', {})
     assert.ok(!('error' in del))
     if ('error' in del) return
     assert.equal(del.score, 1)

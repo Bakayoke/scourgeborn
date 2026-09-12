@@ -11,7 +11,7 @@ Real-time party lab game — cure patients before the timer runs out.
 - **Mål:** Ge rätt vaccin till patienterna. Tre misslyckanden stänger labbet
 - **Crafting:** RÖD+BLÅ → LILA → värme/kyla. GRÖN/GUL levereras direkt
 
-Party kräver **4 spelare totalt** (värd + 3 på mobil) så att alla stationer bemannas.
+Party funkar från **2 spelare** (värd + 1 på mobil). Med **4+ spelare** får tre personer en station var; vid färre hanterar lab-spelaren alla stationer på mobilen.
 
 ## Stack
 
