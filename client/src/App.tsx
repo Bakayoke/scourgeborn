@@ -35,6 +35,7 @@ const SABOTEXT_URL = 'https://sabotext.com'
 const PARTYPATHS_URL = 'https://partypaths.com'
 const YOURTASKIS_URL = 'https://yourtaskis.com'
 const KLOTTERKAOS_URL = 'https://klotterkaos.com'
+const KLUDDKRIG_URL = 'https://kluddkrig.com'
 const APP_ORIGIN = 'https://scourgeborn.com'
 
 function SisterGameLink({
@@ -77,6 +78,12 @@ function SisterGameLinks({ ui }: { ui: ReturnType<typeof t> }) {
         href={KLOTTERKAOS_URL}
         pitch={ui.klotterkaosPitch}
         cta={ui.klotterkaosCta}
+      />
+      <SisterGameLink
+        name="Kluddkrig"
+        href={KLUDDKRIG_URL}
+        pitch={ui.kluddkrigPitch}
+        cta={ui.kluddkrigCta}
       />
       <SisterGameLink
         name="Factopia"
