@@ -41,6 +41,7 @@ const PARTYPATHS_URL = 'https://partypaths.com'
 const YOURTASKIS_URL = 'https://yourtaskis.com'
 const KLOTTERKAOS_URL = 'https://klotterkaos.com'
 const KLUDDKRIG_URL = 'https://kluddkrig.com'
+const PULSEKAOS_URL = 'https://pulsekaos.com'
 const APP_ORIGIN = 'https://scourgeborn.com'
 
 function SisterGameLink({
@@ -66,6 +67,12 @@ function SisterGameLink({
 function SisterGameLinks({ ui }: { ui: ReturnType<typeof t> }) {
   return (
     <div className="sister-games">
+      <SisterGameLink
+        name="Pulsekaos"
+        href={PULSEKAOS_URL}
+        pitch={ui.pulsekaosPitch}
+        cta={ui.pulsekaosCta}
+      />
       <SisterGameLink
         name="Party Paths"
         href={PARTYPATHS_URL}
