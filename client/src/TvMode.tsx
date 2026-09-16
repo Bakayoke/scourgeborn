@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CopyJoinButton } from './CopyJoinButton'
+import { LobbyOptions } from './LobbyOptions'
 import { JoinQr } from './qr'
 import { t } from './i18n'
+import { patientDisplayItem, patientKindLabel } from './patientUtils'
 import { ITEM_VISUALS, itemShort, STATION_VISUALS, stationShort } from './labVisuals'
 import { RecipeStrip } from './RecipeStrip'
 import type { ItemId, Lang, PublicRoom, Station } from './types'
@@ -114,6 +116,7 @@ export function TvLobbyView({
   startLabel,
   showTutorial,
   canStart,
+  onError,
 }: {
   room: PublicRoom
   lang: Lang
@@ -123,6 +126,7 @@ export function TvLobbyView({
   startLabel: string
   showTutorial: boolean
   canStart: boolean
+  onError: (m: string | null) => void
 }) {
   const ui = t(lang)
   const players = labRoster(room)
@@ -190,6 +194,8 @@ export function TvLobbyView({
         </ol>
         <p className="lab-tv-goal">{ui.goalExplain}</p>
       </div>
+
+      <LobbyOptions room={room} lang={lang} onError={onError} />
     </div>
   )
 }
@@ -226,8 +232,24 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
               {room.misses}/{room.maxMisses}
             </strong>
           </div>
+          {room.cureStreak >= 2 && (
+            <div className="lab-tv-stat streak">
+              <span>{ui.cureStreak}</span>
+              <strong>×{room.cureStreak}</strong>
+            </div>
+          )}
+          {room.racePartner && (
+            <div className="lab-tv-stat race">
+              <span>{ui.raceVs}</span>
+              <strong>
+                {room.racePartner.code} {room.racePartner.score}/{room.raceTarget}
+              </strong>
+            </div>
+          )}
         </div>
       </header>
+
+      {room.activeEventLabel && <p className="lab-tv-event-banner flash-in">{room.activeEventLabel}</p>}
 
       <TvYellBoard room={room} lang={lang} />
       <p className="lab-tv-win-hint">{ui.winHint}</p>
@@ -240,17 +262,20 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
         ) : (
           <div className="lab-tv-patient-grid">
             {room.patients.map((p) => {
-              const v = ITEM_VISUALS[p.requiredVaccine]
+              const displayItem = patientDisplayItem(p)
+              const v = ITEM_VISUALS[displayItem]
               const urgent = p.timeRemaining <= 10
+              const kind = patientKindLabel(p, lang)
               return (
                 <div
                   key={p.id}
-                  className={`lab-tv-patient${urgent ? ' urgent' : ''}`}
+                  className={`lab-tv-patient${p.kind ? ` kind-${p.kind}` : ''}${urgent ? ' urgent' : ''}`}
                   style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
                 >
-                  <ItemBadge item={p.requiredVaccine} lang={lang} size="lg" />
+                  {kind && <span className="patient-kind-badge">{kind}</span>}
+                  <ItemBadge item={displayItem} lang={lang} size="lg" />
                   <span className="patient-needs-label">{ui.patientNeeds}</span>
-                  <RecipeStrip item={p.requiredVaccine} lang={lang} />
+                  <RecipeStrip item={displayItem} lang={lang} />
                   <div className="lab-tv-patient-timer">{p.timeRemaining}s</div>
                   <div className="bar">
                     <div
@@ -273,14 +298,16 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
           {players.map((p) => {
             const station = p.assignedStation ?? 'extractor'
             const st = STATION_VISUALS[station as Station]
+            const offline = room.disabledStation === station
             return (
               <div
                 key={p.id}
-                className={`lab-tv-team-card${p.connected ? '' : ' offline'}`}
+                className={`lab-tv-team-card${p.connected ? '' : ' offline'}${offline ? ' station-down' : ''}`}
                 style={{ '--station-color': st.color } as CSSProperties}
               >
                 <span className="lab-tv-team-station">
                   {st.icon} {stationShort(station as Station, lang)}
+                  {offline && ` (${ui.stationOffline})`}
                 </span>
                 <strong className="lab-tv-team-name">{p.name}</strong>
                 <span className="lab-tv-team-hand">

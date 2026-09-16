@@ -1,5 +1,8 @@
 export type Lang = 'sv' | 'en'
 export type RoomStatus = 'lobby' | 'playing' | 'gameover' | 'victory'
+export type Difficulty = 'training' | 'normal' | 'panic'
+export type PatientKind = 'normal' | 'twin' | 'vip' | 'mutant'
+export type LabEventKind = 'blackout' | 'contamination' | 'overtime'
 
 export type LabLogEntry = {
   at: number
@@ -32,12 +35,24 @@ export type Patient = {
   requiredVaccine: ItemId
   timeRemaining: number
   maxTime: number
+  kind?: PatientKind
+  twinGroupId?: string
+  mutantStage?: number
+  decoyVaccine?: ItemId
+  pointValue?: number
 }
 
 export type PlayerStats = {
   cures: number
   sends: number
   pings: number
+}
+
+export type RacePartnerSnapshot = {
+  code: string
+  score: number
+  status: RoomStatus
+  raceFinished: 'won' | 'lost' | null
 }
 
 export type Player = {
@@ -62,6 +77,16 @@ export type PublicRoom = {
   limits: { maxPlayers: number }
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
+  difficulty: Difficulty
+  seriesEnabled: boolean
+  seriesRound: number
+  seriesWins: number
+  seriesComplete: boolean
+  seriesTarget: number
+  racePartnerCode: string | null
+  racePartner: RacePartnerSnapshot | null
+  raceFinished: 'won' | 'lost' | null
+  raceTarget: number
   score: number
   misses: number
   maxMisses: number
@@ -90,12 +115,23 @@ export type PublicRoom = {
   yellMessage: string | null
   yellItemId: ItemId | null
   yellAt: number
+  cureStreak: number
+  bestStreak: number
+  activeEvent: LabEventKind | null
+  activeEventLabel: string | null
+  disabledStation: Station | null
 }
 
 export type Session = {
   code: string
   playerId: string
   name: string
+}
+
+export type RoomRecord = {
+  bestScore: number
+  bestWave: number
+  bestStreak: number
 }
 
 export type TutorialStep = 'extract_red' | 'send_or_switch' | 'deliver' | 'done'

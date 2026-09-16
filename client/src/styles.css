@@ -4023,3 +4023,134 @@ input:focus {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.lobby-options {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lobby-option-group strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+
+.option-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.btn.chip {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.btn.chip.active {
+  border-color: var(--blight);
+  background: rgba(157, 124, 255, 0.2);
+}
+
+.lobby-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.room-record {
+  font-size: 0.85rem;
+  color: var(--ink-dim);
+}
+
+.room-record strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.streak-chip,
+.race-chip {
+  font-family: var(--font-stamp);
+  color: var(--hazard);
+  letter-spacing: 0.05em;
+}
+
+.event-banner,
+.lab-tv-event-banner {
+  text-align: center;
+  font-weight: 700;
+  color: var(--hazard);
+  padding: 0.5rem;
+  border: 2px solid var(--hazard);
+  border-radius: var(--radius);
+  margin: 0.25rem 0;
+}
+
+.patient-kind-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 200, 50, 0.2);
+  color: #ffc832;
+  margin-bottom: 0.35rem;
+}
+
+.patient-card.kind-vip .patient-kind-badge,
+.lab-tv-patient.kind-vip .patient-kind-badge {
+  background: rgba(255, 215, 0, 0.25);
+  color: #ffd700;
+}
+
+.patient-card.kind-mutant .patient-kind-badge,
+.lab-tv-patient.kind-mutant .patient-kind-badge {
+  background: rgba(180, 80, 255, 0.25);
+  color: #c084fc;
+}
+
+.custom-yell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.custom-yell input {
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.finale-series,
+.finale-race,
+.finale-streak,
+.finale-record {
+  margin: 0.35rem 0;
+  font-size: 0.95rem;
+}
+
+.lab-tv-stat.streak strong {
+  color: var(--hazard);
+}
+
+.lab-tv-stat.race strong {
+  font-size: clamp(1rem, 2vw, 1.35rem);
+}
+
+.lab-tv-team-card.station-down {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}

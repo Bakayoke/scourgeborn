@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
-import type { Lang, PublicRoom, Session } from './types'
+import type { Difficulty, Lang, PublicRoom, Session } from './types'
 
 const API_BASE = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
 
@@ -95,6 +95,22 @@ export async function labAction(action: string, data: Record<string, unknown> = 
 
 export async function backToLobby() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('backToLobby', {})
+}
+
+export async function rematch() {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('rematch', {})
+}
+
+export async function setDifficulty(difficulty: Difficulty) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setDifficulty', { difficulty })
+}
+
+export async function setSeries(enabled: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setSeries', { enabled })
+}
+
+export async function linkRace(partnerCode: string) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('linkRace', { partnerCode })
 }
 
 export async function endParty() {

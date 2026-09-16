@@ -2,26 +2,40 @@ import { customAlphabet } from 'nanoid'
 import {
   MAX_MISSES,
   MIN_MULTI_PLAYERS,
+  RACE_TARGET,
+  SERIES_TARGET,
   connectedActiveIds,
   deliverVaccine,
   dropItem,
+  eventLabel,
   EXTRACT_ITEMS,
   extract,
   incubate,
   initLabGame,
   isCompactLab,
+  maxMissesForRoom,
   msg,
   pingStation,
   sendItem,
   synthesize,
   tickLab,
   waveLabel,
-  WIN_SCORE,
+  winScoreForRoom,
   type ExtractItemId,
 } from './game/lab.js'
 import { GAME_LIMITS } from './limits.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
-import type { ItemId, Lang, PingKind, Player, PublicRoom, Room, RoomStatus, Station } from './types.js'
+import type {
+  Difficulty,
+  ItemId,
+  Lang,
+  PingKind,
+  Player,
+  PublicRoom,
+  RacePartnerSnapshot,
+  Room,
+  RoomStatus,
+} from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
 const DISCONNECT_GRACE_MS = 60_000
@@ -87,6 +101,27 @@ function midGame(status: RoomStatus): boolean {
   return status === 'playing'
 }
 
+function lobbyDefaults(): Pick<
+  Room,
+  | 'difficulty'
+  | 'seriesEnabled'
+  | 'seriesRound'
+  | 'seriesWins'
+  | 'seriesComplete'
+  | 'racePartnerCode'
+  | 'raceFinished'
+> {
+  return {
+    difficulty: 'normal',
+    seriesEnabled: false,
+    seriesRound: 1,
+    seriesWins: 0,
+    seriesComplete: false,
+    racePartnerCode: null,
+    raceFinished: null,
+  }
+}
+
 function emptyGameFields(): Pick<
   Room,
   | 'score'
@@ -109,6 +144,17 @@ function emptyGameFields(): Pick<
   | 'yellEn'
   | 'yellAt'
   | 'yellItemId'
+  | 'cureStreak'
+  | 'bestStreak'
+  | 'activeEvent'
+  | 'eventEndsAt'
+  | 'disabledStation'
+  | 'timersFrozenUntil'
+  | 'nextEventAt'
+  | 'pendingSpecialKind'
+  | 'specialSpawnedThisWave'
+  | 'pipeline'
+  | 'raceFinished'
 > {
   return {
     score: 0,
@@ -131,6 +177,17 @@ function emptyGameFields(): Pick<
     yellEn: null,
     yellAt: 0,
     yellItemId: null,
+    cureStreak: 0,
+    bestStreak: 0,
+    activeEvent: null,
+    eventEndsAt: 0,
+    disabledStation: null,
+    timersFrozenUntil: 0,
+    nextEventAt: 0,
+    pendingSpecialKind: null,
+    specialSpawnedThisWave: false,
+    pipeline: null,
+    raceFinished: null,
   }
 }
 
@@ -186,6 +243,36 @@ export function restoreRooms(list: Room[]) {
       yellEn: raw.yellEn ?? null,
       yellAt: Number(raw.yellAt) || 0,
       yellItemId: raw.yellItemId ?? null,
+      difficulty: raw.difficulty === 'training' || raw.difficulty === 'panic' ? raw.difficulty : 'normal',
+      seriesEnabled: Boolean(raw.seriesEnabled),
+      seriesRound: Number(raw.seriesRound) || 1,
+      seriesWins: Number(raw.seriesWins) || 0,
+      seriesComplete: Boolean(raw.seriesComplete),
+      racePartnerCode: raw.racePartnerCode ?? null,
+      raceFinished: raw.raceFinished === 'won' || raw.raceFinished === 'lost' ? raw.raceFinished : null,
+      cureStreak: Number(raw.cureStreak) || 0,
+      bestStreak: Number(raw.bestStreak) || 0,
+      activeEvent:
+        raw.activeEvent === 'blackout' || raw.activeEvent === 'contamination' || raw.activeEvent === 'overtime'
+          ? raw.activeEvent
+          : null,
+      eventEndsAt: Number(raw.eventEndsAt) || 0,
+      disabledStation:
+        raw.disabledStation === 'extractor' ||
+        raw.disabledStation === 'synthesizer' ||
+        raw.disabledStation === 'incubator'
+          ? raw.disabledStation
+          : null,
+      timersFrozenUntil: Number(raw.timersFrozenUntil) || 0,
+      nextEventAt: Number(raw.nextEventAt) || 0,
+      pendingSpecialKind:
+        raw.pendingSpecialKind === 'twin' ||
+        raw.pendingSpecialKind === 'vip' ||
+        raw.pendingSpecialKind === 'mutant'
+          ? raw.pendingSpecialKind
+          : null,
+      specialSpawnedThisWave: Boolean(raw.specialSpawnedThisWave),
+      pipeline: raw.pipeline ?? null,
     }
     rooms.set(room.code, room)
   }
@@ -251,6 +338,7 @@ export function createRoom(
     waitlist: [],
     notice: null,
     updatedAt: Date.now(),
+    ...lobbyDefaults(),
     ...emptyGameFields(),
   }
   releaseSocket(socketId)
@@ -472,6 +560,40 @@ function promoteWaitlist(room: Room) {
   }
 }
 
+function beginRound(room: Room) {
+  const ids = connectedActiveIds(room)
+  const labIds = ids.length >= 2 ? ids.filter((id) => id !== room.hostId) : ids
+  Object.assign(room, emptyGameFields())
+  initLabGame(room, labIds, ids.length >= 2)
+}
+
+function checkRaceProgress(room: Room) {
+  if (!room.racePartnerCode || room.raceFinished) return
+  const partner = rooms.get(room.racePartnerCode)
+  if (!partner) return
+  if (room.score >= RACE_TARGET && !room.raceFinished) {
+    room.raceFinished = 'won'
+    if (partner.racePartnerCode === room.code) {
+      partner.raceFinished = 'lost'
+      partner.yellSv = `Race förlorat mot ${room.code}!`
+      partner.yellEn = `Race lost to ${room.code}!`
+      partner.yellAt = Date.now()
+    }
+    room.yellSv = `Race vunnen mot ${partner.code}!`
+    room.yellEn = `Race won against ${partner.code}!`
+    room.yellAt = Date.now()
+    if (!room.eventLog) room.eventLog = []
+    room.eventLog.push({
+      at: Date.now(),
+      kind: 'race',
+      sv: `Race vunnen mot ${partner.code}!`,
+      en: `Race won against ${partner.code}!`,
+    })
+    touch(partner)
+    onBroadcast?.(partner.code)
+  }
+}
+
 export function startGame(code: string, playerId: string): Room | { error: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Rum saknas' }
@@ -488,9 +610,96 @@ export function startGame(code: string, playerId: string): Room | { error: strin
   if (labIds.length < 1) {
     return { error: roomMsg(room, 'Ingen spelare', 'No players') }
   }
-  Object.assign(room, emptyGameFields())
-  initLabGame(room, labIds, ids.length >= 2)
+  beginRound(room)
   touch(room)
+  return room
+}
+
+export function rematch(code: string, playerId: string): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden' }
+  if (room.status !== 'gameover' && room.status !== 'victory') {
+    return { error: roomMsg(room, 'Ingen avslutad runda', 'No finished round') }
+  }
+  if (room.seriesEnabled && room.seriesComplete) {
+    room.seriesRound = 1
+    room.seriesWins = 0
+    room.seriesComplete = false
+  }
+  for (const p of room.players) p.spectator = false
+  promoteWaitlist(room)
+  const ids = connectedActiveIds(room)
+  if (ids.length < 1) return { error: roomMsg(room, 'Ingen spelare', 'No players') }
+  beginRound(room)
+  touch(room)
+  return room
+}
+
+export function setDifficulty(
+  code: string,
+  playerId: string,
+  difficulty: Difficulty,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden' }
+  if (room.status !== 'lobby') return { error: roomMsg(room, 'Bara i lobbyn', 'Lobby only') }
+  room.difficulty = difficulty === 'training' || difficulty === 'panic' ? difficulty : 'normal'
+  touch(room)
+  return room
+}
+
+export function setSeries(
+  code: string,
+  playerId: string,
+  enabled: boolean,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden' }
+  if (room.status !== 'lobby') return { error: roomMsg(room, 'Bara i lobbyn', 'Lobby only') }
+  room.seriesEnabled = Boolean(enabled)
+  if (enabled) {
+    room.seriesRound = 1
+    room.seriesWins = 0
+    room.seriesComplete = false
+  }
+  touch(room)
+  return room
+}
+
+export function linkRace(
+  code: string,
+  playerId: string,
+  partnerCode: string,
+): Room | { error: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Rum saknas' }
+  if (room.hostId !== playerId) return { error: 'Bara värden' }
+  if (room.status !== 'lobby') return { error: roomMsg(room, 'Bara i lobbyn', 'Lobby only') }
+  const partner = rooms.get(partnerCode.toUpperCase().trim())
+  if (!partner) {
+    return { error: roomMsg(room, 'Motståndarrummet hittades inte', 'Opponent room not found') }
+  }
+  if (partner.code === room.code) {
+    return { error: roomMsg(room, 'Ange ett annat rum', 'Enter a different room') }
+  }
+  if (room.racePartnerCode && room.racePartnerCode !== partner.code) {
+    const old = rooms.get(room.racePartnerCode)
+    if (old?.racePartnerCode === room.code) old.racePartnerCode = null
+  }
+  if (partner.racePartnerCode && partner.racePartnerCode !== room.code) {
+    const old = rooms.get(partner.racePartnerCode)
+    if (old?.racePartnerCode === partner.code) old.racePartnerCode = null
+  }
+  room.racePartnerCode = partner.code
+  partner.racePartnerCode = room.code
+  room.raceFinished = null
+  partner.raceFinished = null
+  touch(room)
+  touch(partner)
+  onBroadcast?.(partner.code)
   return room
 }
 
@@ -527,12 +736,18 @@ export function labAction(
       result = dropItem(room, playerId)
       break
     case 'ping':
-      result = pingStation(room, playerId, String(payload.kind ?? 'need_red') as PingKind)
+      result = pingStation(
+        room,
+        playerId,
+        String(payload.kind ?? 'need_red') as PingKind,
+        typeof payload.message === 'string' ? payload.message : undefined,
+      )
       break
     default:
       return { error: 'Okänd action' }
   }
   if (result.error) return { error: result.error }
+  if (action === 'deliver') checkRaceProgress(room)
   touch(room)
   return room
 }
@@ -551,7 +766,15 @@ export function backToLobby(code: string, playerId: string): Room | { error: str
   if (!room) return { error: 'Rum saknas' }
   if (room.hostId !== playerId) return { error: 'Bara värden' }
   room.status = 'lobby'
-  Object.assign(room, emptyGameFields())
+  const keepSeries = {
+    seriesEnabled: room.seriesEnabled,
+    seriesRound: room.seriesRound,
+    seriesWins: room.seriesWins,
+    seriesComplete: room.seriesComplete,
+    difficulty: room.difficulty,
+    racePartnerCode: room.racePartnerCode,
+  }
+  Object.assign(room, emptyGameFields(), keepSeries)
   for (const p of room.players) p.spectator = false
   promoteWaitlist(room)
   touch(room)
@@ -612,6 +835,19 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const viewerAlert = viewerId && room.alerts ? room.alerts[viewerId] : null
   const alertFresh = viewerAlert && Date.now() - viewerAlert.at < 8000
 
+  let racePartner: RacePartnerSnapshot | null = null
+  if (room.racePartnerCode) {
+    const partner = rooms.get(room.racePartnerCode)
+    if (partner) {
+      racePartner = {
+        code: partner.code,
+        score: partner.score,
+        status: partner.status,
+        raceFinished: partner.raceFinished,
+      }
+    }
+  }
+
   return {
     code: room.code,
     hostId: room.hostId,
@@ -622,9 +858,19 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     limits,
     isPublic: Boolean(room.isPublic),
     waitlist: room.waitlist,
+    difficulty: room.difficulty ?? 'normal',
+    seriesEnabled: Boolean(room.seriesEnabled),
+    seriesRound: room.seriesRound ?? 1,
+    seriesWins: room.seriesWins ?? 0,
+    seriesComplete: Boolean(room.seriesComplete),
+    seriesTarget: SERIES_TARGET,
+    racePartnerCode: room.racePartnerCode ?? null,
+    racePartner,
+    raceFinished: room.raceFinished ?? null,
+    raceTarget: RACE_TARGET,
     score: room.score,
     misses: room.misses,
-    maxMisses: MAX_MISSES,
+    maxMisses: maxMissesForRoom(room),
     patients: room.patients.map((p) => ({ ...p })),
     yourStation: labState?.assignedStation ?? 'extractor',
     yourActiveStation:
@@ -656,7 +902,12 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
     gameDurationSec: room.gameStartedAt
       ? Math.max(0, Math.floor((Date.now() - room.gameStartedAt) / 1000))
       : 0,
-    winScoreTarget: WIN_SCORE,
+    winScoreTarget: winScoreForRoom(room),
+    cureStreak: room.cureStreak ?? 0,
+    bestStreak: room.bestStreak ?? 0,
+    activeEvent: room.activeEvent ?? null,
+    activeEventLabel: room.activeEvent ? eventLabel(room.activeEvent, lang) : null,
+    disabledStation: room.disabledStation ?? null,
     yellMessage:
       room.yellAt && Date.now() - room.yellAt < 5000
         ? lang === 'en'

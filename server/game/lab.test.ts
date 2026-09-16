@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { Room } from '../types.js'
-import { deliverVaccine, extract, incubate, sendItem, synthesize } from './lab.js'
+import { deliverVaccine, extract, incubate, maxMissesForRoom, sendItem, synthesize, winScoreForRoom } from './lab.js'
 
 function mockRoom(overrides: Partial<Room> = {}): Room {
   return {
@@ -16,6 +16,14 @@ function mockRoom(overrides: Partial<Room> = {}): Room {
     mode: 'multi',
     isPublic: false,
     waitlist: [],
+    notice: null,
+    difficulty: 'normal',
+    seriesEnabled: false,
+    seriesRound: 1,
+    seriesWins: 0,
+    seriesComplete: false,
+    racePartnerCode: null,
+    raceFinished: null,
     score: 0,
     misses: 0,
     patients: [{ id: 'pat1', requiredVaccine: 'heated_purple_rna', timeRemaining: 60, maxTime: 60 }],
@@ -30,10 +38,30 @@ function mockRoom(overrides: Partial<Room> = {}): Room {
     gameStartedAt: Date.now(),
     wave: 1,
     alerts: {},
-    stats: { p1: { cures: 0, sends: 0 }, p2: { cures: 0, sends: 0 } },
+    stats: {
+      p1: { cures: 0, sends: 0, pings: 0 },
+      p2: { cures: 0, sends: 0, pings: 0 },
+    },
+    eventLog: [],
+    missLog: [],
+    wave4StartedAt: null,
+    yellSv: null,
+    yellEn: null,
+    yellAt: 0,
+    yellItemId: null,
+    cureStreak: 0,
+    bestStreak: 0,
+    activeEvent: null,
+    eventEndsAt: 0,
+    disabledStation: null,
+    timersFrozenUntil: 0,
+    nextEventAt: Date.now() + 60_000,
+    pendingSpecialKind: null,
+    specialSpawnedThisWave: false,
+    pipeline: null,
     updatedAt: Date.now(),
     ...overrides,
-  } as Room
+  }
 }
 
 describe('lab crafting chain', () => {
@@ -54,7 +82,7 @@ describe('lab crafting chain', () => {
       lab: {
         p1: { assignedStation: 'incubator', activeStation: 'incubator', itemInHand: 'purple_rna', synthSlot: null },
       },
-      stats: { p1: { cures: 0, sends: 0 } },
+      stats: { p1: { cures: 0, sends: 0, pings: 0 } },
     })
     incubate(room, 'p1', 'heat')
     assert.equal(room.lab.p1?.itemInHand, 'heated_purple_rna')
@@ -62,6 +90,7 @@ describe('lab crafting chain', () => {
     assert.equal(room.score, 1)
     assert.equal(room.patients.length, 0)
     assert.equal(room.stats.p1?.cures, 1)
+    assert.equal(room.cureStreak, 1)
   })
 
   it('creates incoming alert on send', () => {
@@ -70,5 +99,37 @@ describe('lab crafting chain', () => {
     sendItem(room, 'p1', 'p2')
     assert.ok(room.alerts.p2)
     assert.equal(room.alerts.p2?.kind, 'incoming')
+  })
+
+  it('applies difficulty settings', () => {
+    const training = mockRoom({ difficulty: 'training' })
+    const panic = mockRoom({ difficulty: 'panic' })
+    assert.equal(maxMissesForRoom(training), 5)
+    assert.equal(maxMissesForRoom(panic), 2)
+    assert.equal(winScoreForRoom(training), 12)
+    assert.equal(winScoreForRoom(panic), 15)
+  })
+
+  it('handles mutant decoy delivery', () => {
+    const room = mockRoom({
+      patients: [
+        {
+          id: 'mut1',
+          requiredVaccine: 'heated_purple_rna',
+          decoyVaccine: 'green_rna',
+          mutantStage: 0,
+          kind: 'mutant',
+          timeRemaining: 40,
+          maxTime: 40,
+        },
+      ],
+      lab: {
+        p1: { assignedStation: 'extractor', activeStation: 'extractor', itemInHand: 'green_rna', synthSlot: null },
+      },
+    })
+    deliverVaccine(room, 'p1')
+    assert.equal(room.patients.length, 1)
+    assert.equal(room.patients[0]?.mutantStage, 1)
+    assert.equal(room.score, 0)
   })
 })

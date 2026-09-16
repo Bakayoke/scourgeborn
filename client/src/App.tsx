@@ -8,6 +8,7 @@ import {
   joinGame,
   labAction,
   loadSession,
+  rematch,
   saveSession,
   setRoomHandler,
   startGame,
@@ -23,10 +24,14 @@ import {
   stationShort,
 } from './labVisuals'
 import { CopyJoinButton } from './CopyJoinButton'
+import { LobbyOptions } from './LobbyOptions'
 import { JoinQr } from './qr'
 import { RecipeStrip } from './RecipeStrip'
 import { LabTvShell, TvGameView, TvLobbyView } from './TvMode'
-import { sfxCure, sfxMiss, sfxPing, sfxSend, sfxSpawn, sfxWave } from './sfx'
+import { updateRoomRecord } from './records'
+import { shareFinaleCard } from './shareFinale'
+import { sfxCure, sfxMiss, sfxPing, sfxPipeline, sfxSend, sfxSpawn, sfxStreak, sfxWave, updateStressAudio } from './sfx'
+import { patientAcceptsItem, patientDisplayItem, patientKindLabel } from './patientUtils'
 import type { ItemId, Lang, PingKind, PublicRoom, Station, TutorialStep } from './types'
 
 type Screen = 'home' | 'create' | 'join' | 'game'
@@ -168,16 +173,19 @@ function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
   return (
     <div className="patient-bar">
       {room.patients.map((p) => {
-        const v = ITEM_VISUALS[p.requiredVaccine]
+        const displayItem = patientDisplayItem(p)
+        const v = ITEM_VISUALS[displayItem]
+        const kind = patientKindLabel(p, lang)
         return (
         <div
           key={p.id}
-          className={`patient-card${p.timeRemaining <= 10 ? ' urgent pulse' : ''}`}
+          className={`patient-card${p.kind ? ` kind-${p.kind}` : ''}${p.timeRemaining <= 10 ? ' urgent pulse' : ''}`}
           style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
         >
-          <ItemBadge item={p.requiredVaccine} lang={lang} size="lg" />
+          {kind && <span className="patient-kind-badge">{kind}</span>}
+          <ItemBadge item={displayItem} lang={lang} size="lg" />
           <span className="patient-needs-label">{ui.patientNeeds}</span>
-          <RecipeStrip item={p.requiredVaccine} lang={lang} />
+          <RecipeStrip item={displayItem} lang={lang} />
           <span className="patient-timer">{p.timeRemaining}s</span>
           <div className="bar">
             <div
@@ -273,11 +281,13 @@ function PartyLobbyPanel({
   lang,
   seated,
   joinUrl,
+  onError,
 }: {
   room: PublicRoom
   lang: Lang
   seated: number
   joinUrl: string
+  onError: (m: string | null) => void
 }) {
   const ui = t(lang)
   const seatedPlayers = room.players.filter((p) => !p.spectator)
@@ -332,6 +342,8 @@ function PartyLobbyPanel({
         </ol>
         <p className="hint goal-hint">{ui.goalExplain}</p>
       </div>
+
+      <LobbyOptions room={room} lang={lang} onError={onError} />
     </div>
   )
 }
@@ -437,6 +449,8 @@ function FinaleScreen({
 }) {
   const ui = t(lang)
   const victory = room.status === 'victory'
+  const [shared, setShared] = useState(false)
+  const record = useMemo(() => updateRoomRecord(room), [room])
   const sorted = [...room.players]
     .filter((p) => !p.spectator)
     .sort((a, b) => (b.cures ?? 0) - (a.cures ?? 0) || (b.sends ?? 0) - (a.sends ?? 0))
@@ -450,6 +464,32 @@ function FinaleScreen({
         <p className="finale-kicker">{room.code}</p>
         <h2>{victory ? ui.victoryTitle : ui.gameOver}</h2>
         {victory && <p className="finale-sub">{ui.victorySub}</p>}
+        {room.seriesEnabled && (
+          <p className="finale-series">
+            {ui.seriesLabel}: {ui.seriesRound} {room.seriesRound} · {ui.seriesWins} {room.seriesWins}/
+            {room.seriesTarget}
+            {room.seriesComplete && victory && room.seriesWins >= room.seriesTarget && (
+              <strong> — {ui.seriesChampion}</strong>
+            )}
+          </p>
+        )}
+        {room.raceFinished && (
+          <p className="finale-race">
+            {room.raceFinished === 'won'
+              ? `${ui.raceWon} ${room.racePartner?.code ?? ''}`
+              : `${ui.raceLost} ${room.racePartner?.code ?? ''}`}
+          </p>
+        )}
+        {room.bestStreak >= 3 && (
+          <p className="finale-streak">
+            {ui.bestStreak}: ×{room.bestStreak}
+          </p>
+        )}
+        {record && (
+          <p className="finale-record hint">
+            {ui.roomRecord}: {record.bestScore} · {ui.recordWave} {record.bestWave}
+          </p>
+        )}
 
         <div className="finale-stats">
           <div>
@@ -516,18 +556,41 @@ function FinaleScreen({
           <button type="button" className="btn" onClick={onLeave}>
             {ui.leave}
           </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={async () => {
+              const ok = await shareFinaleCard(room, lang)
+              if (ok) setShared(true)
+            }}
+          >
+            {shared ? ui.shareFinaleDone : ui.shareFinale}
+          </button>
           {room.youAreHost ? (
-            <button
-              type="button"
-              className="btn primary"
-              onClick={async () => {
-                const res = await backToLobby()
-                if (!res.ok) onError(res.error ?? ui.error)
-                else onBack()
-              }}
-            >
-              {ui.backToLobby}
-            </button>
+            <>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={async () => {
+                  const res = await rematch()
+                  if (!res.ok) onError(res.error ?? ui.error)
+                  else onBack()
+                }}
+              >
+                {ui.rematch}
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={async () => {
+                  const res = await backToLobby()
+                  if (!res.ok) onError(res.error ?? ui.error)
+                  else onBack()
+                }}
+              >
+                {ui.backToLobby}
+              </button>
+            </>
           ) : (
             <p className="hint">{ui.waitingHost}</p>
           )}
@@ -607,7 +670,7 @@ function SoloLabView({
 }) {
   const ui = t(lang)
   const canDeliver = Boolean(
-    room.itemInHand && room.patients.some((p) => p.requiredVaccine === room.itemInHand),
+    room.itemInHand && room.patients.some((p) => patientAcceptsItem(p, room.itemInHand!)),
   )
 
   return (
@@ -689,9 +752,10 @@ function MultiWorkstation({
   const sv = STATION_VISUALS[station]
   const others = room.players.filter((p) => !p.spectator && p.id !== playerId && p.connected)
   const canDeliver = Boolean(
-    room.itemInHand && room.patients.some((p) => p.requiredVaccine === room.itemInHand),
+    room.itemInHand && room.patients.some((p) => patientAcceptsItem(p, room.itemInHand!)),
   )
   const pings = PING_BY_STATION[station]
+  const [customYell, setCustomYell] = useState('')
 
   return (
     <div className="workstation" style={{ '--station-color': sv.color } as CSSProperties}>
@@ -756,12 +820,21 @@ function MultiWorkstation({
             key={kind}
             type="button"
             className={`btn ping${kind === 'need_deliver' ? ' urgent' : ''}`}
-            onClick={() => onAction('ping', { kind })}
+            onClick={() => onAction('ping', { kind, message: customYell.trim() || undefined })}
           >
             {ui[PING_UI[kind]]}
           </button>
         ))}
       </div>
+      <label className="custom-yell">
+        <span>{ui.customYell}</span>
+        <input
+          value={customYell}
+          onChange={(e) => setCustomYell(e.target.value.slice(0, 40))}
+          placeholder={ui.customYellPlaceholder}
+          maxLength={40}
+        />
+      </label>
     </div>
   )
 }
@@ -794,17 +867,36 @@ function Workstation({
 }
 
 function useGameFx(room: PublicRoom | null) {
-  const prev = useRef<{ score: number; misses: number; patients: number; wave: number; alert: string | null } | null>(
-    null,
-  )
+  const prev = useRef<{
+    score: number
+    misses: number
+    patients: number
+    wave: number
+    alert: string | null
+    cureStreak: number
+    lastEvent: string | null
+  } | null>(null)
   const [juiceClass, setJuiceClass] = useState('')
 
   useEffect(() => {
-    if (!room || room.status !== 'playing') return
+    if (!room || room.status !== 'playing') {
+      updateStressAudio(0)
+      return
+    }
+
+    const minTimer = room.patients.length
+      ? Math.min(...room.patients.map((p) => p.timeRemaining))
+      : 999
+    const missPressure = room.misses / Math.max(1, room.maxMisses)
+    const timerPressure = minTimer <= 10 ? (10 - minTimer) / 10 : 0
+    updateStressAudio(Math.min(1, missPressure * 0.6 + timerPressure * 0.5))
+
     const p = prev.current
     if (p) {
       if (room.score > p.score) {
         sfxCure()
+        if (room.cureStreak >= 3 && room.cureStreak > p.cureStreak) sfxStreak()
+        if (room.lastEvent?.includes('PIPELINE')) sfxPipeline()
         setJuiceClass(' screen-flash-cure')
         setTimeout(() => setJuiceClass(''), 200)
       }
@@ -830,6 +922,10 @@ function useGameFx(room: PublicRoom | null) {
           }
         } else sfxSend()
       }
+      if (room.activeEvent && room.lastEvent !== p.lastEvent) {
+        setJuiceClass(' screen-shake-miss')
+        setTimeout(() => setJuiceClass(''), 300)
+      }
     }
     prev.current = {
       score: room.score,
@@ -837,6 +933,8 @@ function useGameFx(room: PublicRoom | null) {
       patients: room.patients.length,
       wave: room.wave,
       alert: room.alert,
+      cureStreak: room.cureStreak,
+      lastEvent: room.lastEvent,
     }
   }, [room])
 
@@ -938,6 +1036,7 @@ function GameView({
               startLabel={seated === 1 ? ui.startSolo : ui.startMulti}
               showTutorial={!tutorialDone}
               canStart={canStart}
+              onError={onError}
             />
             {!tutorialDone && (
               <div className="lab-tv-tutorial">
@@ -988,7 +1087,19 @@ function GameView({
           {ui.score}: <strong>{room.score}/{room.winScoreTarget}</strong> · {ui.misses}:{' '}
           {room.misses}/{room.maxMisses}
         </span>
+        {room.cureStreak >= 2 && (
+          <span className="streak-chip">×{room.cureStreak} {ui.cureStreak}</span>
+        )}
+        {room.racePartner && room.status === 'playing' && (
+          <span className="race-chip">
+            {ui.raceVs} {room.racePartner.code}: {room.racePartner.score}/{room.raceTarget}
+          </span>
+        )}
       </header>
+
+      {room.activeEventLabel && (
+        <p className="event-banner flash-in">{room.activeEventLabel}</p>
+      )}
 
       <p className="hint win-hint">{ui.winHint}</p>
 
@@ -999,6 +1110,7 @@ function GameView({
             lang={lang}
             seated={seated}
             joinUrl={`${APP_ORIGIN}/?join=${room.code}`}
+            onError={onError}
           />
 
           {!tutorialDone ? (

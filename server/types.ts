@@ -21,7 +21,26 @@ export type GameMode = 'solo' | 'multi'
 
 export type RoomStatus = 'lobby' | 'playing' | 'gameover' | 'victory'
 
-export type LabLogKind = 'cure' | 'miss' | 'send' | 'ping' | 'drop' | 'wave' | 'spawn' | 'system' | 'victory'
+export type Difficulty = 'training' | 'normal' | 'panic'
+
+export type PatientKind = 'normal' | 'twin' | 'vip' | 'mutant'
+
+export type LabEventKind = 'blackout' | 'contamination' | 'overtime'
+
+export type LabLogKind =
+  | 'cure'
+  | 'miss'
+  | 'send'
+  | 'ping'
+  | 'drop'
+  | 'wave'
+  | 'spawn'
+  | 'system'
+  | 'victory'
+  | 'event'
+  | 'streak'
+  | 'pipeline'
+  | 'race'
 
 export type Station = 'extractor' | 'synthesizer' | 'incubator'
 
@@ -55,6 +74,11 @@ export type Patient = {
   requiredVaccine: ItemId
   timeRemaining: number
   maxTime: number
+  kind?: PatientKind
+  twinGroupId?: string
+  mutantStage?: number
+  decoyVaccine?: ItemId
+  pointValue?: number
 }
 
 export type PlayerAlert = {
@@ -79,6 +103,21 @@ export type LabPlayerState = {
   synthSlot: ItemId | null
 }
 
+export type PipelineState = {
+  startedAt: number
+  players: string[]
+  extract: boolean
+  mix: boolean
+  process: boolean
+}
+
+export type RacePartnerSnapshot = {
+  code: string
+  score: number
+  status: RoomStatus
+  raceFinished: 'won' | 'lost' | null
+}
+
 export type Room = {
   code: string
   hostId: string
@@ -90,6 +129,13 @@ export type Room = {
   waitlist: { id: string; name: string; at: number }[]
   notice: RoomNotice | null
   updatedAt: number
+  difficulty: Difficulty
+  seriesEnabled: boolean
+  seriesRound: number
+  seriesWins: number
+  seriesComplete: boolean
+  racePartnerCode: string | null
+  raceFinished: 'won' | 'lost' | null
   score: number
   misses: number
   patients: Patient[]
@@ -109,6 +155,16 @@ export type Room = {
   yellEn: string | null
   yellAt: number
   yellItemId: ItemId | null
+  cureStreak: number
+  bestStreak: number
+  activeEvent: LabEventKind | null
+  eventEndsAt: number
+  disabledStation: Station | null
+  timersFrozenUntil: number
+  nextEventAt: number
+  pendingSpecialKind: PatientKind | null
+  specialSpawnedThisWave: boolean
+  pipeline: PipelineState | null
 }
 
 export type PublicLabPlayer = Player & {
@@ -129,6 +185,16 @@ export type PublicRoom = {
   limits: GameLimits
   isPublic: boolean
   waitlist: { id: string; name: string; at: number }[]
+  difficulty: Difficulty
+  seriesEnabled: boolean
+  seriesRound: number
+  seriesWins: number
+  seriesComplete: boolean
+  seriesTarget: number
+  racePartnerCode: string | null
+  racePartner: RacePartnerSnapshot | null
+  raceFinished: 'won' | 'lost' | null
+  raceTarget: number
   score: number
   misses: number
   maxMisses: number
@@ -157,4 +223,9 @@ export type PublicRoom = {
   yellMessage: string | null
   yellItemId: ItemId | null
   yellAt: number
+  cureStreak: number
+  bestStreak: number
+  activeEvent: LabEventKind | null
+  activeEventLabel: string | null
+  disabledStation: Station | null
 }
