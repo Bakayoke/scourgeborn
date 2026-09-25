@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { linkRace, setDifficulty, setSeries } from './api'
+import { linkRace, setDifficulty, setPublicLobby, setSeries } from './api'
 import { t } from './i18n'
 import { loadRoomRecord } from './records'
 import type { Difficulty, Lang, PublicRoom } from './types'
@@ -27,6 +27,12 @@ export function LobbyOptions({
 
   async function toggleSeries() {
     const res = await setSeries(!room.seriesEnabled)
+    if (!res.ok) onError(res.error ?? ui.error)
+    else onError(null)
+  }
+
+  async function togglePublic() {
+    const res = await setPublicLobby(!room.isPublic)
     if (!res.ok) onError(res.error ?? ui.error)
     else onError(null)
   }
@@ -61,6 +67,11 @@ export function LobbyOptions({
       <label className="lobby-toggle">
         <input type="checkbox" checked={room.seriesEnabled} onChange={() => void toggleSeries()} />
         {ui.seriesMode}
+      </label>
+
+      <label className="lobby-toggle">
+        <input type="checkbox" checked={room.isPublic} onChange={() => void togglePublic()} />
+        {ui.publicLobby}
       </label>
 
       <div className="lobby-option-group">

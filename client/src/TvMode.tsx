@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { CopyJoinButton } from './CopyJoinButton'
 import { LobbyOptions } from './LobbyOptions'
 import { JoinQr } from './qr'
-import { goalExplainFor, t, winHintFor } from './i18n'
+import { goalExplainFor, raceLiveHintFor, t, winHintFor } from './i18n'
 import { ITEM_VISUALS, itemShort, STATION_VISUALS, stationShort } from './labVisuals'
 import { PatientCardBody, SpecialPatientBanner } from './PatientCardBody'
 import { patientDisplayItem } from './patientUtils'
@@ -254,6 +254,9 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
 
       <TvYellBoard room={room} lang={lang} />
       <p className="lab-tv-win-hint">{winHintFor(lang, room.winScoreTarget)}</p>
+      {room.racePartner && (
+        <p className="lab-tv-race-hint">{raceLiveHintFor(lang, room.raceTarget)}</p>
+      )}
       <p className="lab-tv-host-hint">{ui.tvHostHint}</p>
 
       <SpecialPatientBanner patients={room.patients} lang={lang} />

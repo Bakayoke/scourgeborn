@@ -1,4 +1,19 @@
 let ctx: AudioContext | null = null
+let audioPrimed = false
+
+export function isAudioPrimed() {
+  return audioPrimed
+}
+
+export function primeAudio() {
+  audioPrimed = true
+  try {
+    const c = getCtx()
+    void c.resume()
+  } catch {
+    /* optional */
+  }
+}
 
 function getCtx() {
   if (!ctx) ctx = new AudioContext()

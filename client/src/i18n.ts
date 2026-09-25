@@ -103,6 +103,17 @@ const sv = {
   tipMutant: 'Mutant — leverera decoy-färgen på kortet först (stabilisera).',
   tipMutantReady: 'Mutant stabiliserad — leverera rätt vaccin nu!',
   mutantThenNeeds: 'Därefter behövs:',
+  publicLobby: 'Öppet labb (syns i listan)',
+  publicLobbiesTitle: 'Öppna labb',
+  publicLobbiesHint: 'Gå med direkt — ingen kod att fråga om.',
+  publicLobbyJoin: 'Gå med',
+  spectatorTitle: 'Åskådarläge',
+  spectatorHint:
+    'Spelet pågår — du ser patienter och laget men styr inget. Be värden om ny runda i lobbyn om du vill spela.',
+  soundGateHint: 'Tryck för ljud — effekter funkar bäst efter ett tryck (särskilt på iPhone).',
+  soundGateBtn: 'Aktivera ljud',
+  raceLiveHint: 'Race: först till {target} botade vinner mot motståndarlabbet.',
+  createPublic: 'Visa i listan över öppna labb',
   youAre: 'DU ÄR',
   yellRole: 'Ropa till laget!',
   splashExtractor: 'Tryck en färg → prov i handen. Skicka till laget — eller leverera direkt om patienten matchar.',
@@ -289,6 +300,17 @@ const en: typeof sv = {
   tipMutant: 'Mutant — deliver the decoy color on the card first (stabilize).',
   tipMutantReady: 'Mutant stabilized — deliver the real vaccine now!',
   mutantThenNeeds: 'Then needs:',
+  publicLobby: 'Open lab (listed publicly)',
+  publicLobbiesTitle: 'Open labs',
+  publicLobbiesHint: 'Join instantly — no code to ask for.',
+  publicLobbyJoin: 'Join',
+  spectatorTitle: 'Spectator mode',
+  spectatorHint:
+    'Game in progress — you can watch patients and the team but cannot act. Ask the host for a new round in the lobby to play.',
+  soundGateHint: 'Tap for sound — effects work best after a tap (especially on iPhone).',
+  soundGateBtn: 'Enable sound',
+  raceLiveHint: 'Race: first to {target} cures wins against the other lab.',
+  createPublic: 'List in open labs',
   youAre: 'YOU ARE',
   yellRole: 'Yell to your team!',
   splashExtractor: 'Tap a color → sample in hand. Send to teammates — or deliver directly if a patient matches.',
@@ -440,4 +462,8 @@ export function seriesNextRoundLabel(lang: Lang, round: number) {
   const ui = t(lang)
   const n = Math.min(Math.max(round, 1), 3)
   return ui.seriesNextRound.replace('{round}', String(n))
+}
+
+export function raceLiveHintFor(lang: Lang, target: number) {
+  return t(lang).raceLiveHint.replace('{target}', String(target))
 }

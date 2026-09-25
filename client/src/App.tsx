@@ -15,7 +15,15 @@ import {
   subscribeConnection,
   type ConnState,
 } from './api'
-import { goalExplainFor, loadLanguage, rememberLanguage, seriesNextRoundLabel, t, winHintFor } from './i18n'
+import {
+  goalExplainFor,
+  loadLanguage,
+  raceLiveHintFor,
+  rememberLanguage,
+  seriesNextRoundLabel,
+  t,
+  winHintFor,
+} from './i18n'
 import {
   EXTRACT_OPTIONS,
   ITEM_VISUALS,
@@ -29,7 +37,20 @@ import { JoinQr } from './qr'
 import { LabTvShell, TvGameView, TvLobbyView } from './TvMode'
 import { updateRoomRecord } from './records'
 import { shareFinaleCard } from './shareFinale'
-import { sfxCure, sfxMiss, sfxPing, sfxPipeline, sfxSend, sfxSpawn, sfxStreak, sfxWave, updateStressAudio } from './sfx'
+import { PublicLobbies } from './PublicLobbies'
+import { SoundGate } from './SoundGate'
+import {
+  primeAudio,
+  sfxCure,
+  sfxMiss,
+  sfxPing,
+  sfxPipeline,
+  sfxSend,
+  sfxSpawn,
+  sfxStreak,
+  sfxWave,
+  updateStressAudio,
+} from './sfx'
 import { PatientCardBody, SpecialPatientBanner } from './PatientCardBody'
 import { patientAcceptsItem, patientDisplayItem } from './patientUtils'
 import { loadTutorialDone, rememberTutorialDone } from './tutorialState'
@@ -900,6 +921,7 @@ function useGameFx(room: PublicRoom | null) {
     alert: string | null
     cureStreak: number
     lastEvent: string | null
+    patientTimes: { id: string; timeRemaining: number }[]
   } | null>(null)
   const [juiceClass, setJuiceClass] = useState('')
 
@@ -922,8 +944,13 @@ function useGameFx(room: PublicRoom | null) {
         sfxCure()
         if (room.cureStreak >= 3 && room.cureStreak > p.cureStreak) sfxStreak()
         if (room.lastEvent?.includes('PIPELINE')) sfxPipeline()
-        setJuiceClass(' screen-flash-cure')
-        setTimeout(() => setJuiceClass(''), 200)
+        const curedIds = new Set(room.patients.map((x) => x.id))
+        const closeSave = p.patientTimes.some(
+          (pt) => !curedIds.has(pt.id) && pt.timeRemaining <= 12,
+        )
+        const bigFlash = closeSave || room.score - p.score >= 2
+        setJuiceClass(bigFlash ? ' screen-flash-cure-strong' : ' screen-flash-cure')
+        setTimeout(() => setJuiceClass(''), bigFlash ? 450 : 200)
       }
       if (room.misses > p.misses) {
         sfxMiss()
@@ -960,6 +987,7 @@ function useGameFx(room: PublicRoom | null) {
       alert: room.alert,
       cureStreak: room.cureStreak,
       lastEvent: room.lastEvent,
+      patientTimes: room.patients.map((x) => ({ id: x.id, timeRemaining: x.timeRemaining })),
     }
   }, [room])
 
@@ -1014,6 +1042,7 @@ function GameView({
   }, [room.wave, room.status])
 
   async function act(action: string, data?: Record<string, unknown>) {
+    primeAudio()
     try {
       const res = await labAction(action, data ?? {})
       if (!res.ok) {
@@ -1125,6 +1154,10 @@ function GameView({
         )}
       </header>
 
+      {room.racePartner && room.status === 'playing' && (
+        <p className="hint race-live-hint">{raceLiveHintFor(lang, room.raceTarget)}</p>
+      )}
+
       {room.activeEventLabel && (
         <p className="event-banner flash-in">{room.activeEventLabel}</p>
       )}
@@ -1178,8 +1211,21 @@ function GameView({
             <p>{ui.waitingHost}</p>
           )}
         </div>
+      ) : room.youAreSpectator ? (
+        <div className="spectator-panel">
+          <h3>{ui.spectatorTitle}</h3>
+          <p className="hint">{ui.spectatorHint}</p>
+          <SpecialPatientBanner patients={room.patients} lang={lang} />
+          <section className="patients-section">
+            <h3>{ui.patients}</h3>
+            <PatientBar room={room} lang={lang} />
+          </section>
+          <TeamBoard room={room} lang={lang} playerId={playerId} />
+          {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
+        </div>
       ) : (
         <>
+          <SoundGate lang={lang} active={room.status === 'playing'} />
           {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
           <SpecialPatientBanner patients={room.patients} lang={lang} />
           <section className="patients-section">
@@ -1187,15 +1233,13 @@ function GameView({
             <PatientBar room={room} lang={lang} />
           </section>
           <TeamBoard room={room} lang={lang} playerId={playerId} />
-          {!room.youAreSpectator && (
-            <Workstation
-              room={room}
-              lang={lang}
-              playerId={playerId}
-              feedback={feedback}
-              onAction={(a, d) => void act(a, d)}
-            />
-          )}
+          <Workstation
+            room={room}
+            lang={lang}
+            playerId={playerId}
+            feedback={feedback}
+            onAction={(a, d) => void act(a, d)}
+          />
         </>
       )}
 
@@ -1221,6 +1265,7 @@ export default function App() {
   const [room, setRoom] = useState<PublicRoom | null>(null)
   const [playerId, setPlayerId] = useState<string | null>(loadSession()?.playerId ?? null)
   const [error, setError] = useState<string | null>(null)
+  const [createPublic, setCreatePublic] = useState(false)
   const [conn, setConn] = useState<ConnState>('connecting')
   const ui = useMemo(() => t(lang), [lang])
 
@@ -1262,7 +1307,7 @@ export default function App() {
 
   async function handleCreate() {
     setError(null)
-    const res = await createGame(name, lang)
+    const res = await createGame(name, lang, createPublic)
     if (!res.ok) return setError(res.error)
     saveSession({ code: res.room.code, playerId: res.playerId, name })
     setPlayerId(res.playerId)
@@ -1296,6 +1341,7 @@ export default function App() {
       return (
         <LabTvShell lang={lang} urgent={screenUrgent} juiceClass={juiceClass} onLeave={leaveGame}>
           {error && <p className="error-banner lab-tv-error">{error}</p>}
+          {room.status === 'playing' && <SoundGate lang={lang} active />}
           {game}
         </LabTvShell>
       )
@@ -1320,22 +1366,31 @@ export default function App() {
       </header>
       {error && <p className="error-banner">{error}</p>}
       {screen === 'home' && (
-        <div className="home-actions">
-          <button type="button" className="btn primary" onClick={() => setScreen('create')}>
-            {ui.create}
-          </button>
-          <button type="button" className="btn" onClick={() => setScreen('join')}>
-            {ui.join}
-          </button>
-          <div className="lang-toggle">
-            <button type="button" className={lang === 'sv' ? 'active' : ''} onClick={() => setLang('sv')}>
-              SV
+        <>
+          <div className="home-actions">
+            <button type="button" className="btn primary" onClick={() => setScreen('create')}>
+              {ui.create}
             </button>
-            <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>
-              EN
+            <button type="button" className="btn" onClick={() => setScreen('join')}>
+              {ui.join}
             </button>
+            <div className="lang-toggle">
+              <button type="button" className={lang === 'sv' ? 'active' : ''} onClick={() => setLang('sv')}>
+                SV
+              </button>
+              <button type="button" className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>
+                EN
+              </button>
+            </div>
           </div>
-        </div>
+          <PublicLobbies
+            lang={lang}
+            onJoin={(c) => {
+              setCode(c)
+              setScreen('join')
+            }}
+          />
+        </>
       )}
       {(screen === 'create' || screen === 'join') && (
         <form
@@ -1353,6 +1408,16 @@ export default function App() {
             <label>
               {ui.roomCode}
               <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={4} required />
+            </label>
+          )}
+          {screen === 'create' && (
+            <label className="lobby-toggle create-public">
+              <input
+                type="checkbox"
+                checked={createPublic}
+                onChange={(e) => setCreatePublic(e.target.checked)}
+              />
+              {ui.createPublic}
             </label>
           )}
           <button type="submit" className="btn primary">

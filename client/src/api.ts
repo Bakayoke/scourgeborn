@@ -73,8 +73,28 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
 type OkRoom = { ok: true; playerId: string; room: PublicRoom }
 type Err = { ok: false; error: string }
 
-export async function createGame(name: string, language: Lang) {
-  return ack<OkRoom | Err>('create', { name, language })
+export type PublicLobbyRow = {
+  code: string
+  language: Lang
+  playerCount: number
+  hostName: string
+  ageMs: number
+}
+
+export async function fetchPublicLobbies(lang?: Lang): Promise<{ lobbies: PublicLobbyRow[]; count: number }> {
+  const base = API_BASE || ''
+  const q = lang ? `?lang=${lang}` : ''
+  const res = await fetch(`${base}/api/lobbies${q}`)
+  if (!res.ok) return { lobbies: [], count: 0 }
+  return res.json() as Promise<{ lobbies: PublicLobbyRow[]; count: number }>
+}
+
+export async function createGame(name: string, language: Lang, isPublic = false) {
+  return ack<OkRoom | Err>('create', { name, language, isPublic })
+}
+
+export async function setPublicLobby(isPublic: boolean) {
+  return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('setPublicLobby', { isPublic })
 }
 
 export async function joinGame(code: string, name: string) {
