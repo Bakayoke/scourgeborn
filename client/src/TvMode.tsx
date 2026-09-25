@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { CopyJoinButton } from './CopyJoinButton'
 import { LobbyOptions } from './LobbyOptions'
 import { JoinQr } from './qr'
-import { t } from './i18n'
-import { patientDisplayItem, patientKindLabel } from './patientUtils'
+import { goalExplainFor, t, winHintFor } from './i18n'
 import { ITEM_VISUALS, itemShort, STATION_VISUALS, stationShort } from './labVisuals'
-import { RecipeStrip } from './RecipeStrip'
+import { PatientCardBody, SpecialPatientBanner } from './PatientCardBody'
+import { patientDisplayItem } from './patientUtils'
 import type { ItemId, Lang, PublicRoom, Station } from './types'
 
 function ItemBadge({ item, lang, size = 'md' }: { item: ItemId; lang: Lang; size?: 'sm' | 'md' | 'lg' }) {
@@ -192,7 +192,8 @@ export function TvLobbyView({
             <li key={step}>{step}</li>
           ))}
         </ol>
-        <p className="lab-tv-goal">{ui.goalExplain}</p>
+        <p className="lab-tv-goal">{goalExplainFor(lang, room.maxMisses)}</p>
+        <p className="lab-tv-win-hint">{winHintFor(lang, room.winScoreTarget)}</p>
       </div>
 
       <LobbyOptions room={room} lang={lang} onError={onError} />
@@ -252,8 +253,10 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
       {room.activeEventLabel && <p className="lab-tv-event-banner flash-in">{room.activeEventLabel}</p>}
 
       <TvYellBoard room={room} lang={lang} />
-      <p className="lab-tv-win-hint">{ui.winHint}</p>
+      <p className="lab-tv-win-hint">{winHintFor(lang, room.winScoreTarget)}</p>
       <p className="lab-tv-host-hint">{ui.tvHostHint}</p>
+
+      <SpecialPatientBanner patients={room.patients} lang={lang} />
 
       <section className="lab-tv-patients">
         <h2>{ui.patients}</h2>
@@ -265,17 +268,13 @@ export function TvGameView({ room, lang }: { room: PublicRoom; lang: Lang }) {
               const displayItem = patientDisplayItem(p)
               const v = ITEM_VISUALS[displayItem]
               const urgent = p.timeRemaining <= 10
-              const kind = patientKindLabel(p, lang)
               return (
                 <div
                   key={p.id}
                   className={`lab-tv-patient${p.kind ? ` kind-${p.kind}` : ''}${urgent ? ' urgent' : ''}`}
                   style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
                 >
-                  {kind && <span className="patient-kind-badge">{kind}</span>}
-                  <ItemBadge item={displayItem} lang={lang} size="lg" />
-                  <span className="patient-needs-label">{ui.patientNeeds}</span>
-                  <RecipeStrip item={displayItem} lang={lang} />
+                  <PatientCardBody p={p} lang={lang} />
                   <div className="lab-tv-patient-timer">{p.timeRemaining}s</div>
                   <div className="bar">
                     <div

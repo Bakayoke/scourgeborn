@@ -134,4 +134,4 @@ export type RoomRecord = {
   bestStreak: number
 }
 
-export type TutorialStep = 'extract_red' | 'send_or_switch' | 'deliver' | 'done'
+export type TutorialStep = 'extract_red' | 'send_or_switch' | 'deliver' | 'special_rules' | 'done'

@@ -4154,3 +4154,46 @@ input:focus {
   opacity: 0.55;
   filter: grayscale(0.6);
 }
+
+.patient-special-tip,
+.special-patient-banner {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--hazard);
+  margin: 0.35rem 0 0;
+  line-height: 1.35;
+}
+
+.special-patient-banner {
+  text-align: center;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--hazard);
+  border-radius: var(--radius);
+  background: rgba(255, 120, 80, 0.08);
+}
+
+.mutant-next {
+  margin-top: 0.45rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--line);
+}
+
+.mutant-next-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  margin-bottom: 0.25rem;
+}
+
+.finale-series-next {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 600;
+  color: var(--void-accent);
+}
+
+.home-goal {
+  max-width: 28rem;
+  margin: 0.5rem auto 0;
+  text-align: center;
+}

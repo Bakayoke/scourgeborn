@@ -34,6 +34,8 @@ const sv = {
   brand: 'Scourgeborn',
   tagline: 'Bota patienterna — ge rätt vaccin innan timern når noll.',
   goalExplain: 'Ge rätt vaccin innan timern tar slut. 3 misslyckanden stänger labbet.',
+  goalExplainHome:
+    'Ge rätt vaccin innan timern tar slut. I lobbyn väljer ni svårighet — den styr hur många miss som stänger labbet.',
   patientNeeds: 'Behöver',
   heroSupport:
     'Party-läge: TV/dator visar lobbyn, alla joinar på mobilen. Sen skriker ni tills labbet exploderar.',
@@ -91,6 +93,16 @@ const sv = {
   copyLink: 'Kopiera länk',
   linkCopied: 'Länk kopierad!',
   winHint: 'Vinn genom att bota 15 patienter — eller överlev våg 4 i 45 sek.',
+  seriesNextRound: 'Nästa runda ({round}/3)',
+  seriesWaitHostNext: 'Väntar på att värden startar nästa runda…',
+  seriesFinaleNext: 'En runda klar — kör nästa direkt!',
+  tutorialSpecial:
+    '4. Specialpatienter: TVILLING (samma vaccin två gånger), VIP (dubbel poäng), MUTANT (ge decoy-färgen först — sedan rätt vaccin). Lab-händelser och FULL PIPELINE-bonus kan dyka upp!',
+  tipTwin: 'Tvillingar — båda behöver samma vaccin.',
+  tipVip: 'VIP — denna patient räknas som två botade.',
+  tipMutant: 'Mutant — leverera decoy-färgen på kortet först (stabilisera).',
+  tipMutantReady: 'Mutant stabiliserad — leverera rätt vaccin nu!',
+  mutantThenNeeds: 'Därefter behövs:',
   youAre: 'DU ÄR',
   yellRole: 'Ropa till laget!',
   splashExtractor: 'Tryck en färg → prov i handen. Skicka till laget — eller leverera direkt om patienten matchar.',
@@ -208,6 +220,8 @@ const en: typeof sv = {
   brand: 'Scourgeborn',
   tagline: 'Cure patients — deliver the right vaccine before the timer hits zero.',
   goalExplain: 'Deliver the right vaccine before time runs out. 3 failures shut the lab.',
+  goalExplainHome:
+    'Deliver the right vaccine before time runs out. Pick difficulty in the lobby — it sets how many failures shut the lab.',
   patientNeeds: 'Needs',
   heroSupport:
     'Party mode: TV/laptop shows the lobby, everyone joins on their phone. Then yell until the lab explodes.',
@@ -265,6 +279,16 @@ const en: typeof sv = {
   copyLink: 'Copy link',
   linkCopied: 'Link copied!',
   winHint: 'Win by curing 15 patients — or survive wave 4 for 45 seconds.',
+  seriesNextRound: 'Next round ({round}/3)',
+  seriesWaitHostNext: 'Waiting for the host to start the next round…',
+  seriesFinaleNext: 'Round complete — jump into the next one!',
+  tutorialSpecial:
+    '4. Special patients: TWIN (same vaccine twice), VIP (double points), MUTANT (deliver the decoy color first — then the real vaccine). Lab events and FULL PIPELINE bonus can appear!',
+  tipTwin: 'Twins — both need the same vaccine.',
+  tipVip: 'VIP — this patient counts as two cures.',
+  tipMutant: 'Mutant — deliver the decoy color on the card first (stabilize).',
+  tipMutantReady: 'Mutant stabilized — deliver the real vaccine now!',
+  mutantThenNeeds: 'Then needs:',
   youAre: 'YOU ARE',
   yellRole: 'Yell to your team!',
   splashExtractor: 'Tap a color → sample in hand. Send to teammates — or deliver directly if a patient matches.',
@@ -398,4 +422,22 @@ export function rememberLanguage(lang: Lang) {
 
 export function t(lang: Lang) {
   return STRINGS[lang]
+}
+
+export function goalExplainFor(lang: Lang, maxMisses: number) {
+  return lang === 'en'
+    ? `Deliver the right vaccine before time runs out. ${maxMisses} failures shut the lab.`
+    : `Ge rätt vaccin innan timern tar slut. ${maxMisses} misslyckanden stänger labbet.`
+}
+
+export function winHintFor(lang: Lang, winScore: number) {
+  return lang === 'en'
+    ? `Win by curing ${winScore} patients — or survive wave 4 for 45 seconds.`
+    : `Vinn genom att bota ${winScore} patienter — eller överlev våg 4 i 45 sek.`
+}
+
+export function seriesNextRoundLabel(lang: Lang, round: number) {
+  const ui = t(lang)
+  const n = Math.min(Math.max(round, 1), 3)
+  return ui.seriesNextRound.replace('{round}', String(n))
 }

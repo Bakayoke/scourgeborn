@@ -15,7 +15,7 @@ import {
   subscribeConnection,
   type ConnState,
 } from './api'
-import { loadLanguage, rememberLanguage, t } from './i18n'
+import { goalExplainFor, loadLanguage, rememberLanguage, seriesNextRoundLabel, t, winHintFor } from './i18n'
 import {
   EXTRACT_OPTIONS,
   ITEM_VISUALS,
@@ -26,12 +26,13 @@ import {
 import { CopyJoinButton } from './CopyJoinButton'
 import { LobbyOptions } from './LobbyOptions'
 import { JoinQr } from './qr'
-import { RecipeStrip } from './RecipeStrip'
 import { LabTvShell, TvGameView, TvLobbyView } from './TvMode'
 import { updateRoomRecord } from './records'
 import { shareFinaleCard } from './shareFinale'
 import { sfxCure, sfxMiss, sfxPing, sfxPipeline, sfxSend, sfxSpawn, sfxStreak, sfxWave, updateStressAudio } from './sfx'
-import { patientAcceptsItem, patientDisplayItem, patientKindLabel } from './patientUtils'
+import { PatientCardBody, SpecialPatientBanner } from './PatientCardBody'
+import { patientAcceptsItem, patientDisplayItem } from './patientUtils'
+import { loadTutorialDone, rememberTutorialDone } from './tutorialState'
 import type { ItemId, Lang, PingKind, PublicRoom, Station, TutorialStep } from './types'
 
 type Screen = 'home' | 'create' | 'join' | 'game'
@@ -182,17 +183,13 @@ function PatientBar({ room, lang }: { room: PublicRoom; lang: Lang }) {
       {room.patients.map((p) => {
         const displayItem = patientDisplayItem(p)
         const v = ITEM_VISUALS[displayItem]
-        const kind = patientKindLabel(p, lang)
         return (
         <div
           key={p.id}
           className={`patient-card${p.kind ? ` kind-${p.kind}` : ''}${p.timeRemaining <= 10 ? ' urgent pulse' : ''}`}
           style={{ '--item-color': v.color, '--item-glow': v.glow } as CSSProperties}
         >
-          {kind && <span className="patient-kind-badge">{kind}</span>}
-          <ItemBadge item={displayItem} lang={lang} size="lg" />
-          <span className="patient-needs-label">{ui.patientNeeds}</span>
-          <RecipeStrip item={displayItem} lang={lang} />
+          <PatientCardBody p={p} lang={lang} />
           <span className="patient-timer">{p.timeRemaining}s</span>
           <div className="bar">
             <div
@@ -347,7 +344,8 @@ function PartyLobbyPanel({
             <li key={step}>{step}</li>
           ))}
         </ol>
-        <p className="hint goal-hint">{ui.goalExplain}</p>
+        <p className="hint goal-hint">{goalExplainFor(lang, room.maxMisses)}</p>
+        <p className="hint win-hint">{winHintFor(lang, room.winScoreTarget)}</p>
       </div>
 
       <LobbyOptions room={room} lang={lang} onError={onError} />
@@ -379,7 +377,13 @@ function TutorialPanel({
     extract_red: ui.tutorialExtract,
     send_or_switch: ui.tutorialSend,
     deliver: ui.tutorialDeliver,
+    special_rules: ui.tutorialSpecial,
     done: ui.tutorialDone,
+  }
+
+  function finishTutorial() {
+    rememberTutorialDone()
+    onSkip()
   }
   return (
     <div className="tutorial-panel">
@@ -396,12 +400,24 @@ function TutorialPanel({
         </button>
       )}
       {step === 'deliver' && (
-        <button type="button" className="btn primary" onClick={() => onStep('done')}>
+        <button type="button" className="btn primary" onClick={() => onStep('special_rules')}>
+          {ui.tutorialTry}
+        </button>
+      )}
+      {step === 'special_rules' && (
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => {
+            rememberTutorialDone()
+            onStep('done')
+          }}
+        >
           {ui.tutorialTry}
         </button>
       )}
       {step !== 'done' && (
-        <button type="button" className="btn ghost" onClick={onSkip}>
+        <button type="button" className="btn ghost" onClick={finishTutorial}>
           {ui.tutorialSkip}
         </button>
       )}
@@ -458,6 +474,7 @@ function FinaleScreen({
   const victory = room.status === 'victory'
   const [shared, setShared] = useState(false)
   const record = useMemo(() => updateRoomRecord(room), [room])
+  const seriesContinue = room.seriesEnabled && !room.seriesComplete
   const sorted = [...room.players]
     .filter((p) => !p.spectator)
     .sort((a, b) => (b.cures ?? 0) - (a.cures ?? 0) || (b.sends ?? 0) - (a.sends ?? 0))
@@ -478,6 +495,7 @@ function FinaleScreen({
             {room.seriesComplete && victory && room.seriesWins >= room.seriesTarget && (
               <strong> — {ui.seriesChampion}</strong>
             )}
+            {seriesContinue && <span className="finale-series-next"> — {ui.seriesFinaleNext}</span>}
           </p>
         )}
         {room.raceFinished && (
@@ -584,7 +602,7 @@ function FinaleScreen({
                   else onBack()
                 }}
               >
-                {ui.rematch}
+                {seriesContinue ? seriesNextRoundLabel(lang, room.seriesRound) : ui.rematch}
               </button>
               <button
                 type="button"
@@ -599,7 +617,7 @@ function FinaleScreen({
               </button>
             </>
           ) : (
-            <p className="hint">{ui.waitingHost}</p>
+            <p className="hint">{seriesContinue ? ui.seriesWaitHostNext : ui.waitingHost}</p>
           )}
         </div>
       </div>
@@ -684,7 +702,7 @@ function SoloLabView({
     <div className="solo-lab">
       <p className="coach-line">{ui.coachSolo}</p>
       <p className="flow-hint">{ui.soloFlow}</p>
-      <p className="hint goal-hint">{ui.goalExplain}</p>
+      <p className="hint goal-hint">{goalExplainFor(lang, room.maxMisses)}</p>
       <HandBar room={room} lang={lang} canDeliver={canDeliver} onAction={onAction} />
       {feedback && <p className="feedback-banner">{feedback}</p>}
 
@@ -969,7 +987,7 @@ function GameView({
   const [showSplash, setShowSplash] = useState(false)
   const [showWave, setShowWave] = useState<number | null>(null)
   const [tutorialStep, setTutorialStep] = useState<TutorialStep>('extract_red')
-  const [tutorialDone, setTutorialDone] = useState(false)
+  const [tutorialDone, setTutorialDone] = useState(loadTutorialDone)
   const prevStatus = useRef(room.status)
   const prevWave = useRef(room.wave)
 
@@ -1052,7 +1070,10 @@ function GameView({
                   lang={lang}
                   step={tutorialStep}
                   onStep={setTutorialStep}
-                  onSkip={() => setTutorialDone(true)}
+                  onSkip={() => {
+                    rememberTutorialDone()
+                    setTutorialDone(true)
+                  }}
                   seated={seated}
                   onStart={async () => {
                     const res = await startGame()
@@ -1108,7 +1129,7 @@ function GameView({
         <p className="event-banner flash-in">{room.activeEventLabel}</p>
       )}
 
-      <p className="hint win-hint">{ui.winHint}</p>
+      <p className="hint win-hint">{winHintFor(lang, room.winScoreTarget)}</p>
 
       {room.status === 'lobby' ? (
         <div className="panel lobby-panel">
@@ -1126,7 +1147,10 @@ function GameView({
               lang={lang}
               step={tutorialStep}
               onStep={setTutorialStep}
-              onSkip={() => setTutorialDone(true)}
+              onSkip={() => {
+                rememberTutorialDone()
+                setTutorialDone(true)
+              }}
               seated={seated}
               onStart={async () => {
                 const res = await startGame()
@@ -1157,6 +1181,7 @@ function GameView({
       ) : (
         <>
           {room.lastEvent && <p className="event-line">{room.lastEvent}</p>}
+          <SpecialPatientBanner patients={room.patients} lang={lang} />
           <section className="patients-section">
             <h3>{ui.patients}</h3>
             <PatientBar room={room} lang={lang} />
@@ -1291,6 +1316,7 @@ export default function App() {
         <h1>{ui.brand}</h1>
         <p className="tagline">{ui.tagline}</p>
         <p className="support">{ui.heroSupport}</p>
+        <p className="hint home-goal">{ui.goalExplainHome}</p>
       </header>
       {error && <p className="error-banner">{error}</p>}
       {screen === 'home' && (

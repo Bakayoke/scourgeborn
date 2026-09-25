@@ -8,8 +8,9 @@ Real-time party lab game — cure patients before the timer runs out.
 
 - **Solo:** Alla stationer på en skärm — träna tempot själv
 - **Party:** TV/laptop visar patienter och lobby, tre spelare styr Extraktor, Synthesizer och Inkubator på mobil
-- **Mål:** Ge rätt vaccin till patienterna. Tre misslyckanden stänger labbet
+- **Mål:** Ge rätt vaccin till patienterna. Miss-gräns och poängmål beror på svårighet (lobby)
 - **Crafting:** RÖD+BLÅ → LILA → värme/kyla. GRÖN/GUL levereras direkt
+- **Extra:** Specialpatienter, lab-händelser, cure-streak, serie (bäst av 3), race mot annat rum
 
 Party funkar från **2 spelare** (värd + 1 på mobil). Med **4+ spelare** får tre personer en station var; vid färre hanterar lab-spelaren alla stationer på mobilen.
 

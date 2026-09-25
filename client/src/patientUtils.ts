@@ -19,3 +19,13 @@ export function patientKindLabel(p: Patient, lang: Lang): string | null {
   if (p.kind === 'mutant') return p.mutantStage === 0 ? ui.mutantDecoy : ui.mutantReal
   return null
 }
+
+export function specialPatientTip(p: Patient, lang: Lang): string | null {
+  const ui = t(lang)
+  if (p.kind === 'twin') return ui.tipTwin
+  if (p.kind === 'vip') return ui.tipVip
+  if (p.kind === 'mutant') {
+    return p.mutantStage === 0 ? ui.tipMutant : ui.tipMutantReady
+  }
+  return null
+}
