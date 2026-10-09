@@ -25,6 +25,7 @@ import {
 } from './game/lab.js'
 import { GAME_LIMITS } from './limits.js'
 import { deleteRoomRecord, loadRoomRecord, saveRoomRecord } from './persist.js'
+import { recordGameStart } from './stats.js'
 import type {
   Difficulty,
   ItemId,
@@ -565,6 +566,7 @@ function beginRound(room: Room) {
   const labIds = ids.length >= 2 ? ids.filter((id) => id !== room.hostId) : ids
   Object.assign(room, emptyGameFields())
   initLabGame(room, labIds, ids.length >= 2)
+  void recordGameStart()
 }
 
 function checkRaceProgress(room: Room) {

@@ -44,6 +44,12 @@ import {
   startGame,
   toPublicRoom,
 } from './rooms.js'
+import {
+  adminTokenOk,
+  getStatsSnapshot,
+  initStats,
+  renderStatsHtml,
+} from './stats.js'
 import type { Lang } from './types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -144,6 +150,32 @@ app.get('/api/lobbies', (req, res) => {
   const lang = req.query.lang === 'en' ? 'en' : req.query.lang === 'sv' ? 'sv' : null
   const lobbies = listPublicLobbies({ language: lang, limit: 24 })
   res.json({ lobbies, count: lobbies.length })
+})
+
+app.get('/api/admin/stats', async (req, res) => {
+  const token =
+    (typeof req.query.token === 'string' && req.query.token) ||
+    (typeof req.headers['x-admin-token'] === 'string' && req.headers['x-admin-token']) ||
+    (req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : null)
+  if (!adminTokenOk(token)) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+  if (!process.env.ADMIN_STATS_TOKEN?.trim()) {
+    res.status(503).json({ error: 'ADMIN_STATS_TOKEN not configured' })
+    return
+  }
+  const snap = await getStatsSnapshot()
+  const wantsHtml =
+    req.query.format === 'html' ||
+    (typeof req.headers.accept === 'string' && req.headers.accept.includes('text/html'))
+  if (wantsHtml) {
+    res.type('html').send(renderStatsHtml(snap))
+    return
+  }
+  res.json(snap)
 })
 
 io.on('connection', (socket) => {
@@ -343,6 +375,8 @@ if (isProd) {
 }
 
 async function main() {
+  const stats = await initStats()
+  console.log('Stats:', stats)
   const { backend } = await initPersist()
   const snap = await loadSnapshot()
   if (snap) {

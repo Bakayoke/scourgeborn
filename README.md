@@ -29,3 +29,12 @@ npm run dev
 ```
 
 Socket-events: `create`, `join`, `startGame`, `extract`, `synthesize`, `incubate`, `send`, `deliver`, `ping`
+
+### Admin-statistik (Railway)
+
+Sätt `ADMIN_STATS_TOKEN` (samma hemliga sträng som i dina andra spel). Varje **start** och **rematch** räknas som ett startat spel, per kalenderdag (Europe/Stockholm), ackumulerat i Redis (`scourgeborn:stats:daily`).
+
+```bash
+curl -s "https://DIN-RAILWAY-URL/api/admin/stats?token=DIN_TOKEN"
+open "https://DIN-RAILWAY-URL/api/admin/stats?token=DIN_TOKEN&format=html"
+```
