@@ -38,3 +38,16 @@ Sätt `ADMIN_STATS_TOKEN` (samma hemliga sträng som i dina andra spel). Varje *
 curl -s "https://DIN-RAILWAY-URL/api/admin/stats?token=DIN_TOKEN"
 open "https://DIN-RAILWAY-URL/api/admin/stats?token=DIN_TOKEN&format=html"
 ```
+
+### Cloudflare Security Insights
+
+Static files: `/.well-known/security.txt`, `/security.txt`, `/robots.txt` (deployas med `npm run deploy:cf`).
+
+För att rensa varningarna **Security.txt not configured** och **AI Labyrinth** i zonen behöver du Cloudflare Security Center + Bot-inställningar (Wrangler-OAuth räcker inte). Antingen:
+
+1. **Dashboard:** Security → Settings → aktivera **Security.txt** och **AI Labyrinth** (Bot traffic), eller  
+2. **API:** skapa token med *Zone → Settings → Edit*, kör:
+
+```bash
+CLOUDFLARE_API_TOKEN=… node scripts/configure-cloudflare-zone-security.mjs scourgeborn.com
+```
