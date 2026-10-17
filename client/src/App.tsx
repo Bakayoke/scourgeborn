@@ -67,15 +67,43 @@ const KLOTTERKAOS_URL = 'https://klotterkaos.com'
 const KLUDDKRIG_URL = 'https://kluddkrig.com'
 const PULSKAOS_URL = 'https://pulskaos.com'
 const APP_ORIGIN = 'https://scourgeborn.com'
-const SWISH_FIKA =
-  'https://app.swish.nu/1/p/sw/?sw=46730457930&msg=' +
-  encodeURIComponent('Fika · Scourgeborn') +
-  '&edit=amt,msg'
+const SWISH_NUMBER = '46730457930'
+const SWISH_MSG = 'Fika · Scourgeborn'
+
+/** Universal link / desktop fallback (app.swish.nu). */
+const SWISH_HTTPS =
+  `https://app.swish.nu/1/p/sw/?sw=${SWISH_NUMBER}&msg=${encodeURIComponent(SWISH_MSG)}&edit=amt,msg`
+
+/** Opens Swish directly on iOS/Android when installed. */
+const SWISH_APP =
+  'swish://payment?data=' +
+  encodeURIComponent(
+    JSON.stringify({
+      version: 1,
+      payee: { value: SWISH_NUMBER },
+      message: { value: SWISH_MSG },
+    }),
+  )
+
+function openSwishFika(e: { preventDefault: () => void }) {
+  e.preventDefault()
+  const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  if (!mobile) {
+    window.open(SWISH_HTTPS, '_blank', 'noopener,noreferrer')
+    return
+  }
+  window.location.href = SWISH_APP
+  window.setTimeout(() => {
+    if (document.visibilityState === 'visible') {
+      window.location.href = SWISH_HTTPS
+    }
+  }, 900)
+}
 
 function FikaLink({ ui }: { ui: ReturnType<typeof t> }) {
   return (
     <p className="fika-wrap">
-      <a className="fika-link" href={SWISH_FIKA} target="_blank" rel="noreferrer">
+      <a className="fika-link" href={SWISH_HTTPS} onClick={openSwishFika}>
         {ui.fikaLink}
         <span>{ui.fikaSwish}</span>
       </a>
