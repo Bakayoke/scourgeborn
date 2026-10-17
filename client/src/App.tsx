@@ -67,6 +67,21 @@ const KLOTTERKAOS_URL = 'https://klotterkaos.com'
 const KLUDDKRIG_URL = 'https://kluddkrig.com'
 const PULSKAOS_URL = 'https://pulskaos.com'
 const APP_ORIGIN = 'https://scourgeborn.com'
+const SWISH_FIKA =
+  'https://app.swish.nu/1/p/sw/?sw=46730457930&msg=' +
+  encodeURIComponent('Fika · Scourgeborn') +
+  '&edit=amt,msg'
+
+function FikaLink({ ui }: { ui: ReturnType<typeof t> }) {
+  return (
+    <p className="fika-wrap">
+      <a className="fika-link" href={SWISH_FIKA} target="_blank" rel="noreferrer">
+        {ui.fikaLink}
+        <span>{ui.fikaSwish}</span>
+      </a>
+    </p>
+  )
+}
 
 function SisterGameLink({
   name,
@@ -1479,6 +1494,7 @@ export default function App() {
         </ol>
       </section>
       <SisterGameLinks ui={ui} />
+      <FikaLink ui={ui} />
     </main>
   )
 }
