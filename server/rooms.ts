@@ -487,12 +487,17 @@ export function joinRoom(
   return { room, playerId }
 }
 
-export function reconnectSocket(
+export async function reconnectSocket(
   code: string,
   playerId: string,
   socketId: string,
-): Room | { error: string } {
-  const room = rooms.get(code.toUpperCase().trim())
+): Promise<Room | { error: string }> {
+  const c = code.toUpperCase().trim()
+  let room = rooms.get(c)
+  if (!room) {
+    await hydrateRoom(c)
+    room = rooms.get(c) ?? undefined
+  }
   if (!room) return { error: 'Rummet finns inte / Room not found' }
   const player = room.players.find((p) => p.id === playerId)
   if (!player) return { error: 'Spelaren hittades inte / Player not found' }
@@ -503,6 +508,48 @@ export function reconnectSocket(
   socketToPlayer.set(socketId, { code: room.code, playerId })
   touch(room)
   return room
+}
+
+/** Player chose Leave — drop seat immediately in lobby/finale; mid-game uses disconnect grace. */
+export function voluntaryLeave(socketId: string): string | null {
+  const binding = socketToPlayer.get(socketId)
+  if (!binding) return null
+  const room = rooms.get(binding.code)
+  if (!room) {
+    socketToPlayer.delete(socketId)
+    return null
+  }
+
+  if (room.status === 'playing') {
+    handleDisconnect(socketId)
+    return binding.code
+  }
+
+  const player = room.players.find((p) => p.id === binding.playerId)
+  if (!player) {
+    socketToPlayer.delete(socketId)
+    return null
+  }
+  if (player.socketId && player.socketId !== socketId) {
+    socketToPlayer.delete(socketId)
+    return binding.code
+  }
+
+  cancelDisconnectTimer(binding.code, binding.playerId)
+  socketToPlayer.delete(socketId)
+  player.connected = false
+  player.socketId = null
+
+  if (player.id === room.hostId) {
+    const next = room.players.find((p) => p.id !== player.id && p.connected && !p.spectator)
+    if (next) {
+      room.hostId = next.id
+      room.notice = { kind: 'host_transfer', hostName: next.name, at: Date.now() }
+    }
+  }
+  room.players = room.players.filter((p) => p.id !== binding.playerId)
+  touch(room)
+  return binding.code
 }
 
 export function handleDisconnect(socketId: string) {

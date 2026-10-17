@@ -29,6 +29,7 @@ import {
   previewRoom,
   pruneIdleRooms,
   reconnectSocket,
+  voluntaryLeave,
   reloadRoomFromStore,
   restoreRooms,
   roomsNeedingTick,
@@ -179,12 +180,12 @@ app.get('/api/admin/stats', async (req, res) => {
 })
 
 io.on('connection', (socket) => {
-  function bindingFrom(payload?: { code?: unknown; roomCode?: unknown; playerId?: unknown }) {
+  async function bindingFrom(payload?: { code?: unknown; roomCode?: unknown; playerId?: unknown }) {
     let binding = getBinding(socket.id)
     const code = payload?.roomCode ?? payload?.code
     if (!binding && code && payload?.playerId) {
-      const rebound = reconnectSocket(String(code), String(payload.playerId), socket.id)
-      if (!('error' in rebound)) binding = getBinding(socket.id)
+      const rebound = await reconnectSocket(String(code), String(payload.playerId), socket.id)
+      if (!('error' in rebound)) binding = getBinding(socket.id) ?? null
     }
     return binding
   }
@@ -229,8 +230,7 @@ io.on('connection', (socket) => {
   socket.on('rejoin', async (payload, ack) => {
     try {
       const code = String(payload?.code ?? '')
-      await hydrateRoom(code)
-      const result = reconnectSocket(code, String(payload?.playerId ?? ''), socket.id)
+      const result = await reconnectSocket(code, String(payload?.playerId ?? ''), socket.id)
       if ('error' in result) {
         ack?.({ ok: false, error: result.error })
         return
@@ -248,8 +248,14 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('setLanguage', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('leave', async (_payload, ack) => {
+    const code = voluntaryLeave(socket.id)
+    if (code) broadcastRoom(code)
+    ack?.({ ok: true })
+  })
+
+  socket.on('setLanguage', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setLanguage(
       binding.code,
@@ -261,8 +267,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('setPublicLobby', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('setPublicLobby', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setPublicLobby(binding.code, binding.playerId, Boolean(payload?.isPublic))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -270,8 +276,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('startGame', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('startGame', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = startGame(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -279,8 +285,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('labAction', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('labAction', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = labAction(
       binding.code,
@@ -293,8 +299,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('endParty', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('endParty', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = endParty(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -302,8 +308,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('backToLobby', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('backToLobby', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = backToLobby(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -311,8 +317,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('rematch', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('rematch', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = rematch(binding.code, binding.playerId)
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -320,8 +326,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('setDifficulty', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('setDifficulty', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const diff = payload?.difficulty === 'training' || payload?.difficulty === 'panic' ? payload.difficulty : 'normal'
     const result = setDifficulty(binding.code, binding.playerId, diff)
@@ -330,8 +336,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('setSeries', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('setSeries', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = setSeries(binding.code, binding.playerId, Boolean(payload?.enabled))
     if ('error' in result) return ack?.({ ok: false, error: result.error })
@@ -339,8 +345,8 @@ io.on('connection', (socket) => {
     broadcastRoom(result.code)
   })
 
-  socket.on('linkRace', (payload, ack) => {
-    const binding = bindingFrom(payload)
+  socket.on('linkRace', async (payload, ack) => {
+    const binding = await bindingFrom(payload)
     if (!binding) return ack?.({ ok: false, error: 'Inte i ett rum' })
     const result = linkRace(binding.code, binding.playerId, String(payload?.partnerCode ?? ''))
     if ('error' in result) return ack?.({ ok: false, error: result.error })

@@ -5,7 +5,9 @@ import {
   createGame,
   endParty,
   ensureSessionBound,
+  getSocket,
   joinGame,
+  leaveParty,
   labAction,
   loadSession,
   rematch,
@@ -1285,6 +1287,19 @@ export default function App() {
     return () => setRoomHandler(null)
   }, [])
   useEffect(() => {
+    if (screen !== 'game' || !loadSession()) return
+    const s = getSocket()
+    const onReconnect = () => {
+      void ensureSessionBound().then((res) => {
+        if (res?.ok && res.room) setRoom(res.room)
+      })
+    }
+    s.on('connect', onReconnect)
+    return () => {
+      s.off('connect', onReconnect)
+    }
+  }, [screen])
+  useEffect(() => {
     const session = loadSession()
     if (!session) return
     setName(session.name)
@@ -1294,11 +1309,13 @@ export default function App() {
   }, [])
 
   function leaveGame() {
-    clearSession()
-    setSavedSession(null)
-    setRoom(null)
-    setPlayerId(null)
-    setScreen('home')
+    void leaveParty().finally(() => {
+      clearSession()
+      setSavedSession(null)
+      setRoom(null)
+      setPlayerId(null)
+      setScreen('home')
+    })
   }
 
   async function resumeSavedSession() {

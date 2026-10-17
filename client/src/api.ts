@@ -36,7 +36,6 @@ export function getSocket() {
   }
   if (!connectionListenersAttached) {
     connectionListenersAttached = true
-    socket.on('connect', () => void ensureSessionBound())
     socket.on('room', (room: PublicRoom) => onRoomHandler?.(room))
   }
   return socket
@@ -148,6 +147,10 @@ export async function linkRace(partnerCode: string) {
 
 export async function endParty() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('endParty', {})
+}
+
+export async function leaveParty() {
+  return ack<{ ok: boolean; error?: string }>('leave', {})
 }
 
 /** Re-bind saved session to the current socket after reconnect. */
