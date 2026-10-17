@@ -1267,6 +1267,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [createPublic, setCreatePublic] = useState(false)
   const [conn, setConn] = useState<ConnState>('connecting')
+  const [savedSession, setSavedSession] = useState<ReturnType<typeof loadSession>>(() => loadSession())
   const ui = useMemo(() => t(lang), [lang])
 
   useEffect(() => rememberLanguage(lang), [lang])
@@ -1289,20 +1290,35 @@ export default function App() {
     setName(session.name)
     setCode(session.code)
     setPlayerId(session.playerId)
-    void ensureSessionBound().then((res) => {
-      if (res?.ok && res.room && res.playerId) {
-        setRoom(res.room)
-        setPlayerId(res.playerId)
-        setScreen('game')
-      }
-    })
+    setSavedSession(session)
   }, [])
 
   function leaveGame() {
     clearSession()
+    setSavedSession(null)
     setRoom(null)
     setPlayerId(null)
     setScreen('home')
+  }
+
+  async function resumeSavedSession() {
+    setError(null)
+    const res = await ensureSessionBound()
+    if (!res?.ok || !res.room || !res.playerId) {
+      if (!loadSession()) {
+        setSavedSession(null)
+        setError(ui.sessionExpired)
+      }
+      return
+    }
+    setPlayerId(res.playerId)
+    setRoom(res.room)
+    setScreen('game')
+  }
+
+  function dismissSavedSession() {
+    clearSession()
+    setSavedSession(null)
   }
 
   async function handleCreate() {
@@ -1310,6 +1326,7 @@ export default function App() {
     const res = await createGame(name, lang, createPublic)
     if (!res.ok) return setError(res.error)
     saveSession({ code: res.room.code, playerId: res.playerId, name })
+    setSavedSession({ code: res.room.code, playerId: res.playerId, name })
     setPlayerId(res.playerId)
     setRoom(res.room)
     setScreen('game')
@@ -1320,6 +1337,7 @@ export default function App() {
     const res = await joinGame(code.trim().toUpperCase(), name)
     if (!res.ok) return setError(res.error)
     saveSession({ code: res.room.code, playerId: res.playerId, name })
+    setSavedSession({ code: res.room.code, playerId: res.playerId, name })
     setPlayerId(res.playerId)
     setRoom(res.room)
     setScreen('game')
@@ -1365,6 +1383,16 @@ export default function App() {
         <p className="hint home-goal">{ui.goalExplainHome}</p>
       </header>
       {error && <p className="error-banner">{error}</p>}
+      {savedSession && screen === 'home' && (
+        <div className="resume-session">
+          <button type="button" className="btn primary" onClick={() => void resumeSavedSession()}>
+            {ui.resumeSession.replace('{code}', savedSession.code)}
+          </button>
+          <button type="button" className="btn ghost" onClick={dismissSavedSession}>
+            {ui.resumeDismiss}
+          </button>
+        </div>
+      )}
       {screen === 'home' && (
         <>
           <div className="home-actions">

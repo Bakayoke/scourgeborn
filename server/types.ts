@@ -9,6 +9,8 @@ export type Player = {
   name: string
   connected: boolean
   spectator?: boolean
+  /** Latest socket.io id — used to ignore stale disconnect events. */
+  socketId?: string | null
 }
 
 export type RoomNotice = {

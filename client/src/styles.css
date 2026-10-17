@@ -1889,6 +1889,14 @@ input:focus {
   color: var(--hazard-dim);
 }
 
+.resume-session {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+  margin: 0 0 1.25rem;
+}
+
 .home-actions {
   display: flex;
   flex-direction: column;

@@ -851,6 +851,8 @@ function maybeAdvanceWave(room: Room) {
 
 export function tickLab(room: Room) {
   if (room.status !== 'playing') return
+  // Pause simulation while every lab player is disconnected (reconnect blips).
+  if (connectedActiveIds(room).length === 0) return
 
   const now = Date.now()
   if (now - room.lastTickAt < TICK_MS) return

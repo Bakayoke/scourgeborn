@@ -11,6 +11,17 @@ let connectionListenersAttached = false
 type RoomHandler = (room: PublicRoom) => void
 let onRoomHandler: RoomHandler | null = null
 
+function isGoneError(error: string) {
+  const e = error.toLowerCase()
+  return (
+    e.includes('finns inte') ||
+    e.includes('hittades inte') ||
+    e.includes('saknas') ||
+    e.includes('not found') ||
+    e.includes('missing')
+  )
+}
+
 export function getSocket() {
   if (!socket) {
     socket = io(API_BASE || undefined, {
@@ -18,6 +29,9 @@ export function getSocket() {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: Infinity,
+      reconnectionDelay: 400,
+      reconnectionDelayMax: 4000,
+      timeout: 12_000,
     })
   }
   if (!connectionListenersAttached) {
@@ -55,7 +69,6 @@ async function ack<T>(event: string, payload?: unknown): Promise<T> {
       })
     })
   }
-  if (event !== 'create' && event !== 'join' && event !== 'rejoin') await ensureSessionBound(2)
   const session = loadSession()
   const raw = payload && typeof payload === 'object' ? { ...(payload as Record<string, unknown>) } : {}
   const isIdentity = event === 'create' || event === 'join' || event === 'rejoin'
@@ -137,14 +150,23 @@ export async function endParty() {
   return ack<{ ok: boolean; error?: string; room?: PublicRoom }>('endParty', {})
 }
 
+/** Re-bind saved session to the current socket after reconnect. */
 export async function ensureSessionBound(retries = 4) {
   const session = loadSession()
   if (!session) return null
   if (rejoinInFlight) return rejoinInFlight
   rejoinInFlight = (async () => {
     for (let i = 0; i < retries; i++) {
-      const last = await rejoinGame(session.code, session.playerId)
-      if (last.ok && last.room) return last
+      try {
+        const last = await rejoinGame(session.code, session.playerId)
+        if (last.ok && last.room) return last
+        if (!last.ok && last.error && isGoneError(last.error)) {
+          clearSession()
+          return { ok: false, error: last.error }
+        }
+      } catch {
+        // transient — retry
+      }
       await new Promise((r) => setTimeout(r, 700 * (i + 1)))
     }
     return { ok: false, error: 'rejoin failed' }

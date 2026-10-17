@@ -39,7 +39,8 @@ import type {
 } from './types.js'
 
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ', 4)
-const DISCONNECT_GRACE_MS = 60_000
+const DISCONNECT_GRACE_LOBBY_MS = 60_000
+const DISCONNECT_GRACE_PLAYING_MS = 3 * 60_000
 const HOST_TRANSFER_AFTER_MS = 90_000
 const ROOM_IDLE_MS = 12 * 60 * 60 * 1000
 const NOTICE_TTL_MS = 45_000
@@ -78,6 +79,36 @@ function cancelDisconnectTimer(code: string, playerId: string) {
     clearTimeout(t)
     disconnectTimers.delete(key)
   }
+}
+
+function roomHasLocalSockets(code: string) {
+  for (const binding of socketToPlayer.values()) {
+    if (binding.code === code) return true
+  }
+  return false
+}
+
+function syncRoomPresence(room: Room) {
+  const connectedIds = new Set<string>()
+  for (const binding of socketToPlayer.values()) {
+    if (binding.code === room.code) connectedIds.add(binding.playerId)
+  }
+  for (const p of room.players) {
+    p.connected = connectedIds.has(p.id)
+    if (!p.connected) p.socketId = null
+  }
+}
+
+function evictPlayerSockets(code: string, playerId: string, keepSocketId: string) {
+  for (const [socketId, binding] of socketToPlayer) {
+    if (binding.code === code && binding.playerId === playerId && socketId !== keepSocketId) {
+      socketToPlayer.delete(socketId)
+    }
+  }
+}
+
+function disconnectGraceMs(room: Room) {
+  return midGame(room.status) ? DISCONNECT_GRACE_PLAYING_MS : DISCONNECT_GRACE_LOBBY_MS
 }
 
 function roomLimits() {
@@ -215,8 +246,9 @@ export function restoreRooms(list: Room[]) {
       players: (raw.players ?? []).map((p) => ({
         id: p.id,
         name: p.name,
-        connected: Boolean(p.connected),
+        connected: false,
         spectator: Boolean(p.spectator),
+        socketId: null,
       })),
       language: raw.language === 'en' ? 'en' : 'sv',
       status: normalizeStatus(raw.status),
@@ -276,6 +308,7 @@ export function restoreRooms(list: Room[]) {
       pipeline: raw.pipeline ?? null,
     }
     rooms.set(room.code, room)
+    syncRoomPresence(room)
   }
 }
 
@@ -296,18 +329,20 @@ export async function hydrateRoom(code: string): Promise<Room | null> {
 export async function reloadRoomFromStore(code: string): Promise<Room | null> {
   const c = code.toUpperCase().trim()
   const existing = rooms.get(c)
+  // This instance owns live sockets — do not replace in-memory state from Redis blobs
+  // (they always persist connected=false and can race with ticks).
+  if (existing && roomHasLocalSockets(c)) return existing
   const loaded = await loadRoomRecord(c)
   if (!loaded) return null
-  if (existing && (existing.updatedAt ?? 0) >= (loaded.updatedAt ?? 0)) return existing
+  if (existing && (existing.updatedAt ?? 0) >= (loaded.updatedAt ?? 0)) {
+    syncRoomPresence(existing)
+    return existing
+  }
   rooms.delete(c)
   restoreRooms([loaded])
   const room = rooms.get(c)
   if (!room) return null
-  const connectedIds = new Set<string>()
-  for (const binding of socketToPlayer.values()) {
-    if (binding.code === c) connectedIds.add(binding.playerId)
-  }
-  for (const p of room.players) p.connected = connectedIds.has(p.id)
+  syncRoomPresence(room)
   return room
 }
 
@@ -328,6 +363,7 @@ export function createRoom(
     name: hostName.trim().slice(0, 20) || (language === 'en' ? 'Host' : 'Värd'),
     connected: true,
     spectator: false,
+    socketId,
   }
   const room: Room = {
     code,
@@ -357,7 +393,9 @@ function releaseSocket(socketId: string) {
   if (!room) return
   const player = room.players.find((p) => p.id === prev.playerId)
   if (!player || !player.connected) return
+  if (player.socketId && player.socketId !== socketId) return
   player.connected = false
+  player.socketId = null
   touch(room)
   if (room.status === 'lobby' || isTerminal(room.status)) {
     if (player.id !== room.hostId) {
@@ -393,7 +431,9 @@ export function joinRoom(
     const mine = room.players.find((p) => p.id === existing.playerId)
     if (mine) {
       cancelDisconnectTimer(room.code, mine.id)
+      evictPlayerSockets(room.code, mine.id, socketId)
       mine.connected = true
+      mine.socketId = socketId
       if (!mine.spectator) mine.name = displayName
       touch(room)
       return { room, playerId: mine.id }
@@ -402,7 +442,13 @@ export function joinRoom(
   if (existing && existing.code !== room.code) releaseSocket(socketId)
   if (midGame(room.status)) {
     const playerId = crypto.randomUUID()
-    room.players.push({ id: playerId, name: displayName, connected: true, spectator: true })
+    room.players.push({
+      id: playerId,
+      name: displayName,
+      connected: true,
+      spectator: true,
+      socketId,
+    })
     socketToPlayer.set(socketId, { code: room.code, playerId })
     touch(room)
     return { room, playerId }
@@ -412,7 +458,9 @@ export function joinRoom(
   )
   if (reclaim) {
     cancelDisconnectTimer(room.code, reclaim.id)
+    evictPlayerSockets(room.code, reclaim.id, socketId)
     reclaim.connected = true
+    reclaim.socketId = socketId
     socketToPlayer.set(socketId, { code: room.code, playerId: reclaim.id })
     touch(room)
     return { room, playerId: reclaim.id }
@@ -427,7 +475,13 @@ export function joinRoom(
     }
   }
   const playerId = crypto.randomUUID()
-  room.players.push({ id: playerId, name: displayName, connected: true, spectator: false })
+  room.players.push({
+    id: playerId,
+    name: displayName,
+    connected: true,
+    spectator: false,
+    socketId,
+  })
   socketToPlayer.set(socketId, { code: room.code, playerId })
   touch(room)
   return { room, playerId }
@@ -443,7 +497,9 @@ export function reconnectSocket(
   const player = room.players.find((p) => p.id === playerId)
   if (!player) return { error: 'Spelaren hittades inte / Player not found' }
   cancelDisconnectTimer(room.code, playerId)
+  evictPlayerSockets(room.code, playerId, socketId)
   player.connected = true
+  player.socketId = socketId
   socketToPlayer.set(socketId, { code: room.code, playerId })
   touch(room)
   return room
@@ -452,43 +508,60 @@ export function reconnectSocket(
 export function handleDisconnect(socketId: string) {
   const binding = socketToPlayer.get(socketId)
   if (!binding) return
-  socketToPlayer.delete(socketId)
   const room = rooms.get(binding.code)
-  if (!room) return
+  if (!room) {
+    socketToPlayer.delete(socketId)
+    return
+  }
   const player = room.players.find((p) => p.id === binding.playerId)
-  if (!player) return
+  if (!player) {
+    socketToPlayer.delete(socketId)
+    return
+  }
+
+  // Mobile reconnect: new socket already claimed this seat — ignore stale disconnect.
+  if (player.socketId && player.socketId !== socketId) {
+    socketToPlayer.delete(socketId)
+    return
+  }
+
+  socketToPlayer.delete(socketId)
   player.connected = false
+  player.socketId = null
   touch(room)
+  onBroadcast?.(room.code)
+
   const key = playerKey(binding.code, binding.playerId)
   cancelDisconnectTimer(binding.code, binding.playerId)
-  disconnectTimers.set(
-    key,
-    setTimeout(() => {
-      disconnectTimers.delete(key)
-      const r = rooms.get(binding.code)
-      if (!r) return
-      const p = r.players.find((x) => x.id === binding.playerId)
-      if (!p || p.connected) return
-      if (p.id === r.hostId) {
-        setTimeout(() => {
-          const rr = rooms.get(binding.code)
-          if (!rr) return
-          const host = rr.players.find((x) => x.id === rr.hostId)
-          if (host?.connected) return
-          const next = rr.players.find((x) => x.connected && !x.spectator)
-          if (!next) return
-          rr.hostId = next.id
-          rr.notice = { kind: 'host_transfer', hostName: next.name, at: Date.now() }
-          touch(rr)
-          onBroadcast?.(rr.code)
-        }, HOST_TRANSFER_AFTER_MS - DISCONNECT_GRACE_MS)
-      } else if (r.status === 'lobby' || isTerminal(r.status)) {
-        r.players = r.players.filter((x) => x.id !== binding.playerId)
-      }
-      touch(r)
-      onBroadcast?.(r.code)
-    }, DISCONNECT_GRACE_MS),
-  )
+  const graceMs = disconnectGraceMs(room)
+  const graceTimer = setTimeout(() => {
+    disconnectTimers.delete(key)
+    const r = rooms.get(binding.code)
+    if (!r) return
+    const p = r.players.find((x) => x.id === binding.playerId)
+    if (!p || p.connected || p.socketId) return
+    if (p.id === r.hostId) {
+      const hostTimer = setTimeout(() => {
+        const rr = rooms.get(binding.code)
+        if (!rr) return
+        const host = rr.players.find((x) => x.id === rr.hostId)
+        if (host?.connected) return
+        const next = rr.players.find((x) => x.connected && !x.spectator)
+        if (!next) return
+        rr.hostId = next.id
+        rr.notice = { kind: 'host_transfer', hostName: next.name, at: Date.now() }
+        touch(rr)
+        onBroadcast?.(rr.code)
+      }, Math.max(0, HOST_TRANSFER_AFTER_MS - graceMs))
+      hostTimer.unref?.()
+    } else if (r.status === 'lobby' || isTerminal(r.status)) {
+      r.players = r.players.filter((x) => x.id !== binding.playerId)
+    }
+    touch(r)
+    onBroadcast?.(r.code)
+  }, graceMs)
+  graceTimer.unref?.()
+  disconnectTimers.set(key, graceTimer)
 }
 
 export function previewRoom(code: string) {
@@ -821,8 +894,9 @@ export function toPublicRoom(room: Room, viewerId?: string | null): PublicRoom {
   const players = room.players.map((p) => {
     const ls = room.lab[p.id]
     const st = room.stats[p.id]
+    const { socketId: _socketId, ...pub } = p
     return {
-      ...p,
+      ...pub,
       assignedStation: ls?.assignedStation ?? 'extractor',
       itemInHand: ls?.itemInHand ?? null,
       cures: st?.cures ?? 0,
